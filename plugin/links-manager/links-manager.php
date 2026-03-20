@@ -141,7 +141,24 @@ class LM_Links_Manager {
     update_option(self::DIAGNOSTIC_OPTION_KEY, $diag, false);
   }
 
+  private function can_access_debug_diagnostics() {
+    if (!$this->is_debug_mode_enabled()) {
+      return false;
+    }
+
+    return current_user_can('manage_options');
+  }
+
+  private function is_debug_mode_enabled() {
+    $settings = $this->get_settings();
+    return isset($settings['debug_mode']) && (string)$settings['debug_mode'] === '1';
+  }
+
   private function get_last_fatal_diagnostic() {
+    if (!$this->can_access_debug_diagnostics()) {
+      return [];
+    }
+
     $diag = get_option(self::DIAGNOSTIC_OPTION_KEY, []);
     return is_array($diag) ? $diag : [];
   }
@@ -157,6 +174,10 @@ class LM_Links_Manager {
   }
 
   private function render_settings_diagnostic_box() {
+    if (!$this->can_access_debug_diagnostics()) {
+      return;
+    }
+
     $diag = $this->get_last_fatal_diagnostic();
     if (empty($diag)) {
       return;
@@ -346,11 +367,19 @@ class LM_Links_Manager {
   }
 
   private function get_last_runtime_profile() {
+    if (!$this->can_access_debug_diagnostics()) {
+      return [];
+    }
+
     $profile = get_option(self::RUNTIME_PROFILE_OPTION_KEY, []);
     return is_array($profile) ? $profile : [];
   }
 
   private function render_settings_runtime_profile_box() {
+    if (!$this->can_access_debug_diagnostics()) {
+      return;
+    }
+
     $profile = $this->get_last_runtime_profile();
     $entries = isset($profile['entries']) && is_array($profile['entries']) ? $profile['entries'] : [];
     if (empty($entries)) {
@@ -665,18 +694,28 @@ class LM_Links_Manager {
       line-height:1.35;
     }
     .lm-small{color:#646970; font-size:11px;}
-    .lm-settings-actions{display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start;}
-    .lm-settings-actions-primary{min-width:220px;}
-    .lm-settings-actions-card{min-width:300px;}
+    .lm-settings-actions{display:grid; grid-template-columns:minmax(220px, 280px) repeat(auto-fit, minmax(300px, 1fr)); gap:12px; align-items:stretch;}
+    .lm-settings-actions-primary,
+    .lm-settings-actions-card{padding:12px; border:1px solid #dcdcde; border-radius:8px; background:#fff; box-shadow:0 1px 1px rgba(0,0,0,.02);}
+    .lm-settings-actions-primary .submit,
+    .lm-settings-actions-card .submit{margin:0 8px 8px 0; display:inline-block;}
+    .lm-settings-actions-primary .button,
+    .lm-settings-actions-card .button{min-height:32px;}
     .lm-settings-actions-title{font-weight:600; margin-bottom:6px;}
     .lm-settings-actions-note{margin-bottom:8px;}
     .lm-settings-actions-subtitle{margin:8px 0 6px;}
-    .lm-danger-zone{margin:10px 0 8px; padding-top:8px; border-top:1px solid #dcdcde;}
+    .lm-danger-zone{margin:10px 0 0; padding-top:10px; border-top:1px solid #dcdcde;}
     .lm-danger-text{color:#b32d2e; margin-bottom:6px;}
     .lm-help-tip{margin-top:4px;}
     .lm-chip{display:inline-block; padding:2px 6px; border:1px solid #dcdcde; border-radius:3px; font-size:11px;}
     .lm-chip.bad{border-color:#d63638; color:#d63638; background:#fff5f5;}
     .lm-chip.ok{border-color:#00a32a; color:#00a32a; background:#f0f7f0;}
+    .lm-settings-two-col{display:grid; grid-template-columns:repeat(2, minmax(280px, 1fr)); gap:10px 14px; align-items:start; margin:0 0 10px;}
+    .lm-settings-two-col > p{margin:0 !important; padding:10px; border:1px solid #e5e7eb; border-radius:6px; background:#fff;}
+    .lm-settings-two-col-stack{grid-template-columns:1fr;}
+    .lm-settings-role-grid{display:grid; grid-template-columns:repeat(3, minmax(180px, 1fr)); gap:8px 12px; margin-top:8px;}
+    .lm-settings-role-item{display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid #e5e7eb; border-radius:6px; background:#fff;}
+    .lm-settings-role-item.is-required{border-color:#c3dafe; background:#f8fbff;}
 
     .lm-tabs{display:inline-flex; gap:6px; background:#f3f4f6; padding:4px; border-radius:8px; border:1px solid #e5e7eb;}
     .lm-tab{background:transparent; border:0; padding:6px 10px; font-size:12px; border-radius:6px; cursor:pointer;}
@@ -908,6 +947,7 @@ class LM_Links_Manager {
       .lm-top-grid{grid-template-columns:1fr;}
       .lm-filter-grid{grid-template-columns:repeat(2, minmax(160px, 1fr));}
       .lm-filter-table tbody{grid-template-columns:repeat(2, minmax(160px, 1fr));}
+      .lm-settings-two-col{grid-template-columns:1fr;}
     }
     @media (max-width: 640px){
       .lm-stats-grid{grid-template-columns:1fr;}
@@ -915,6 +955,14 @@ class LM_Links_Manager {
       .lm-filter-grid{grid-template-columns:1fr;}
       .lm-filter-field-wide{grid-column:1 / -1;}
       .lm-filter-table tbody{grid-template-columns:1fr;}
+      .lm-settings-actions{grid-template-columns:1fr;}
+      .lm-settings-actions-primary,
+      .lm-settings-actions-card{padding:10px;}
+      .lm-settings-actions-primary .submit,
+      .lm-settings-actions-card .submit{margin:0 0 8px 0; display:block;}
+      .lm-settings-actions-primary .button,
+      .lm-settings-actions-card .button{width:100%;}
+      .lm-settings-role-grid{grid-template-columns:1fr;}
     }
     ";
     wp_register_style('lm-admin', false);
@@ -2616,8 +2664,13 @@ class LM_Links_Manager {
       }
 
       $end = min($offset + $batch, $totalPosts);
+      $nextOffset = $offset;
 
       for ($i = $offset; $i < $end; $i++) {
+        // Track the next cursor as we advance through IDs; this prevents
+        // skipping posts when the loop stops early due to budget guards.
+        $nextOffset = $i + 1;
+
         if ($maxPosts > 0 && $processedPosts >= $maxPosts) {
           break;
         }
@@ -2652,7 +2705,7 @@ class LM_Links_Manager {
       }
     }
 
-    $newOffset = min($offset + $batch, $totalPosts);
+    $newOffset = min(isset($nextOffset) ? (int)$nextOffset : ($offset + $batch), $totalPosts);
     $done = ($newOffset >= $totalPosts) || ($maxPosts > 0 && $processedPosts >= $maxPosts) || (count($allRows) >= $maxRows);
 
     if ($done) {
@@ -3019,7 +3072,7 @@ class LM_Links_Manager {
       'scan_post_tag_ids' => [],
       'scan_author_ids' => [],
       'scan_modified_within_days' => '0',
-      'scan_exclude_url_patterns' => '',
+      'scan_exclude_url_patterns' => implode("\n", $this->get_default_scan_exclude_url_patterns()),
       'max_posts_per_rebuild' => '0',
     ];
   }
@@ -3040,8 +3093,26 @@ class LM_Links_Manager {
       'scan_post_tag_ids' => [],
       'scan_author_ids' => [],
       'scan_modified_within_days' => '0',
-      'scan_exclude_url_patterns' => '',
+      'scan_exclude_url_patterns' => implode("\n", $this->get_default_scan_exclude_url_patterns()),
       'max_posts_per_rebuild' => '500',
+    ];
+  }
+
+  private function get_default_scan_exclude_url_patterns() {
+    return [
+      '/blog/category/',
+      '/blog/author/',
+      '/blog/tag/',
+      '/careers/',
+      '/reviewer/',
+    ];
+  }
+
+  private function get_performance_preset_options() {
+    return [
+      'custom' => 'Custom',
+      'speed' => 'Optimize for Speed',
+      'low_memory' => 'Low Memory Mode',
     ];
   }
 
@@ -3160,6 +3231,9 @@ class LM_Links_Manager {
     $availablePostTypes = $this->get_available_post_types();
 
     $defaults = [
+      'debug_mode' => '0',
+      'performance_preset' => 'custom',
+      'scan_exclude_defaults_initialized' => '0',
       'stats_snapshot_ttl_min' => (string)(int)(self::STATS_SNAPSHOT_TTL / MINUTE_IN_SECONDS),
       'cache_rebuild_mode' => 'incremental',
       'crawl_post_batch' => (string)self::CRAWL_POST_BATCH,
@@ -3171,7 +3245,7 @@ class LM_Links_Manager {
       'scan_post_tag_ids' => [],
       'scan_author_ids' => [],
       'scan_modified_within_days' => '0',
-      'scan_exclude_url_patterns' => '',
+      'scan_exclude_url_patterns' => implode("\n", $this->get_default_scan_exclude_url_patterns()),
       'max_posts_per_rebuild' => '0',
       'inbound_orphan_max' => '0',
       'inbound_low_max' => '5',
@@ -3193,6 +3267,11 @@ class LM_Links_Manager {
       $opt['allowed_roles'] = ['administrator'];
     }
 
+    $opt['debug_mode'] = (isset($opt['debug_mode']) && (string)$opt['debug_mode'] === '1') ? '1' : '0';
+    $opt['scan_exclude_defaults_initialized'] = (isset($opt['scan_exclude_defaults_initialized']) && (string)$opt['scan_exclude_defaults_initialized'] === '1') ? '1' : '0';
+    $presetOptions = $this->get_performance_preset_options();
+    $preset = isset($opt['performance_preset']) ? sanitize_key((string)$opt['performance_preset']) : 'custom';
+    $opt['performance_preset'] = isset($presetOptions[$preset]) ? $preset : 'custom';
     if (!isset($opt['scan_post_types']) || !is_array($opt['scan_post_types'])) {
       $opt['scan_post_types'] = $this->get_default_scan_post_types($availablePostTypes);
     }
@@ -3222,7 +3301,11 @@ class LM_Links_Manager {
     if ($scanModifiedWithinDays > 3650) $scanModifiedWithinDays = 3650;
     $opt['scan_modified_within_days'] = (string)$scanModifiedWithinDays;
 
-    $opt['scan_exclude_url_patterns'] = implode("\n", $this->normalize_scan_exclude_url_patterns(isset($opt['scan_exclude_url_patterns']) ? $opt['scan_exclude_url_patterns'] : ''));
+    $scanExcludeSource = isset($opt['scan_exclude_url_patterns']) ? $opt['scan_exclude_url_patterns'] : implode("\n", $this->get_default_scan_exclude_url_patterns());
+    if ((string)$opt['scan_exclude_defaults_initialized'] !== '1' && trim((string)$scanExcludeSource) === '') {
+      $scanExcludeSource = implode("\n", $this->get_default_scan_exclude_url_patterns());
+    }
+    $opt['scan_exclude_url_patterns'] = implode("\n", $this->normalize_scan_exclude_url_patterns($scanExcludeSource));
 
     $maxPostsPerRebuild = isset($opt['max_posts_per_rebuild']) ? (int)$opt['max_posts_per_rebuild'] : 0;
     if ($maxPostsPerRebuild < 0) $maxPostsPerRebuild = 0;
@@ -6492,10 +6575,14 @@ class LM_Links_Manager {
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die('Invalid nonce');
 
     $settings = $this->get_settings();
-    $activeTab = isset($_POST['lm_active_tab']) ? sanitize_key((string)$_POST['lm_active_tab']) : 'performance';
+    $activeTab = isset($_POST['lm_active_tab']) ? sanitize_key((string)$_POST['lm_active_tab']) : 'general';
     if (!in_array($activeTab, ['general', 'performance', 'data'], true)) {
-      $activeTab = 'performance';
+      $activeTab = 'general';
     }
+
+    $resetGeneralSettings = isset($_POST['lm_reset_general_settings']);
+    $resetPerformanceSettings = isset($_POST['lm_reset_performance_settings']);
+    $resetDataSettings = isset($_POST['lm_reset_data_settings']);
 
     $allRolesMap = $this->get_all_roles_map();
     $validRoleKeys = array_keys($allRolesMap);
@@ -6513,6 +6600,7 @@ class LM_Links_Manager {
       $allowedRoles[] = 'administrator';
     }
     $settings['allowed_roles'] = array_values(array_unique($allowedRoles));
+    $settings['debug_mode'] = (isset($_POST['lm_debug_mode']) && (string)$_POST['lm_debug_mode'] === '1') ? '1' : '0';
 
     $availablePostTypes = $this->get_available_post_types();
     $postedScanPostTypes = isset($_POST['lm_scan_post_types'])
@@ -6561,6 +6649,7 @@ class LM_Links_Manager {
       ? (string)wp_unslash($_POST['lm_scan_exclude_url_patterns'])
       : (string)($settings['scan_exclude_url_patterns'] ?? '');
     $settings['scan_exclude_url_patterns'] = implode("\n", $this->normalize_scan_exclude_url_patterns($scanExcludePatternsRaw));
+    $settings['scan_exclude_defaults_initialized'] = '1';
 
     $maxPostsPerRebuild = isset($_POST['lm_max_posts_per_rebuild'])
       ? (int)$_POST['lm_max_posts_per_rebuild']
@@ -6625,17 +6714,63 @@ class LM_Links_Manager {
     $settings['external_outbound_low_max'] = (string)$externalOutboundThresholds['low_max'];
     $settings['external_outbound_optimal_max'] = (string)$externalOutboundThresholds['optimal_max'];
 
-    $resetPerformanceDefaults = isset($_POST['lm_reset_performance_defaults']) && (string)$_POST['lm_reset_performance_defaults'] === '1';
+    $resetPerformanceDefaults = isset($_POST['lm_reset_performance_defaults']);
     if ($resetPerformanceDefaults) {
       $settings = array_merge($settings, $this->get_recommended_performance_settings());
+      $settings['performance_preset'] = 'speed';
     }
 
-    $applyLowMemoryProfile = isset($_POST['lm_apply_low_memory_profile']) && (string)$_POST['lm_apply_low_memory_profile'] === '1';
+    $applyLowMemoryProfile = isset($_POST['lm_apply_low_memory_profile']);
     if ($applyLowMemoryProfile) {
       $settings = array_merge($settings, $this->get_low_memory_performance_settings());
+      $settings['performance_preset'] = 'low_memory';
     }
 
-    $globalRebuildCache = isset($_POST['lm_global_rebuild_cache']) && (string)$_POST['lm_global_rebuild_cache'] === '1';
+    if ($activeTab === 'performance' && !$resetPerformanceDefaults && !$applyLowMemoryProfile) {
+      $settings['performance_preset'] = 'custom';
+    }
+
+    if ($resetGeneralSettings) {
+      $settings['allowed_roles'] = ['administrator'];
+      $settings['debug_mode'] = '0';
+    }
+
+    if ($resetPerformanceSettings) {
+      $defaultBatch = min(self::CRAWL_POST_BATCH, $this->get_runtime_max_crawl_batch());
+      if ($defaultBatch < 20) $defaultBatch = 20;
+
+      $settings['stats_snapshot_ttl_min'] = (string)(int)(self::STATS_SNAPSHOT_TTL / MINUTE_IN_SECONDS);
+      $settings['cache_rebuild_mode'] = 'incremental';
+      $settings['crawl_post_batch'] = (string)$defaultBatch;
+      $settings['scan_post_types'] = $this->get_default_scan_post_types($availablePostTypes);
+      $settings['scan_source_types'] = $this->get_default_scan_source_types();
+      $settings['scan_value_types'] = $this->get_default_scan_value_types();
+      $settings['scan_wpml_langs'] = $this->get_default_scan_wpml_langs();
+      $settings['scan_post_category_ids'] = [];
+      $settings['scan_post_tag_ids'] = [];
+      $settings['scan_author_ids'] = [];
+      $settings['scan_modified_within_days'] = '0';
+      $settings['scan_exclude_url_patterns'] = implode("\n", $this->get_default_scan_exclude_url_patterns());
+      $settings['max_posts_per_rebuild'] = '0';
+      $settings['performance_preset'] = 'custom';
+    }
+
+    if ($resetDataSettings) {
+      $settings['audit_retention_days'] = (string)self::AUDIT_RETENTION_DAYS;
+      $settings['inbound_orphan_max'] = '0';
+      $settings['inbound_low_max'] = '5';
+      $settings['inbound_standard_max'] = '10';
+      $settings['internal_outbound_none_max'] = '0';
+      $settings['internal_outbound_low_max'] = '5';
+      $settings['internal_outbound_optimal_max'] = '10';
+      $settings['external_outbound_none_max'] = '0';
+      $settings['external_outbound_low_max'] = '5';
+      $settings['external_outbound_optimal_max'] = '10';
+      $settings['weak_anchor_patterns'] = implode("\n", $this->get_default_weak_anchor_patterns());
+      $this->weak_anchor_patterns_cache = $this->get_default_weak_anchor_patterns();
+    }
+
+    $globalRebuildCache = isset($_POST['lm_global_rebuild_cache']);
 
     $auditRetentionDays = isset($_POST['lm_audit_retention_days']) ? intval($_POST['lm_audit_retention_days']) : (int)($settings['audit_retention_days'] ?? self::AUDIT_RETENTION_DAYS);
     if ($auditRetentionDays < 30) $auditRetentionDays = 30;
@@ -6644,8 +6779,8 @@ class LM_Links_Manager {
 
     $weakPatternsRaw = isset($_POST['lm_weak_anchor_patterns']) ? (string)wp_unslash($_POST['lm_weak_anchor_patterns']) : (string)($settings['weak_anchor_patterns'] ?? '');
     $normalizedWeakPatterns = $this->normalize_weak_anchor_patterns($weakPatternsRaw);
-    $restoredDefaults = isset($_POST['lm_restore_weak_anchor_patterns']) && (string)$_POST['lm_restore_weak_anchor_patterns'] === '1';
-    $clearedAll = isset($_POST['lm_clear_weak_anchor_patterns']) && (string)$_POST['lm_clear_weak_anchor_patterns'] === '1';
+    $restoredDefaults = isset($_POST['lm_restore_weak_anchor_patterns']);
+    $clearedAll = isset($_POST['lm_clear_weak_anchor_patterns']);
     if ($clearedAll) {
       $normalizedWeakPatterns = [];
     }
@@ -6676,6 +6811,15 @@ class LM_Links_Manager {
     if ($applyLowMemoryProfile) {
       $savedMsg = 'Settings saved. Safe low-memory settings applied.';
     }
+    if ($resetGeneralSettings) {
+      $savedMsg = 'Settings reset. General tab restored to defaults.';
+    }
+    if ($resetPerformanceSettings) {
+      $savedMsg = 'Settings reset. Performance tab restored to defaults.';
+    }
+    if ($resetDataSettings) {
+      $savedMsg = 'Settings reset. Data tab restored to defaults.';
+    }
     if ($globalRebuildCache) {
       $savedMsg = 'Settings saved. Main cache invalidated and background incremental rebuild queued.';
     }
@@ -6684,7 +6828,7 @@ class LM_Links_Manager {
   }
 
   public function handle_clear_diagnostics() {
-    if (!current_user_can('manage_options')) wp_die('Unauthorized');
+    if (!$this->can_access_debug_diagnostics()) wp_die('Unauthorized');
 
     $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field((string)$_POST[self::NONCE_NAME]) : '';
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die('Invalid nonce');
@@ -9606,14 +9750,14 @@ class LM_Links_Manager {
     $runtimeTransientBackup = $this->get_safe_transient_limit_bytes(true);
     $msg = isset($_GET['lm_msg']) ? sanitize_text_field((string)$_GET['lm_msg']) : '';
     $msgClass = $this->notice_class_for_message($msg, 'success');
-    $activeTab = isset($_GET['lm_tab']) ? sanitize_key((string)$_GET['lm_tab']) : 'performance';
+    $activeTab = isset($_GET['lm_tab']) ? sanitize_key((string)$_GET['lm_tab']) : 'general';
     if (!in_array($activeTab, ['general', 'performance', 'data'], true)) {
-      $activeTab = 'performance';
+      $activeTab = 'general';
     }
-    $settingsLabelStyle = 'display:inline-block; min-width:220px;';
-    $settingsLabelTopStyle = $settingsLabelStyle . ' vertical-align:top;';
-    $settingsCardStyle = 'margin:0 0 12px; padding:10px; border:1px solid #dcdcde; background:#fff; border-radius:4px;';
-    $settingsCardCompactStyle = 'padding:10px; border:1px solid #dcdcde; background:#fff; border-radius:4px;';
+    $settingsLabelStyle = 'display:block; margin:0 0 6px; font-weight:600; color:#1d2327;';
+    $settingsLabelTopStyle = $settingsLabelStyle;
+    $settingsCardStyle = 'margin:0 0 12px; padding:12px; border:1px solid #dcdcde; background:#fff; border-radius:8px; box-shadow:0 1px 1px rgba(0,0,0,.02);';
+    $settingsCardCompactStyle = 'padding:12px; border:1px solid #dcdcde; background:#fff; border-radius:8px; box-shadow:0 1px 1px rgba(0,0,0,.02);';
 
     echo '<div class="wrap lm-wrap">';
     echo '<h1 class="lm-page-title">Links Manager - Settings</h1>';
@@ -9636,13 +9780,15 @@ class LM_Links_Manager {
     if ($activeTab === 'general') {
       echo '<h2 style="margin-top:0;">Access Control</h2>';
       echo '<div class="lm-small">Choose which user roles can use this plugin. Administrator is always allowed.</div>';
-      echo '<div style="margin-top:8px;">';
+      echo '<div style="' . esc_attr($settingsCardStyle) . '">';
+      echo '<div class="lm-settings-role-grid">';
       $rolesMap = $this->get_all_roles_map();
       $allowedRoles = $this->get_allowed_roles_from_settings();
+      $debugModeEnabled = isset($settings['debug_mode']) && (string)$settings['debug_mode'] === '1';
       foreach ($rolesMap as $roleKey => $roleLabel) {
         $isChecked = in_array((string)$roleKey, $allowedRoles, true) ? '1' : '0';
         $isAdminRole = ((string)$roleKey === 'administrator');
-        echo '<label style="display:inline-block; min-width:180px; margin:4px 12px 4px 0;">';
+        echo '<label class="lm-settings-role-item' . ($isAdminRole ? ' is-required' : '') . '">';
         echo '<input type="checkbox" name="lm_allowed_roles[]" value="' . esc_attr((string)$roleKey) . '"' . checked($isChecked, '1', false) . ($isAdminRole ? ' disabled' : '') . '/> ';
         echo esc_html((string)$roleLabel);
         if ($isAdminRole) {
@@ -9651,6 +9797,16 @@ class LM_Links_Manager {
         }
         echo '</label>';
       }
+      echo '</div>';
+      echo '</div>';
+
+      echo '<div style="' . esc_attr($settingsCardStyle) . '">';
+      echo '<div style="font-weight:600; margin-bottom:6px;">Debug mode</div>';
+      echo '<label style="display:inline-flex; align-items:center; gap:8px;">';
+      echo '<input type="checkbox" name="lm_debug_mode" value="1"' . checked($debugModeEnabled ? '1' : '0', '1', false) . '/>';
+      echo '<span>Enable view for <strong>Last Fatal Diagnostic</strong> and <strong>Last Runtime Profile</strong>.</span>';
+      echo '</label>';
+      echo '<div class="lm-small" style="margin-top:6px;">When disabled, diagnostic panels are hidden for all users. When enabled, only Administrator can view and clear diagnostics.</div>';
       echo '</div>';
       echo '<hr style="margin:14px 0;"/>';
     }
@@ -9714,6 +9870,7 @@ class LM_Links_Manager {
     echo '<div class="lm-small">Start with these options first. Most sites only need this section.</div>';
     echo '</div>';
 
+    echo '<div class="lm-settings-two-col lm-settings-two-col-stack">';
     echo '<p style="margin:0 0 10px;">';
     echo '<label class="lm-small" style="' . esc_attr($settingsLabelTopStyle) . '">Post types to scan:</label>';
     echo '<span style="display:inline-block;">';
@@ -9725,7 +9882,7 @@ class LM_Links_Manager {
       echo '</label>';
     }
     echo '</span>';
-    echo '<div class="lm-small" style="margin-top:4px;">Only selected post types will be scanned.</div>';
+    echo '<span class="lm-small" style="display:block; margin-top:4px;">Only selected post types will be scanned.</span>';
     echo '</p>';
 
     echo '<p style="margin:0 0 10px;">';
@@ -9739,7 +9896,7 @@ class LM_Links_Manager {
       echo '</label>';
     }
     echo '</span>';
-    echo '<div class="lm-small" style="margin-top:4px;">Content is usually enough. Enable Excerpt/Meta/Menu only when needed.</div>';
+    echo '<span class="lm-small" style="display:block; margin-top:4px;">Content is usually enough. Enable Excerpt/Meta/Menu only when needed.</span>';
     echo '</p>';
 
     echo '<p style="margin:0 0 10px;">';
@@ -9753,7 +9910,7 @@ class LM_Links_Manager {
       echo '</label>';
     }
     echo '</span>';
-    echo '<div class="lm-small" style="margin-top:4px;">Unchecked link types are skipped to keep scans lighter.</div>';
+    echo '<span class="lm-small" style="display:block; margin-top:4px;">Unchecked link types are skipped to keep scans lighter.</span>';
     echo '</p>';
 
     echo '<p style="margin:0 0 10px;">';
@@ -9770,17 +9927,19 @@ class LM_Links_Manager {
         echo '</label>';
       }
       echo '</span>';
-      echo '<div class="lm-small" style="margin-top:4px;">Uncheck All languages only if you want to scan specific languages.</div>';
+      echo '<span class="lm-small" style="display:block; margin-top:4px;">Uncheck All languages only if you want to scan specific languages.</span>';
     } else {
       echo '<span class="lm-small">WPML not active. This setting is ignored.</span>';
     }
     echo '</p>';
+    echo '</div>';
 
     echo '<details style="margin:12px 0; border:1px solid #dcdcde; border-radius:4px; background:#fff;">';
     echo '<summary style="padding:10px 12px; cursor:pointer; font-weight:600;">Optional filters and limits (advanced)</summary>';
     echo '<div style="padding:8px 12px 12px;">';
     echo '<div class="lm-small" style="margin:0 0 10px;">Use this only if you need tighter filters or lower server load during rebuild.</div>';
 
+    echo '<div class="lm-settings-two-col lm-settings-two-col-stack">';
     echo '<p style="margin:0 0 10px;">';
     echo '<label class="lm-small" style="' . esc_attr($settingsLabelTopStyle) . '">Categories (optional):</label>';
     echo '<span style="display:inline-block; max-height:140px; overflow:auto; border:1px solid #dcdcde; padding:6px 8px; min-width:260px; background:#fff;">';
@@ -9796,7 +9955,7 @@ class LM_Links_Manager {
       }
     }
     echo '</span>';
-    echo '<div class="lm-small" style="margin-top:4px;">Leave empty to include all categories.</div>';
+    echo '<span class="lm-small" style="display:block; margin-top:4px;">Leave empty to include all categories.</span>';
     echo '</p>';
 
     echo '<p style="margin:0 0 10px;">';
@@ -9814,7 +9973,7 @@ class LM_Links_Manager {
       }
     }
     echo '</span>';
-    echo '<div class="lm-small" style="margin-top:4px;">Leave empty to include all tags.</div>';
+    echo '<span class="lm-small" style="display:block; margin-top:4px;">Leave empty to include all tags.</span>';
     echo '</p>';
 
     echo '<p style="margin:0 0 10px;">';
@@ -9832,7 +9991,7 @@ class LM_Links_Manager {
       }
     }
     echo '</span>';
-    echo '<div class="lm-small" style="margin-top:4px;">Leave empty to include all authors.</div>';
+    echo '<span class="lm-small" style="display:block; margin-top:4px;">Leave empty to include all authors.</span>';
     echo '</p>';
 
     echo '<p style="margin:0 0 10px;">';
@@ -9844,7 +10003,10 @@ class LM_Links_Manager {
     echo '<p style="margin:0 0 10px;">';
     echo '<label class="lm-small" style="' . esc_attr($settingsLabelTopStyle) . '">Skip URL patterns:</label>';
     echo '<textarea name="lm_scan_exclude_url_patterns" rows="5" style="width:100%; max-width:520px;" placeholder="One pattern per line. Example:\n/product/*\n/category/old-news/*\nhttps://example.com/landing-old">' . esc_textarea($scanExcludePatterns) . '</textarea>';
-    echo '<div class="lm-small" style="margin-top:4px;">URLs matching these patterns are skipped during scan. Use * as wildcard.</div>';
+    echo '<span class="lm-small" style="margin-top:4px; display:block;">URLs matching these patterns are skipped during scan.</span>';
+    echo '<span class="lm-small" style="margin-top:2px; display:block;">Directory example: <code>/blog/category/</code> (skips URLs containing that path).</span>';
+    echo '<span class="lm-small" style="margin-top:2px; display:block;">Specific URL example: <code>https://example.com/landing-old*</code> (skips that page and query/hash variants).</span>';
+    echo '<span class="lm-small" style="margin-top:2px; display:block;">Use one pattern per line. Use <code>*</code> as wildcard.</span>';
     echo '</p>';
 
     echo '<p style="margin:0 0 10px;">';
@@ -9852,6 +10014,7 @@ class LM_Links_Manager {
     echo '<input type="number" name="lm_max_posts_per_rebuild" min="0" max="50000" value="' . esc_attr((string)$maxPostsPerRebuild) . '" style="width:110px;" />';
     echo '<span class="lm-small" style="margin-left:8px;">Use 0 for no limit. Lower values reduce server load.</span>';
     echo '</p>';
+    echo '</div>';
 
     echo '</div>';
     echo '</details>';
@@ -9860,6 +10023,93 @@ class LM_Links_Manager {
     echo '<div style="margin:0 0 12px; padding:10px; border-left:4px solid #00a32a; background:#f6f7f7;">';
     echo '<div style="font-weight:600; margin-bottom:4px;">Section B: Cache &amp; Rebuild</div>';
     echo '<div class="lm-small">Control refresh frequency and rebuild workload for stable performance.</div>';
+    echo '<div class="lm-small" style="margin-top:6px;">Status legend: <span class="lm-pill ok">Green = healthy</span> <span class="lm-pill warn">Amber = monitor</span> <span class="lm-pill bad">Red = action recommended</span>.</div>';
+    echo '</div>';
+
+    $presetOptions = $this->get_performance_preset_options();
+    $activePresetKey = isset($settings['performance_preset']) ? sanitize_key((string)$settings['performance_preset']) : 'custom';
+    if (!isset($presetOptions[$activePresetKey])) {
+      $activePresetKey = 'custom';
+    }
+    $activePresetLabel = (string)$presetOptions[$activePresetKey];
+
+    $nextScheduledTs = wp_next_scheduled('lm_scheduled_cache_rebuild');
+    $schedulerEnabled = $nextScheduledTs !== false && $nextScheduledTs > 0;
+    $nextScheduledLabel = $schedulerEnabled ? wp_date('Y-m-d H:i:s', (int)$nextScheduledTs) : 'Not scheduled';
+    $schedulerStatusClass = $schedulerEnabled ? 'ok' : 'bad';
+
+    $restState = $this->get_rebuild_job_state();
+    $restStatus = isset($restState['status']) ? sanitize_key((string)$restState['status']) : 'idle';
+    if ($restStatus === '') $restStatus = 'idle';
+    $restRows = isset($restState['rows_count']) ? max(0, (int)$restState['rows_count']) : 0;
+    $restProcessed = isset($restState['processed_posts']) ? max(0, (int)$restState['processed_posts']) : 0;
+    $restTotal = isset($restState['total_posts']) ? max(0, (int)$restState['total_posts']) : 0;
+    $restUpdatedAt = isset($restState['updated_at']) ? (string)$restState['updated_at'] : '';
+    if ($restUpdatedAt === '') {
+      $restUpdatedAt = '—';
+    }
+
+    $lastScanGmt = (string)get_option($this->cache_scan_option_key('any', 'all'), '');
+    $lastScanLabel = 'Never';
+    $cacheAgeHours = -1;
+    if ($lastScanGmt !== '') {
+      $lastScanTs = strtotime((string)$lastScanGmt . ' GMT');
+      if ($lastScanTs !== false && $lastScanTs > 0) {
+        $lastScanLabel = wp_date('Y-m-d H:i:s', $lastScanTs);
+        $cacheAgeHours = (int)floor((time() - $lastScanTs) / HOUR_IN_SECONDS);
+      }
+    }
+
+    $mainCacheRows = get_transient($this->cache_key('any', 'all'));
+    $mainCacheRowsCount = is_array($mainCacheRows) ? count($mainCacheRows) : 0;
+    $backupCacheRows = get_transient($this->cache_backup_key('any', 'all'));
+    $backupCacheRowsCount = is_array($backupCacheRows) ? count($backupCacheRows) : 0;
+    $effectiveCacheRowsCount = max($mainCacheRowsCount, $backupCacheRowsCount);
+    $usingBackupFallback = ($mainCacheRowsCount === 0 && $backupCacheRowsCount > 0);
+
+    $restRecommendation = 'Cache looks usable. Manual REST rebuild is optional.';
+    $restRecommendationClass = 'ok';
+    if ($restStatus === 'running') {
+      $restRecommendation = 'REST rebuild is currently running. No manual trigger needed now.';
+      $restRecommendationClass = 'warn';
+    } elseif ($effectiveCacheRowsCount === 0 || $lastScanLabel === 'Never') {
+      $restRecommendation = 'No recent cache detected. Recommended: trigger manual REST rebuild.';
+      $restRecommendationClass = 'bad';
+    } elseif ($cacheAgeHours >= 24) {
+      $restRecommendation = 'Main cache is older than 24 hours. Consider manual REST rebuild if data must be fresh.';
+      $restRecommendationClass = 'warn';
+    }
+
+    echo '<div style="' . esc_attr($settingsCardStyle) . '">';
+    echo '<div style="font-weight:600; margin-bottom:6px;">Preset &amp; Scheduler Status</div>';
+    echo '<table class="widefat striped" style="margin-top:8px; max-width:760px;">';
+    echo '<tbody>';
+    echo '<tr><th style="width:260px;">Active performance preset</th><td><span class="lm-pill ' . esc_attr($activePresetKey === 'custom' ? 'warn' : 'ok') . '">' . esc_html($activePresetLabel) . '</span></td></tr>';
+    echo '<tr><th>Hourly scheduler (WP-Cron)</th><td><span class="lm-pill ' . esc_attr($schedulerStatusClass) . '">' . esc_html($schedulerEnabled ? 'Enabled' : 'Disabled') . '</span></td></tr>';
+    echo '<tr><th>Next scheduled run</th><td>' . esc_html($nextScheduledLabel) . '</td></tr>';
+    echo '</tbody>';
+    echo '</table>';
+    echo '<div class="lm-small" style="margin-top:6px;">Scheduler runs through WP-Cron and depends on site traffic. If disabled, cache refresh will rely more on manual/interactive actions.</div>';
+    echo '</div>';
+
+    echo '<div style="' . esc_attr($settingsCardStyle) . '">';
+    echo '<div style="font-weight:600; margin-bottom:6px;">REST Rebuild Readiness</div>';
+    echo '<table class="widefat striped" style="margin-top:8px; max-width:760px;">';
+    echo '<tbody>';
+    echo '<tr><th style="width:260px;">Current REST job status</th><td>' . esc_html(ucfirst((string)$restStatus)) . '</td></tr>';
+    echo '<tr><th>REST progress</th><td>' . esc_html(number_format($restProcessed) . ' / ' . number_format($restTotal) . ' posts') . '</td></tr>';
+    echo '<tr><th>REST rows collected</th><td>' . esc_html(number_format($restRows)) . '</td></tr>';
+    echo '<tr><th>REST state updated at</th><td>' . esc_html($restUpdatedAt) . '</td></tr>';
+    echo '<tr><th>Main cache rows (any/all)</th><td>' . esc_html(number_format($mainCacheRowsCount)) . '</td></tr>';
+    echo '<tr><th>Backup cache rows (any/all)</th><td>' . esc_html(number_format($backupCacheRowsCount)) . '</td></tr>';
+    echo '<tr><th>Effective cache rows (main/backup)</th><td>' . esc_html(number_format($effectiveCacheRowsCount)) . '</td></tr>';
+    if ($usingBackupFallback) {
+      echo '<tr><th>Cache source</th><td><span class="lm-pill warn">Using backup cache fallback</span></td></tr>';
+    }
+    echo '<tr><th>Last main cache scan</th><td>' . esc_html($lastScanLabel) . '</td></tr>';
+    echo '</tbody>';
+    echo '</table>';
+    echo '<div class="lm-small" style="margin-top:6px;"><strong>Recommendation:</strong> <span class="lm-pill ' . esc_attr($restRecommendationClass) . '">' . esc_html($restRecommendation) . '</span></div>';
     echo '</div>';
 
     echo '<div style="' . esc_attr($settingsCardStyle) . '">';
@@ -9878,6 +10128,7 @@ class LM_Links_Manager {
 
     $statsRefreshMinutes = isset($settings['stats_snapshot_ttl_min']) ? (int)$settings['stats_snapshot_ttl_min'] : (int)(self::STATS_SNAPSHOT_TTL / MINUTE_IN_SECONDS);
     $statsRefresh = $this->get_stats_refresh_value_and_period_from_minutes($statsRefreshMinutes);
+    echo '<div class="lm-settings-two-col lm-settings-two-col-stack">';
     echo '<p style="margin:0 0 10px;">';
     echo '<label class="lm-small" style="' . esc_attr($settingsLabelStyle) . '">Refresh dashboard data every:</label>';
     echo '<input type="number" name="lm_stats_snapshot_ttl_value" min="1" max="12" value="' . esc_attr((string)$statsRefresh['value']) . '" style="width:90px;" /> ';
@@ -9902,8 +10153,9 @@ class LM_Links_Manager {
     echo '<label class="lm-small" style="' . esc_attr($settingsLabelStyle) . '">Pages processed per request:</label>';
     echo '<input type="number" name="lm_crawl_post_batch" min="20" max="' . esc_attr((string)$runtimeMaxBatch) . '" value="' . esc_attr((string)($settings['crawl_post_batch'] ?? (string)self::CRAWL_POST_BATCH)) . '" style="width:90px;" />';
     echo '<span class="lm-small" style="margin-left:8px;">Higher is faster but uses more resources. Lower is safer on small hosting plans.</span>';
-    echo '<div class="lm-small" style="margin-top:4px;">Auto safety limit for this server: ' . esc_html((string)$runtimeMaxBatch) . ' pages/request.</div>';
+    echo '<span class="lm-small" style="display:block; margin-top:4px;">Auto safety limit for this server: ' . esc_html((string)$runtimeMaxBatch) . ' pages/request.</span>';
     echo '</p>';
+    echo '</div>';
 
     $restBatchDefault = (int)($settings['crawl_post_batch'] ?? (string)self::CRAWL_POST_BATCH);
     if ($restBatchDefault < 20) $restBatchDefault = 20;
@@ -9934,7 +10186,7 @@ class LM_Links_Manager {
     if ($activeTab === 'data') {
       echo '<h2 style="margin-top:0;">Data Cleanup Settings</h2>';
       echo '<div class="lm-small">Automatically remove old audit logs during daily maintenance runs.</div>';
-      echo '<div style="margin-top:8px;">';
+      echo '<div class="lm-settings-two-col" style="margin-top:8px;">';
       echo '<label class="lm-small" style="margin-right:8px;">Keep audit logs for (days): </label>';
       echo '<input type="number" name="lm_audit_retention_days" min="30" max="3650" value="' . esc_attr((string)($settings['audit_retention_days'] ?? (string)self::AUDIT_RETENTION_DAYS)) . '" style="width:90px;" />';
       echo '</div>';
@@ -9949,6 +10201,7 @@ class LM_Links_Manager {
       echo '<div style="margin-top:8px;">';
       echo '<div style="' . esc_attr($settingsCardStyle) . '">';
       echo '<div class="lm-small" style="margin:0 0 8px;">These values control the status label for inbound links per page.</div>';
+      echo '<div class="lm-settings-two-col">';
       echo '<p style="margin:0 0 10px;">';
       echo '<label class="lm-small" style="' . esc_attr($settingsLabelStyle) . '">Orphaned if inbound links <=</label>';
       echo '<input type="number" name="lm_inbound_orphan_max" min="0" max="1000000" value="' . esc_attr((string)($settings['inbound_orphan_max'] ?? '0')) . '" style="width:110px;" />';
@@ -9967,10 +10220,12 @@ class LM_Links_Manager {
       echo '<span class="lm-small" style="margin-left:8px;">Excellent starts above this value.</span>';
       echo '</p>';
       echo '</div>';
+      echo '</div>';
 
       echo '<p style="margin:12px 0 8px; font-weight:600;">Internal Outbound Thresholds (None / Low / Optimal / Excessive)</p>';
       echo '<div style="' . esc_attr($settingsCardStyle) . '">';
       echo '<div class="lm-small" style="margin:0 0 8px;">These values control status labels for outbound links to your own pages.</div>';
+      echo '<div class="lm-settings-two-col">';
       echo '<p style="margin:0 0 10px;">';
       echo '<label class="lm-small" style="' . esc_attr($settingsLabelStyle) . '">None if internal outbound links <=</label>';
       echo '<input type="number" name="lm_internal_outbound_none_max" min="0" max="1000000" value="' . esc_attr((string)($settings['internal_outbound_none_max'] ?? '0')) . '" style="width:110px;" />';
@@ -9989,10 +10244,12 @@ class LM_Links_Manager {
       echo '<span class="lm-small" style="margin-left:8px;">Excessive starts above this value.</span>';
       echo '</p>';
       echo '</div>';
+      echo '</div>';
 
       echo '<p style="margin:12px 0 8px; font-weight:600;">External Outbound Thresholds (None / Low / Optimal / Excessive)</p>';
       echo '<div style="' . esc_attr($settingsCardStyle) . '">';
       echo '<div class="lm-small" style="margin:0 0 8px;">These values control status labels for outbound links to external websites.</div>';
+      echo '<div class="lm-settings-two-col">';
       echo '<p style="margin:0 0 10px;">';
       echo '<label class="lm-small" style="' . esc_attr($settingsLabelStyle) . '">None if external outbound links <=</label>';
       echo '<input type="number" name="lm_external_outbound_none_max" min="0" max="1000000" value="' . esc_attr((string)($settings['external_outbound_none_max'] ?? '0')) . '" style="width:110px;" />';
@@ -10012,6 +10269,7 @@ class LM_Links_Manager {
       echo '</p>';
       echo '</div>';
       echo '</div>';
+      echo '</div>';
 
       echo '<hr style="margin:14px 0;"/>';
       echo '<h2 style="margin-top:0;">Anchor Quality - Weak Phrase Rules</h2>';
@@ -10029,12 +10287,28 @@ class LM_Links_Manager {
     echo '<div class="lm-small lm-help-tip">Save your current tab settings.</div>';
     echo '</div>';
 
+    if ($activeTab === 'general') {
+      echo '<div class="lm-settings-actions-card" style="' . esc_attr($settingsCardCompactStyle) . '">';
+      echo '<div class="lm-settings-actions-title">General Actions</div>';
+      echo '<div class="lm-small lm-settings-actions-note">Restore General tab configuration to safe defaults.</div>';
+      submit_button('Reset General Settings', 'secondary', 'lm_reset_general_settings', false, [
+        'value' => '1',
+        'onclick' => "return confirm('Reset General settings to defaults?');",
+      ]);
+      echo '</div>';
+    }
+
     if ($activeTab === 'performance') {
       echo '<div class="lm-settings-actions-card" style="' . esc_attr($settingsCardCompactStyle) . '">';
       echo '<div class="lm-settings-actions-title">Quick Performance Actions</div>';
       echo '<div class="lm-small lm-settings-actions-note">Use these presets to apply performance-focused defaults instantly.</div>';
       submit_button('Optimize for Speed', 'secondary', 'lm_reset_performance_defaults', false, ['value' => '1']);
       submit_button('Enable Low Memory Mode', 'secondary', 'lm_apply_low_memory_profile', false, ['value' => '1', 'style' => 'margin-left:8px;']);
+      submit_button('Reset Performance Settings', 'secondary', 'lm_reset_performance_settings', false, [
+        'value' => '1',
+        'style' => 'margin-left:8px;',
+        'onclick' => "return confirm('Reset Performance settings to defaults?');",
+      ]);
       echo '<div class="lm-small lm-settings-actions-subtitle">Advanced maintenance:</div>';
       submit_button('Rebuild All Cache', 'secondary', 'lm_global_rebuild_cache', false, ['value' => '1']);
       echo '<div class="lm-small lm-help-tip">Use this only when cache data seems out of date.</div>';
@@ -10046,6 +10320,11 @@ class LM_Links_Manager {
       echo '<div class="lm-settings-actions-title">Weak Phrase Actions</div>';
       echo '<div class="lm-small lm-settings-actions-note">Manage the weak phrase list used by anchor quality checks.</div>';
       submit_button('Reset Phrases to Defaults', 'secondary', 'lm_restore_weak_anchor_patterns', false, ['value' => '1']);
+      submit_button('Reset Data Settings', 'secondary', 'lm_reset_data_settings', false, [
+        'value' => '1',
+        'style' => 'margin-left:8px;',
+        'onclick' => "return confirm('Reset Data settings to defaults?');",
+      ]);
       echo '<div class="lm-danger-zone">';
       echo '<div class="lm-small lm-danger-text"><strong>Danger zone:</strong> this action removes all phrases in the editor field.</div>';
       submit_button('Delete All Phrases', 'delete', 'lm_clear_weak_anchor_patterns', false, [
