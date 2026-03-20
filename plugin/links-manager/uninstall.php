@@ -67,14 +67,23 @@ if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $stats_table)) === $sta
   $wpdb->query("DROP TABLE IF EXISTS `{$stats_table_safe}`");
 }
 
-// Additional cleanup: Delete multisite options if applicable
+// Additional cleanup for multisite: remove plugin options from all sites.
 if (is_multisite()) {
-  global $blog_id;
-  switch_to_blog(1);
-  
-  delete_site_option('lm_settings');
-  delete_site_option('lm_anchor_groups');
-  delete_site_option('lm_anchor_targets');
-  
-  restore_current_blog();
+  $sites = get_sites(['fields' => 'ids']);
+  if (is_array($sites) && !empty($sites)) {
+    foreach ($sites as $site_id) {
+      switch_to_blog((int)$site_id);
+
+      foreach ($options_to_delete as $option) {
+        delete_option($option);
+      }
+
+      // Delete dynamic cache scan options per site table.
+      $wpdb->query(
+        "DELETE FROM {$wpdb->options} WHERE option_name LIKE 'lm_cache_scan_%'"
+      );
+
+      restore_current_blog();
+    }
+  }
 }

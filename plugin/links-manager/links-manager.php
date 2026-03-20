@@ -819,11 +819,15 @@ class LM_Links_Manager {
     .lm-pie-card-inline > div:last-child{min-width:0; flex:1;}
     .lm-pie-card-inline .lm-pie-legend{gap:6px;}
     .lm-pie-card-inline .lm-pie-item{font-size:11px; white-space:normal;}
-    .lm-pie-card-inline .lm-tooltip:hover::after{
+    .lm-pie-card-inline .lm-tooltip:hover::after,
+    .lm-pie-card-inline .lm-tooltip:focus::after,
+    .lm-pie-card-inline .lm-tooltip:focus-visible::after{
       top:auto;
       bottom:calc(100% + 8px);
     }
-    .lm-pie-card-inline .lm-tooltip:hover::before{
+    .lm-pie-card-inline .lm-tooltip:hover::before,
+    .lm-pie-card-inline .lm-tooltip:focus::before,
+    .lm-pie-card-inline .lm-tooltip:focus-visible::before{
       top:auto;
       bottom:calc(100% + 2px);
       border-width:6px 6px 0 6px;
@@ -857,7 +861,11 @@ class LM_Links_Manager {
     .lm-legend-item{display:inline-flex; align-items:center; gap:6px;}
     .lm-legend-swatch{width:10px; height:10px; border-radius:2px; display:inline-block;}
     .lm-tooltip{position:relative; cursor:default;}
-    .lm-tooltip:hover::after{
+    .lm-tooltip:focus,
+    .lm-tooltip:focus-visible{outline:2px solid #2271b1; outline-offset:2px;}
+    .lm-tooltip:hover::after,
+    .lm-tooltip:focus::after,
+    .lm-tooltip:focus-visible::after{
       content: attr(data-tooltip);
       position:absolute;
       left:50%;
@@ -877,7 +885,9 @@ class LM_Links_Manager {
       box-shadow:0 2px 6px rgba(0,0,0,.2);
       pointer-events:none;
     }
-    .lm-tooltip:hover::before{
+    .lm-tooltip:hover::before,
+    .lm-tooltip:focus::before,
+    .lm-tooltip:focus-visible::before{
       content:'';
       position:absolute;
       left:50%;
@@ -889,20 +899,28 @@ class LM_Links_Manager {
       z-index:60;
       pointer-events:none;
     }
-    .lm-tooltip.is-left:hover::after{
+    .lm-tooltip.is-left:hover::after,
+    .lm-tooltip.is-left:focus::after,
+    .lm-tooltip.is-left:focus-visible::after{
       left:0;
       transform:none;
     }
-    .lm-tooltip.is-left:hover::before{
+    .lm-tooltip.is-left:hover::before,
+    .lm-tooltip.is-left:focus::before,
+    .lm-tooltip.is-left:focus-visible::before{
       left:14px;
       transform:none;
     }
-    .lm-tooltip.is-right:hover::after{
+    .lm-tooltip.is-right:hover::after,
+    .lm-tooltip.is-right:focus::after,
+    .lm-tooltip.is-right:focus-visible::after{
       left:auto;
       right:0;
       transform:none;
     }
-    .lm-tooltip.is-right:hover::before{
+    .lm-tooltip.is-right:hover::before,
+    .lm-tooltip.is-right:focus::before,
+    .lm-tooltip.is-right:focus-visible::before{
       left:auto;
       right:14px;
       transform:none;
@@ -3912,7 +3930,7 @@ class LM_Links_Manager {
 
     $inner = esc_html((string)$label);
     if ((string)$tooltip !== '') {
-      $inner .= ' <span class="' . esc_attr($tooltipClass) . '" data-tooltip="' . esc_attr((string)$tooltip) . '">ⓘ</span>';
+      $inner .= ' <span class="' . esc_attr($tooltipClass) . '" data-tooltip="' . esc_attr((string)$tooltip) . '" tabindex="0" role="img" aria-label="' . esc_attr((string)$tooltip) . '">ⓘ</span>';
     }
 
     return '<th class="' . esc_attr((string)$class) . '">' . $inner . '</th>';
@@ -8640,7 +8658,7 @@ class LM_Links_Manager {
     }
     $pie_tip = 'Internal: ' . $internal_count . ' (' . $internal_pct . '%) | External: ' . $external_count . ' (' . $external_pct . '%)';
     echo '<div class="lm-top-card lm-pie-card lm-pie-card-inline">';
-    echo '<div class="lm-pie lm-tooltip" data-tooltip="' . esc_attr($pie_tip) . '" style="' . $pie_style . '"><div class="lm-pie-center">' . esc_html((string)$internal_pct) . '% / ' . esc_html((string)$external_pct) . '%</div></div>';
+    echo '<div class="lm-pie lm-tooltip" data-tooltip="' . esc_attr($pie_tip) . '" tabindex="0" role="img" aria-label="' . esc_attr($pie_tip) . '" style="' . esc_attr($pie_style) . '"><div class="lm-pie-center">' . esc_html((string)$internal_pct) . '% / ' . esc_html((string)$external_pct) . '%</div></div>';
     echo '<div>';
     echo '<h3>Internal vs External Comparison</h3>';
     echo '<div class="lm-pie-legend">';
@@ -8670,7 +8688,7 @@ class LM_Links_Manager {
         $tip = $pt . ' | Total: ' . $totalPt . ' | Internal: ' . (int)$b['internal'] . ' (' . $inPct . '%) | External: ' . (int)$b['external'] . ' (' . $exPct . '%)';
         echo '<div class="lm-bar-row">';
         echo '<div class="lm-bar-label">' . esc_html($pt) . '</div>';
-        echo '<div class="lm-stacked-wrap lm-tooltip" data-tooltip="' . esc_attr($tip) . '">';
+        echo '<div class="lm-stacked-wrap lm-tooltip" data-tooltip="' . esc_attr($tip) . '" tabindex="0" role="img" aria-label="' . esc_attr($tip) . '">';
         echo '<div class="lm-stacked-track">';
         echo '<div class="lm-stacked-seg lm-stacked-seg-internal" style="width:' . esc_attr((string)$inPct) . '%;"></div>';
         echo '<div class="lm-stacked-seg lm-stacked-seg-external" style="width:' . esc_attr((string)$exPct) . '%;"></div>';
@@ -8697,13 +8715,13 @@ class LM_Links_Manager {
       $tip = 'Dofollow: ' . $dofollow . ' (' . $dofollowPct . '%)';
       echo '<div class="lm-bar-row">';
       echo '<div class="lm-bar-label">Dofollow</div>';
-      echo '<div class="lm-bar-track-wrap lm-tooltip" data-tooltip="' . esc_attr($tip) . '"><div class="lm-bar-track"><div class="lm-bar-fill" style="width:' . esc_attr((string)$dofollowPct) . '%; background:#16a34a;"></div></div></div>';
+      echo '<div class="lm-bar-track-wrap lm-tooltip" data-tooltip="' . esc_attr($tip) . '" tabindex="0" role="img" aria-label="' . esc_attr($tip) . '"><div class="lm-bar-track"><div class="lm-bar-fill" style="width:' . esc_attr((string)$dofollowPct) . '%; background:#16a34a;"></div></div></div>';
       echo '<div class="lm-bar-value">' . esc_html((string)$dofollow) . '</div>';
       echo '</div>';
       $tip = 'Nofollow: ' . $nofollow . ' (' . $nofollowPct . '%)';
       echo '<div class="lm-bar-row">';
       echo '<div class="lm-bar-label">Nofollow</div>';
-      echo '<div class="lm-bar-track-wrap lm-tooltip" data-tooltip="' . esc_attr($tip) . '"><div class="lm-bar-track"><div class="lm-bar-fill" style="width:' . esc_attr((string)$nofollowPct) . '%; background:#f97316;"></div></div></div>';
+      echo '<div class="lm-bar-track-wrap lm-tooltip" data-tooltip="' . esc_attr($tip) . '" tabindex="0" role="img" aria-label="' . esc_attr($tip) . '"><div class="lm-bar-track"><div class="lm-bar-fill" style="width:' . esc_attr((string)$nofollowPct) . '%; background:#f97316;"></div></div></div>';
       echo '<div class="lm-bar-value">' . esc_html((string)$nofollow) . '</div>';
       echo '</div>';
     }
@@ -8724,7 +8742,7 @@ class LM_Links_Manager {
         $tip = $label . ': ' . $count;
         echo '<div class="lm-bar-row">';
         echo '<div class="lm-bar-label">' . esc_html($label) . '</div>';
-        echo '<div class="lm-bar-track-wrap lm-tooltip" data-tooltip="' . esc_attr($tip) . '"><div class="lm-bar-track"><div class="lm-bar-fill" style="width:' . esc_attr((string)$pct) . '%; background:' . esc_attr($aqColors[$k]) . ';"></div></div></div>';
+        echo '<div class="lm-bar-track-wrap lm-tooltip" data-tooltip="' . esc_attr($tip) . '" tabindex="0" role="img" aria-label="' . esc_attr($tip) . '"><div class="lm-bar-track"><div class="lm-bar-fill" style="width:' . esc_attr((string)$pct) . '%; background:' . esc_attr($aqColors[$k]) . ';"></div></div></div>';
         echo '<div class="lm-bar-value">' . esc_html((string)$count) . '</div>';
         echo '</div>';
       }
@@ -8747,7 +8765,7 @@ class LM_Links_Manager {
         $tip = $domain . ': ' . $count . ' (' . $pctOfTotal . '%)' . $extra;
         echo '<div class="lm-bar-row">';
         echo '<div class="lm-bar-label"><span class="lm-trunc" title="' . esc_attr($domain) . '">' . esc_html($domain) . '</span></div>';
-        echo '<div class="lm-bar-track-wrap lm-tooltip" data-tooltip="' . esc_attr($tip) . '"><div class="lm-bar-track"><div class="lm-bar-fill" style="width:' . esc_attr((string)$pct) . '%; background:#3b82f6;"></div></div></div>';
+        echo '<div class="lm-bar-track-wrap lm-tooltip" data-tooltip="' . esc_attr($tip) . '" tabindex="0" role="img" aria-label="' . esc_attr($tip) . '"><div class="lm-bar-track"><div class="lm-bar-fill" style="width:' . esc_attr((string)$pct) . '%; background:#3b82f6;"></div></div></div>';
         echo '<div class="lm-bar-value">' . esc_html((string)$pctOfTotal) . '%</div>';
         echo '</div>';
       }
@@ -9168,7 +9186,7 @@ class LM_Links_Manager {
         } elseif ($index >= ($totalCols - 2)) {
           $tooltipClass .= ' is-right';
         }
-        $label .= ' <span class="' . esc_attr($tooltipClass) . '" data-tooltip="' . esc_attr($tooltip) . '">ⓘ</span>';
+        $label .= ' <span class="' . esc_attr($tooltipClass) . '" data-tooltip="' . esc_attr($tooltip) . '" tabindex="0" role="img" aria-label="' . esc_attr($tooltip) . '">ⓘ</span>';
       }
       echo '<th class="' . esc_attr($col['class']) . '">' . $label . '</th>';
     }
@@ -9768,9 +9786,9 @@ class LM_Links_Manager {
 
     echo '<div class="lm-card lm-card-full">';
     echo '<h2 class="nav-tab-wrapper" style="margin:0 0 12px;">';
-    echo '<a href="' . esc_url(admin_url('admin.php?page=links-manager-settings&lm_tab=general')) . '" class="nav-tab ' . ($activeTab === 'general' ? 'nav-tab-active' : '') . '">General</a>';
-    echo '<a href="' . esc_url(admin_url('admin.php?page=links-manager-settings&lm_tab=performance')) . '" class="nav-tab ' . ($activeTab === 'performance' ? 'nav-tab-active' : '') . '">Performance</a>';
-    echo '<a href="' . esc_url(admin_url('admin.php?page=links-manager-settings&lm_tab=data')) . '" class="nav-tab ' . ($activeTab === 'data' ? 'nav-tab-active' : '') . '">Data &amp; Quality</a>';
+    echo '<a href="' . esc_url(admin_url('admin.php?page=links-manager-settings&lm_tab=general')) . '" class="nav-tab ' . ($activeTab === 'general' ? 'nav-tab-active' : '') . '"' . ($activeTab === 'general' ? ' aria-current="page"' : '') . '>General</a>';
+    echo '<a href="' . esc_url(admin_url('admin.php?page=links-manager-settings&lm_tab=performance')) . '" class="nav-tab ' . ($activeTab === 'performance' ? 'nav-tab-active' : '') . '"' . ($activeTab === 'performance' ? ' aria-current="page"' : '') . '>Performance</a>';
+    echo '<a href="' . esc_url(admin_url('admin.php?page=links-manager-settings&lm_tab=data')) . '" class="nav-tab ' . ($activeTab === 'data' ? 'nav-tab-active' : '') . '"' . ($activeTab === 'data' ? ' aria-current="page"' : '') . '>Data &amp; Quality</a>';
     echo '</h2>';
     echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-top:10px;">';
     echo '<input type="hidden" name="action" value="lm_save_settings"/>';
@@ -10173,12 +10191,12 @@ class LM_Links_Manager {
     echo '<button type="button" class="button button-secondary" data-lm-rest-rebuild-run>Start / Continue REST Rebuild</button>';
     echo ' <button type="button" class="button" data-lm-rest-rebuild-refresh>Refresh Status</button>';
     echo '</p>';
-    echo '<div data-lm-rest-rebuild-status class="lm-small" style="font-weight:600; margin-bottom:8px;">Checking status...</div>';
+    echo '<div data-lm-rest-rebuild-status class="lm-small" style="font-weight:600; margin-bottom:8px;" aria-live="polite" aria-atomic="true">Checking status...</div>';
     echo '<div style="width:100%; max-width:620px; height:12px; border:1px solid #c3c4c7; border-radius:999px; background:#f0f0f1; overflow:hidden;">';
-    echo '<div data-lm-rest-rebuild-bar role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="height:100%; width:0%; background:#2271b1; transition:width .2s ease;"></div>';
+    echo '<div data-lm-rest-rebuild-bar role="progressbar" aria-label="REST rebuild progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="height:100%; width:0%; background:#2271b1; transition:width .2s ease;"></div>';
     echo '</div>';
-    echo '<div data-lm-rest-rebuild-progress class="lm-small" style="margin-top:6px;">No active rebuild job.</div>';
-    echo '<div data-lm-rest-rebuild-meta class="lm-small" style="margin-top:4px; color:#646970;">Status: idle | Rows: 0 | Batch: - | Updated: -</div>';
+    echo '<div data-lm-rest-rebuild-progress class="lm-small" style="margin-top:6px;" aria-live="polite" aria-atomic="true">No active rebuild job.</div>';
+    echo '<div data-lm-rest-rebuild-meta class="lm-small" style="margin-top:4px; color:#646970;" aria-live="polite" aria-atomic="true">Status: idle | Rows: 0 | Batch: - | Updated: -</div>';
     echo '</div>';
 
     echo '</div>';
@@ -10187,8 +10205,10 @@ class LM_Links_Manager {
       echo '<h2 style="margin-top:0;">Data Cleanup Settings</h2>';
       echo '<div class="lm-small">Automatically remove old audit logs during daily maintenance runs.</div>';
       echo '<div class="lm-settings-two-col" style="margin-top:8px;">';
-      echo '<label class="lm-small" style="margin-right:8px;">Keep audit logs for (days): </label>';
-      echo '<input type="number" name="lm_audit_retention_days" min="30" max="3650" value="' . esc_attr((string)($settings['audit_retention_days'] ?? (string)self::AUDIT_RETENTION_DAYS)) . '" style="width:90px;" />';
+      echo '<p style="margin:0 0 10px;">';
+      echo '<label class="lm-small" style="' . esc_attr($settingsLabelStyle) . '" for="lm_audit_retention_days">Keep audit logs for (days):</label>';
+      echo '<input id="lm_audit_retention_days" type="number" name="lm_audit_retention_days" min="30" max="3650" value="' . esc_attr((string)($settings['audit_retention_days'] ?? (string)self::AUDIT_RETENTION_DAYS)) . '" style="width:90px;" />';
+      echo '</p>';
       echo '</div>';
       echo '<div class="lm-small" style="margin-top:6px;">Range: 30–3650 days. Default: ' . esc_html((string)self::AUDIT_RETENTION_DAYS) . ' days.</div>';
 
@@ -11343,6 +11363,10 @@ class LM_Links_Manager {
       $cell = (string)$value;
       // Convert HTML entities (e.g. &amp;) to plain text to keep CSV values stable across spreadsheet parsers.
       $cell = wp_specialchars_decode($cell, ENT_QUOTES);
+      // Neutralize potential spreadsheet formula execution when CSV is opened.
+      if ($cell !== '' && preg_match('/^[\t\r\n ]*[=+\-@]/', $cell)) {
+        $cell = "'" . $cell;
+      }
       $cell = str_replace($enclosure, $enclosure . $enclosure, $cell);
       $escaped[] = $enclosure . $cell . $enclosure;
     }
