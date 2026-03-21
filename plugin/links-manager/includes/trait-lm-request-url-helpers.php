@@ -8,6 +8,219 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Request_URL_Helpers_Trait {
+  private function get_editor_filter_request_param_map() {
+    return [
+      'post_type' => 'lm_post_type',
+      'post_category' => 'lm_post_category',
+      'post_tag' => 'lm_post_tag',
+      'location' => 'lm_location',
+      'source_type' => 'lm_source_type',
+      'link_type' => 'lm_link_type',
+      'value_type' => 'lm_value_type',
+      'value_contains' => 'lm_value',
+      'source_contains' => 'lm_source',
+      'title_contains' => 'lm_title',
+      'author_contains' => 'lm_author',
+      'publish_date_from' => 'lm_publish_date_from',
+      'publish_date_to' => 'lm_publish_date_to',
+      'updated_date_from' => 'lm_updated_date_from',
+      'updated_date_to' => 'lm_updated_date_to',
+      'anchor_contains' => 'lm_anchor',
+      'quality' => 'lm_quality',
+      'seo_flag' => 'lm_seo_flag',
+      'alt_contains' => 'lm_alt',
+      'rel_contains' => 'lm_rel',
+      'text_match_mode' => 'lm_text_mode',
+      'orderby' => 'lm_orderby',
+      'order' => 'lm_order',
+      'per_page' => 'lm_per_page',
+      'paged' => 'lm_paged',
+      'rebuild' => 'lm_rebuild',
+    ];
+  }
+
+  private function get_editor_rest_request_override_map() {
+    return [
+      'post_type' => 'lm_post_type',
+      'post_category' => 'lm_post_category',
+      'post_tag' => 'lm_post_tag',
+      'location' => 'lm_location',
+      'source_type' => 'lm_source_type',
+      'link_type' => 'lm_link_type',
+      'value_type' => 'lm_value_type',
+      'value' => 'lm_value',
+      'source' => 'lm_source',
+      'title' => 'lm_title',
+      'author' => 'lm_author',
+      'publish_date_from' => 'lm_publish_date_from',
+      'publish_date_to' => 'lm_publish_date_to',
+      'updated_date_from' => 'lm_updated_date_from',
+      'updated_date_to' => 'lm_updated_date_to',
+      'anchor' => 'lm_anchor',
+      'quality' => 'lm_quality',
+      'seo_flag' => 'lm_seo_flag',
+      'alt' => 'lm_alt',
+      'rel' => 'lm_rel',
+      'text_mode' => 'lm_text_mode',
+      'orderby' => 'lm_orderby',
+      'order' => 'lm_order',
+      'cursor' => 'lm_cursor',
+      'rebuild' => 'lm_rebuild',
+      'paged' => 'lm_paged',
+      'per_page' => 'lm_per_page',
+    ];
+  }
+
+  private function get_editor_filter_query_args($filters, $override = []) {
+    $args = [
+      'page' => self::PAGE_SLUG,
+      'lm_post_type' => $filters['post_type'],
+      'lm_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
+      'lm_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
+      'lm_location' => $filters['location'],
+      'lm_link_type' => $filters['link_type'],
+      'lm_value_type' => $filters['value_type'],
+      'lm_value' => $filters['value_contains'],
+      'lm_source' => $filters['source_contains'],
+      'lm_title' => $filters['title_contains'],
+      'lm_author' => $filters['author_contains'],
+      'lm_publish_date_from' => isset($filters['publish_date_from']) ? $filters['publish_date_from'] : '',
+      'lm_publish_date_to' => isset($filters['publish_date_to']) ? $filters['publish_date_to'] : '',
+      'lm_updated_date_from' => isset($filters['updated_date_from']) ? $filters['updated_date_from'] : '',
+      'lm_updated_date_to' => isset($filters['updated_date_to']) ? $filters['updated_date_to'] : '',
+      'lm_text_mode' => $filters['text_match_mode'],
+      'lm_source_type' => $filters['source_type'],
+      'lm_quality' => $filters['quality'],
+      'lm_seo_flag' => $filters['seo_flag'],
+      'lm_anchor' => $filters['anchor_contains'],
+      'lm_alt' => $filters['alt_contains'],
+      'lm_rel' => $filters['rel_contains'],
+      'lm_orderby' => $filters['orderby'],
+      'lm_order' => $filters['order'],
+      'lm_per_page' => $filters['per_page'],
+      'lm_paged' => $filters['paged'],
+      'lm_rebuild' => $filters['rebuild'] ? '1' : '0',
+    ];
+    foreach ($override as $k => $v) {
+      $args[$k] = $v;
+    }
+    return $args;
+  }
+
+  private function get_pages_link_filter_request_param_map() {
+    return [
+      'post_type' => 'lm_pages_link_post_type',
+      'post_category' => 'lm_pages_link_post_category',
+      'post_tag' => 'lm_pages_link_post_tag',
+      'author' => 'lm_pages_link_author',
+      'search' => 'lm_pages_link_search',
+      'search_url' => 'lm_pages_link_search_url',
+      'date_from' => 'lm_pages_link_date_from',
+      'date_to' => 'lm_pages_link_date_to',
+      'updated_date_from' => 'lm_pages_link_updated_date_from',
+      'updated_date_to' => 'lm_pages_link_updated_date_to',
+      'search_mode' => 'lm_pages_link_search_mode',
+      'location' => 'lm_pages_link_location',
+      'source_type' => 'lm_pages_link_source_type',
+      'link_type' => 'lm_pages_link_link_type',
+      'value_contains' => 'lm_pages_link_value',
+      'seo_flag' => 'lm_pages_link_seo_flag',
+      'per_page' => 'lm_pages_link_per_page',
+      'paged' => 'lm_pages_link_paged',
+      'cursor' => 'lm_pages_link_cursor',
+      'orderby' => 'lm_pages_link_orderby',
+      'order' => 'lm_pages_link_order',
+      'inbound_min' => 'lm_pages_link_inbound_min',
+      'inbound_max' => 'lm_pages_link_inbound_max',
+      'internal_outbound_min' => 'lm_pages_link_internal_outbound_min',
+      'internal_outbound_max' => 'lm_pages_link_internal_outbound_max',
+      'outbound_min' => 'lm_pages_link_outbound_min',
+      'outbound_max' => 'lm_pages_link_outbound_max',
+      'status' => 'lm_pages_link_status',
+      'internal_outbound_status' => 'lm_pages_link_internal_outbound_status',
+      'external_outbound_status' => 'lm_pages_link_external_outbound_status',
+      'rebuild' => 'lm_pages_link_rebuild',
+    ];
+  }
+
+  private function get_pages_link_rest_request_override_map() {
+    return [
+      'post_type' => 'lm_pages_link_post_type',
+      'post_category' => 'lm_pages_link_post_category',
+      'post_tag' => 'lm_pages_link_post_tag',
+      'author' => 'lm_pages_link_author',
+      'search' => 'lm_pages_link_search',
+      'search_url' => 'lm_pages_link_search_url',
+      'date_from' => 'lm_pages_link_date_from',
+      'date_to' => 'lm_pages_link_date_to',
+      'updated_date_from' => 'lm_pages_link_updated_date_from',
+      'updated_date_to' => 'lm_pages_link_updated_date_to',
+      'search_mode' => 'lm_pages_link_search_mode',
+      'location' => 'lm_pages_link_location',
+      'source_type' => 'lm_pages_link_source_type',
+      'link_type' => 'lm_pages_link_link_type',
+      'value' => 'lm_pages_link_value',
+      'value_contains' => 'lm_pages_link_value',
+      'seo_flag' => 'lm_pages_link_seo_flag',
+      'orderby' => 'lm_pages_link_orderby',
+      'order' => 'lm_pages_link_order',
+      'inbound_min' => 'lm_pages_link_inbound_min',
+      'inbound_max' => 'lm_pages_link_inbound_max',
+      'internal_outbound_min' => 'lm_pages_link_internal_outbound_min',
+      'internal_outbound_max' => 'lm_pages_link_internal_outbound_max',
+      'outbound_min' => 'lm_pages_link_outbound_min',
+      'outbound_max' => 'lm_pages_link_outbound_max',
+      'status' => 'lm_pages_link_status',
+      'internal_outbound_status' => 'lm_pages_link_internal_outbound_status',
+      'external_outbound_status' => 'lm_pages_link_external_outbound_status',
+      'cursor' => 'lm_pages_link_cursor',
+      'rebuild' => 'lm_pages_link_rebuild',
+      'paged' => 'lm_pages_link_paged',
+      'per_page' => 'lm_pages_link_per_page',
+    ];
+  }
+
+  private function get_pages_link_filter_query_args($filters, $override = []) {
+    $args = [
+      'page' => 'links-manager-pages-link',
+      'lm_pages_link_post_type' => $filters['post_type'],
+      'lm_pages_link_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
+      'lm_pages_link_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
+      'lm_pages_link_author' => $filters['author'],
+      'lm_pages_link_search' => $filters['search'],
+      'lm_pages_link_search_url' => isset($filters['search_url']) ? $filters['search_url'] : '',
+      'lm_pages_link_date_from' => isset($filters['date_from']) ? $filters['date_from'] : '',
+      'lm_pages_link_date_to' => isset($filters['date_to']) ? $filters['date_to'] : '',
+      'lm_pages_link_updated_date_from' => isset($filters['updated_date_from']) ? $filters['updated_date_from'] : '',
+      'lm_pages_link_updated_date_to' => isset($filters['updated_date_to']) ? $filters['updated_date_to'] : '',
+      'lm_pages_link_search_mode' => isset($filters['search_mode']) ? $filters['search_mode'] : 'contains',
+      'lm_pages_link_location' => isset($filters['location']) ? $filters['location'] : 'any',
+      'lm_pages_link_source_type' => isset($filters['source_type']) ? $filters['source_type'] : 'any',
+      'lm_pages_link_link_type' => isset($filters['link_type']) ? $filters['link_type'] : 'any',
+      'lm_pages_link_value' => isset($filters['value_contains']) ? $filters['value_contains'] : '',
+      'lm_pages_link_seo_flag' => isset($filters['seo_flag']) ? $filters['seo_flag'] : 'any',
+      'lm_pages_link_per_page' => $filters['per_page'],
+      'lm_pages_link_paged' => $filters['paged'],
+      'lm_pages_link_cursor' => isset($filters['cursor']) ? $filters['cursor'] : '',
+      'lm_pages_link_orderby' => $filters['orderby'],
+      'lm_pages_link_order' => $filters['order'],
+      'lm_pages_link_inbound_min' => $filters['inbound_min'],
+      'lm_pages_link_inbound_max' => $filters['inbound_max'],
+      'lm_pages_link_internal_outbound_min' => $filters['internal_outbound_min'],
+      'lm_pages_link_internal_outbound_max' => $filters['internal_outbound_max'],
+      'lm_pages_link_outbound_min' => $filters['outbound_min'],
+      'lm_pages_link_outbound_max' => $filters['outbound_max'],
+      'lm_pages_link_status' => $filters['status'],
+      'lm_pages_link_internal_outbound_status' => isset($filters['internal_outbound_status']) ? $filters['internal_outbound_status'] : 'any',
+      'lm_pages_link_external_outbound_status' => isset($filters['external_outbound_status']) ? $filters['external_outbound_status'] : 'any',
+      'lm_pages_link_rebuild' => $filters['rebuild'] ? '1' : '0',
+    ];
+    foreach ($override as $k => $v) {
+      $args[$k] = $v;
+    }
+    return $args;
+  }
+
   private function safe_redirect_back($filters, $extra = []) {
     $url = $this->base_admin_url($filters, array_merge(['lm_paged' => 1], $extra));
     wp_safe_redirect($url);
@@ -99,12 +312,16 @@ trait LM_Request_URL_Helpers_Trait {
   }
 
   private function get_filters_from_request() {
+    $paramMap = $this->get_editor_filter_request_param_map();
     $postTypes = $this->get_filterable_post_types();
-    $postType = isset($_REQUEST['lm_post_type']) ? sanitize_text_field($_REQUEST['lm_post_type']) : 'any';
+    $postTypeParam = $paramMap['post_type'];
+    $postType = isset($_REQUEST[$postTypeParam]) ? sanitize_text_field($_REQUEST[$postTypeParam]) : 'any';
     if ($postType !== 'any' && !isset($postTypes[$postType])) $postType = 'any';
 
-    $postCategory = isset($_REQUEST['lm_post_category']) ? $this->sanitize_post_term_filter($_REQUEST['lm_post_category'], 'category') : 0;
-    $postTag = isset($_REQUEST['lm_post_tag']) ? $this->sanitize_post_term_filter($_REQUEST['lm_post_tag'], 'post_tag') : 0;
+    $postCategoryParam = $paramMap['post_category'];
+    $postTagParam = $paramMap['post_tag'];
+    $postCategory = isset($_REQUEST[$postCategoryParam]) ? $this->sanitize_post_term_filter($_REQUEST[$postCategoryParam], 'category') : 0;
+    $postTag = isset($_REQUEST[$postTagParam]) ? $this->sanitize_post_term_filter($_REQUEST[$postTagParam], 'post_tag') : 0;
     if ($postType !== 'any' && $postType !== 'post') {
       $postCategory = 0;
       $postTag = 0;
@@ -115,29 +332,29 @@ trait LM_Request_URL_Helpers_Trait {
       'post_category' => $postCategory,
       'post_tag' => $postTag,
       'wpml_lang' => $this->sanitize_wpml_lang_filter($this->get_wpml_current_language()),
-      'location' => isset($_REQUEST['lm_location']) ? sanitize_text_field((string)$_REQUEST['lm_location']) : 'any',
-      'source_type' => isset($_REQUEST['lm_source_type']) ? $this->sanitize_source_type_filter($_REQUEST['lm_source_type']) : 'any',
-      'link_type' => isset($_REQUEST['lm_link_type']) ? sanitize_text_field((string)$_REQUEST['lm_link_type']) : 'any',
-      'value_type' => isset($_REQUEST['lm_value_type']) ? sanitize_text_field((string)$_REQUEST['lm_value_type']) : 'any',
-      'value_contains' => isset($_REQUEST['lm_value']) ? sanitize_text_field((string)$_REQUEST['lm_value']) : '',
-      'source_contains' => isset($_REQUEST['lm_source']) ? sanitize_text_field((string)$_REQUEST['lm_source']) : '',
-      'title_contains' => isset($_REQUEST['lm_title']) ? sanitize_text_field((string)$_REQUEST['lm_title']) : '',
-      'author_contains' => isset($_REQUEST['lm_author']) ? sanitize_text_field((string)$_REQUEST['lm_author']) : '',
-      'publish_date_from' => isset($_REQUEST['lm_publish_date_from']) ? $this->sanitize_date_ymd($_REQUEST['lm_publish_date_from']) : '',
-      'publish_date_to' => isset($_REQUEST['lm_publish_date_to']) ? $this->sanitize_date_ymd($_REQUEST['lm_publish_date_to']) : '',
-      'updated_date_from' => isset($_REQUEST['lm_updated_date_from']) ? $this->sanitize_date_ymd($_REQUEST['lm_updated_date_from']) : '',
-      'updated_date_to' => isset($_REQUEST['lm_updated_date_to']) ? $this->sanitize_date_ymd($_REQUEST['lm_updated_date_to']) : '',
-      'anchor_contains' => isset($_REQUEST['lm_anchor']) ? sanitize_text_field((string)$_REQUEST['lm_anchor']) : '',
-      'quality' => isset($_REQUEST['lm_quality']) ? sanitize_text_field((string)$_REQUEST['lm_quality']) : 'any',
-      'seo_flag' => isset($_REQUEST['lm_seo_flag']) ? sanitize_text_field((string)$_REQUEST['lm_seo_flag']) : 'any',
-      'alt_contains' => isset($_REQUEST['lm_alt']) ? sanitize_text_field((string)$_REQUEST['lm_alt']) : '',
-      'rel_contains' => isset($_REQUEST['lm_rel']) ? sanitize_text_field((string)$_REQUEST['lm_rel']) : '',
-      'text_match_mode' => isset($_REQUEST['lm_text_mode']) ? $this->sanitize_text_match_mode($_REQUEST['lm_text_mode']) : 'contains',
-      'orderby' => isset($_REQUEST['lm_orderby']) ? sanitize_text_field((string)$_REQUEST['lm_orderby']) : 'date',
-      'order' => isset($_REQUEST['lm_order']) ? strtoupper(sanitize_text_field((string)$_REQUEST['lm_order'])) : 'DESC',
-      'per_page' => isset($_REQUEST['lm_per_page']) ? intval($_REQUEST['lm_per_page']) : 25,
-      'paged' => isset($_REQUEST['lm_paged']) ? intval($_REQUEST['lm_paged']) : 1,
-      'rebuild' => isset($_REQUEST['lm_rebuild']) && sanitize_text_field((string)$_REQUEST['lm_rebuild']) === '1',
+      'location' => isset($_REQUEST[$paramMap['location']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['location']]) : 'any',
+      'source_type' => isset($_REQUEST[$paramMap['source_type']]) ? $this->sanitize_source_type_filter($_REQUEST[$paramMap['source_type']]) : 'any',
+      'link_type' => isset($_REQUEST[$paramMap['link_type']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['link_type']]) : 'any',
+      'value_type' => isset($_REQUEST[$paramMap['value_type']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['value_type']]) : 'any',
+      'value_contains' => isset($_REQUEST[$paramMap['value_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['value_contains']]) : '',
+      'source_contains' => isset($_REQUEST[$paramMap['source_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['source_contains']]) : '',
+      'title_contains' => isset($_REQUEST[$paramMap['title_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['title_contains']]) : '',
+      'author_contains' => isset($_REQUEST[$paramMap['author_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['author_contains']]) : '',
+      'publish_date_from' => isset($_REQUEST[$paramMap['publish_date_from']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['publish_date_from']]) : '',
+      'publish_date_to' => isset($_REQUEST[$paramMap['publish_date_to']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['publish_date_to']]) : '',
+      'updated_date_from' => isset($_REQUEST[$paramMap['updated_date_from']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['updated_date_from']]) : '',
+      'updated_date_to' => isset($_REQUEST[$paramMap['updated_date_to']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['updated_date_to']]) : '',
+      'anchor_contains' => isset($_REQUEST[$paramMap['anchor_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['anchor_contains']]) : '',
+      'quality' => isset($_REQUEST[$paramMap['quality']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['quality']]) : 'any',
+      'seo_flag' => isset($_REQUEST[$paramMap['seo_flag']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['seo_flag']]) : 'any',
+      'alt_contains' => isset($_REQUEST[$paramMap['alt_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['alt_contains']]) : '',
+      'rel_contains' => isset($_REQUEST[$paramMap['rel_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['rel_contains']]) : '',
+      'text_match_mode' => isset($_REQUEST[$paramMap['text_match_mode']]) ? $this->sanitize_text_match_mode($_REQUEST[$paramMap['text_match_mode']]) : 'contains',
+      'orderby' => isset($_REQUEST[$paramMap['orderby']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['orderby']]) : 'date',
+      'order' => isset($_REQUEST[$paramMap['order']]) ? strtoupper(sanitize_text_field((string)$_REQUEST[$paramMap['order']])) : 'DESC',
+      'per_page' => isset($_REQUEST[$paramMap['per_page']]) ? intval($_REQUEST[$paramMap['per_page']]) : 25,
+      'paged' => isset($_REQUEST[$paramMap['paged']]) ? intval($_REQUEST[$paramMap['paged']]) : 1,
+      'rebuild' => isset($_REQUEST[$paramMap['rebuild']]) && sanitize_text_field((string)$_REQUEST[$paramMap['rebuild']]) === '1',
       'group' => isset($_REQUEST['lm_group']) ? sanitize_text_field((string)$_REQUEST['lm_group']) : '0',
     ];
 
@@ -160,158 +377,108 @@ trait LM_Request_URL_Helpers_Trait {
     $args = [
       'action' => 'lm_export_csv',
       self::NONCE_NAME => wp_create_nonce(self::NONCE_ACTION),
-      'lm_post_type' => $filters['post_type'],
-      'lm_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
-      'lm_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
-      'lm_location' => $filters['location'],
-      'lm_source_type' => $filters['source_type'],
-      'lm_link_type' => $filters['link_type'],
-      'lm_value_type' => $filters['value_type'],
-      'lm_value' => $filters['value_contains'],
-      'lm_source' => $filters['source_contains'],
-      'lm_title' => $filters['title_contains'],
-      'lm_author' => $filters['author_contains'],
-      'lm_publish_date_from' => isset($filters['publish_date_from']) ? $filters['publish_date_from'] : '',
-      'lm_publish_date_to' => isset($filters['publish_date_to']) ? $filters['publish_date_to'] : '',
-      'lm_updated_date_from' => isset($filters['updated_date_from']) ? $filters['updated_date_from'] : '',
-      'lm_updated_date_to' => isset($filters['updated_date_to']) ? $filters['updated_date_to'] : '',
-      'lm_anchor' => $filters['anchor_contains'],
-      'lm_quality' => $filters['quality'],
-      'lm_seo_flag' => $filters['seo_flag'],
-      'lm_alt' => $filters['alt_contains'],
-      'lm_rel' => $filters['rel_contains'],
-      'lm_text_mode' => $filters['text_match_mode'],
-      'lm_orderby' => $filters['orderby'],
-      'lm_order' => $filters['order'],
-      'lm_per_page' => $filters['per_page'],
-      'lm_paged' => $filters['paged'],
-      'lm_rebuild' => $filters['rebuild'] ? '1' : '0',
     ];
+    foreach ($this->get_editor_filter_query_args($filters) as $key => $value) {
+      if (in_array($key, ['page', 'lm_per_page', 'lm_paged'], true)) continue;
+      $args[$key] = $value;
+    }
     return admin_url('admin-post.php?' . http_build_query($args));
   }
 
   private function base_admin_url($filters, $override = []) {
-    $args = [
-      'page' => self::PAGE_SLUG,
-      'lm_post_type' => $filters['post_type'],
-      'lm_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
-      'lm_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
-      'lm_location' => $filters['location'],
-      'lm_link_type' => $filters['link_type'],
-      'lm_value_type' => $filters['value_type'],
-      'lm_value' => $filters['value_contains'],
-      'lm_source' => $filters['source_contains'],
-      'lm_title' => $filters['title_contains'],
-      'lm_author' => $filters['author_contains'],
-      'lm_publish_date_from' => isset($filters['publish_date_from']) ? $filters['publish_date_from'] : '',
-      'lm_publish_date_to' => isset($filters['publish_date_to']) ? $filters['publish_date_to'] : '',
-      'lm_updated_date_from' => isset($filters['updated_date_from']) ? $filters['updated_date_from'] : '',
-      'lm_updated_date_to' => isset($filters['updated_date_to']) ? $filters['updated_date_to'] : '',
-      'lm_text_mode' => $filters['text_match_mode'],
-      'lm_source_type' => $filters['source_type'],
-      'lm_quality' => $filters['quality'],
-      'lm_seo_flag' => $filters['seo_flag'],
-      'lm_anchor' => $filters['anchor_contains'],
-      'lm_alt' => $filters['alt_contains'],
-      'lm_rel' => $filters['rel_contains'],
-      'lm_orderby' => $filters['orderby'],
-      'lm_order' => $filters['order'],
-      'lm_per_page' => $filters['per_page'],
-      'lm_paged' => $filters['paged'],
-      'lm_rebuild' => $filters['rebuild'] ? '1' : '0',
-    ];
-    foreach ($override as $k => $v) $args[$k] = $v;
+    $args = $this->get_editor_filter_query_args($filters, $override);
     return admin_url('admin.php?' . http_build_query($args));
   }
 
   private function get_pages_link_filters_from_request() {
+    $paramMap = $this->get_pages_link_filter_request_param_map();
     $postTypes = $this->get_filterable_post_types();
-    $postType = isset($_REQUEST['lm_pages_link_post_type']) ? sanitize_text_field($_REQUEST['lm_pages_link_post_type']) : 'any';
+    $postType = isset($_REQUEST[$paramMap['post_type']]) ? sanitize_text_field($_REQUEST[$paramMap['post_type']]) : 'any';
     if ($postType !== 'any' && !isset($postTypes[$postType])) $postType = 'any';
 
-    $postCategory = isset($_REQUEST['lm_pages_link_post_category']) ? $this->sanitize_post_term_filter($_REQUEST['lm_pages_link_post_category'], 'category') : 0;
-    $postTag = isset($_REQUEST['lm_pages_link_post_tag']) ? $this->sanitize_post_term_filter($_REQUEST['lm_pages_link_post_tag'], 'post_tag') : 0;
+    $postCategory = isset($_REQUEST[$paramMap['post_category']]) ? $this->sanitize_post_term_filter($_REQUEST[$paramMap['post_category']], 'category') : 0;
+    $postTag = isset($_REQUEST[$paramMap['post_tag']]) ? $this->sanitize_post_term_filter($_REQUEST[$paramMap['post_tag']], 'post_tag') : 0;
 
     if ($postType !== 'any' && $postType !== 'post') {
       $postCategory = 0;
       $postTag = 0;
     }
 
-    $author = isset($_REQUEST['lm_pages_link_author']) ? intval($_REQUEST['lm_pages_link_author']) : 0;
+    $author = isset($_REQUEST[$paramMap['author']]) ? intval($_REQUEST[$paramMap['author']]) : 0;
     if ($author < 0) $author = 0;
 
-    $search = isset($_REQUEST['lm_pages_link_search']) ? sanitize_text_field($_REQUEST['lm_pages_link_search']) : '';
-    $search_url = isset($_REQUEST['lm_pages_link_search_url']) ? sanitize_text_field($_REQUEST['lm_pages_link_search_url']) : '';
-    $dateFrom = isset($_REQUEST['lm_pages_link_date_from']) ? $this->sanitize_date_ymd($_REQUEST['lm_pages_link_date_from']) : '';
-    $dateTo = isset($_REQUEST['lm_pages_link_date_to']) ? $this->sanitize_date_ymd($_REQUEST['lm_pages_link_date_to']) : '';
-    $updatedDateFrom = isset($_REQUEST['lm_pages_link_updated_date_from']) ? $this->sanitize_date_ymd($_REQUEST['lm_pages_link_updated_date_from']) : '';
-    $updatedDateTo = isset($_REQUEST['lm_pages_link_updated_date_to']) ? $this->sanitize_date_ymd($_REQUEST['lm_pages_link_updated_date_to']) : '';
-    $searchMode = isset($_REQUEST['lm_pages_link_search_mode']) ? $this->sanitize_text_match_mode($_REQUEST['lm_pages_link_search_mode']) : 'contains';
-    $location = isset($_REQUEST['lm_pages_link_location']) ? sanitize_text_field((string)$_REQUEST['lm_pages_link_location']) : 'any';
+    $search = isset($_REQUEST[$paramMap['search']]) ? sanitize_text_field($_REQUEST[$paramMap['search']]) : '';
+    $search_url = isset($_REQUEST[$paramMap['search_url']]) ? sanitize_text_field($_REQUEST[$paramMap['search_url']]) : '';
+    $dateFrom = isset($_REQUEST[$paramMap['date_from']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['date_from']]) : '';
+    $dateTo = isset($_REQUEST[$paramMap['date_to']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['date_to']]) : '';
+    $updatedDateFrom = isset($_REQUEST[$paramMap['updated_date_from']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['updated_date_from']]) : '';
+    $updatedDateTo = isset($_REQUEST[$paramMap['updated_date_to']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['updated_date_to']]) : '';
+    $searchMode = isset($_REQUEST[$paramMap['search_mode']]) ? $this->sanitize_text_match_mode($_REQUEST[$paramMap['search_mode']]) : 'contains';
+    $location = isset($_REQUEST[$paramMap['location']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['location']]) : 'any';
     if ($location === '') $location = 'any';
-    $sourceType = isset($_REQUEST['lm_pages_link_source_type'])
-      ? $this->sanitize_source_type_filter($_REQUEST['lm_pages_link_source_type'])
+    $sourceType = isset($_REQUEST[$paramMap['source_type']])
+      ? $this->sanitize_source_type_filter($_REQUEST[$paramMap['source_type']])
       : 'any';
-    $linkType = isset($_REQUEST['lm_pages_link_link_type']) ? sanitize_text_field((string)$_REQUEST['lm_pages_link_link_type']) : 'any';
+    $linkType = isset($_REQUEST[$paramMap['link_type']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['link_type']]) : 'any';
     if (!in_array($linkType, ['any', 'inlink', 'exlink'], true)) $linkType = 'any';
-    $valueContains = isset($_REQUEST['lm_pages_link_value']) ? sanitize_text_field((string)$_REQUEST['lm_pages_link_value']) : '';
-    $seoFlag = isset($_REQUEST['lm_pages_link_seo_flag']) ? sanitize_text_field((string)$_REQUEST['lm_pages_link_seo_flag']) : 'any';
+    $valueContains = isset($_REQUEST[$paramMap['value_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['value_contains']]) : '';
+    $seoFlag = isset($_REQUEST[$paramMap['seo_flag']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['seo_flag']]) : 'any';
     if (!in_array($seoFlag, ['any', 'dofollow', 'nofollow', 'sponsored', 'ugc'], true)) $seoFlag = 'any';
 
-    $perPage = isset($_REQUEST['lm_pages_link_per_page']) ? intval($_REQUEST['lm_pages_link_per_page']) : 25;
+    $perPage = isset($_REQUEST[$paramMap['per_page']]) ? intval($_REQUEST[$paramMap['per_page']]) : 25;
     if ($perPage < 10) $perPage = 10;
     if ($perPage > 500) $perPage = 500;
 
-    $paged = isset($_REQUEST['lm_pages_link_paged']) ? intval($_REQUEST['lm_pages_link_paged']) : 1;
+    $paged = isset($_REQUEST[$paramMap['paged']]) ? intval($_REQUEST[$paramMap['paged']]) : 1;
     if ($paged < 1) $paged = 1;
 
-    $cursor = isset($_REQUEST['lm_pages_link_cursor']) ? sanitize_text_field((string)$_REQUEST['lm_pages_link_cursor']) : '';
+    $cursor = isset($_REQUEST[$paramMap['cursor']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['cursor']]) : '';
     if (strlen($cursor) > 512) {
       $cursor = '';
     }
 
-    $orderby = isset($_REQUEST['lm_pages_link_orderby']) ? sanitize_text_field($_REQUEST['lm_pages_link_orderby']) : 'date';
+    $orderby = isset($_REQUEST[$paramMap['orderby']]) ? sanitize_text_field($_REQUEST[$paramMap['orderby']]) : 'date';
     if (!in_array($orderby, ['post_id', 'date', 'modified', 'title', 'post_type', 'author', 'page_url', 'inbound', 'internal_outbound', 'outbound', 'status', 'internal_outbound_status', 'external_outbound_status'], true)) $orderby = 'date';
 
-    $order = isset($_REQUEST['lm_pages_link_order']) ? sanitize_text_field($_REQUEST['lm_pages_link_order']) : 'DESC';
+    $order = isset($_REQUEST[$paramMap['order']]) ? sanitize_text_field($_REQUEST[$paramMap['order']]) : 'DESC';
     $order = strtoupper($order);
     if (!in_array($order, ['ASC', 'DESC'], true)) $order = 'DESC';
 
-    $inboundMinRaw = isset($_REQUEST['lm_pages_link_inbound_min']) ? trim((string)$_REQUEST['lm_pages_link_inbound_min']) : '';
-    $inboundMaxRaw = isset($_REQUEST['lm_pages_link_inbound_max']) ? trim((string)$_REQUEST['lm_pages_link_inbound_max']) : '';
+    $inboundMinRaw = isset($_REQUEST[$paramMap['inbound_min']]) ? trim((string)$_REQUEST[$paramMap['inbound_min']]) : '';
+    $inboundMaxRaw = isset($_REQUEST[$paramMap['inbound_max']]) ? trim((string)$_REQUEST[$paramMap['inbound_max']]) : '';
     $inboundMin = ($inboundMinRaw === '') ? -1 : intval($inboundMinRaw);
     $inboundMax = ($inboundMaxRaw === '') ? -1 : intval($inboundMaxRaw);
     if ($inboundMin < -1) $inboundMin = -1;
     if ($inboundMax < -1) $inboundMax = -1;
 
-    $internalOutboundMinRaw = isset($_REQUEST['lm_pages_link_internal_outbound_min']) ? trim((string)$_REQUEST['lm_pages_link_internal_outbound_min']) : '';
-    $internalOutboundMaxRaw = isset($_REQUEST['lm_pages_link_internal_outbound_max']) ? trim((string)$_REQUEST['lm_pages_link_internal_outbound_max']) : '';
+    $internalOutboundMinRaw = isset($_REQUEST[$paramMap['internal_outbound_min']]) ? trim((string)$_REQUEST[$paramMap['internal_outbound_min']]) : '';
+    $internalOutboundMaxRaw = isset($_REQUEST[$paramMap['internal_outbound_max']]) ? trim((string)$_REQUEST[$paramMap['internal_outbound_max']]) : '';
     $internalOutboundMin = ($internalOutboundMinRaw === '') ? -1 : intval($internalOutboundMinRaw);
     $internalOutboundMax = ($internalOutboundMaxRaw === '') ? -1 : intval($internalOutboundMaxRaw);
     if ($internalOutboundMin < -1) $internalOutboundMin = -1;
     if ($internalOutboundMax < -1) $internalOutboundMax = -1;
 
-    $outboundMinRaw = isset($_REQUEST['lm_pages_link_outbound_min']) ? trim((string)$_REQUEST['lm_pages_link_outbound_min']) : '';
-    $outboundMaxRaw = isset($_REQUEST['lm_pages_link_outbound_max']) ? trim((string)$_REQUEST['lm_pages_link_outbound_max']) : '';
+    $outboundMinRaw = isset($_REQUEST[$paramMap['outbound_min']]) ? trim((string)$_REQUEST[$paramMap['outbound_min']]) : '';
+    $outboundMaxRaw = isset($_REQUEST[$paramMap['outbound_max']]) ? trim((string)$_REQUEST[$paramMap['outbound_max']]) : '';
     $outboundMin = ($outboundMinRaw === '') ? -1 : intval($outboundMinRaw);
     $outboundMax = ($outboundMaxRaw === '') ? -1 : intval($outboundMaxRaw);
     if ($outboundMin < -1) $outboundMin = -1;
     if ($outboundMax < -1) $outboundMax = -1;
 
-    $status = isset($_REQUEST['lm_pages_link_status']) ? sanitize_text_field($_REQUEST['lm_pages_link_status']) : 'any';
+    $status = isset($_REQUEST[$paramMap['status']]) ? sanitize_text_field($_REQUEST[$paramMap['status']]) : 'any';
     $status = strtolower(trim($status));
     if ($status === 'orphaned') $status = 'orphan';
     if (!in_array($status, ['any', 'orphan', 'low', 'standard', 'excellent'], true)) $status = 'any';
 
-    $internalOutboundStatus = isset($_REQUEST['lm_pages_link_internal_outbound_status']) ? sanitize_text_field($_REQUEST['lm_pages_link_internal_outbound_status']) : 'any';
+    $internalOutboundStatus = isset($_REQUEST[$paramMap['internal_outbound_status']]) ? sanitize_text_field($_REQUEST[$paramMap['internal_outbound_status']]) : 'any';
     $internalOutboundStatus = strtolower(trim($internalOutboundStatus));
     if (!in_array($internalOutboundStatus, ['any', 'none', 'low', 'optimal', 'excessive'], true)) $internalOutboundStatus = 'any';
 
-    $externalOutboundStatus = isset($_REQUEST['lm_pages_link_external_outbound_status']) ? sanitize_text_field($_REQUEST['lm_pages_link_external_outbound_status']) : 'any';
+    $externalOutboundStatus = isset($_REQUEST[$paramMap['external_outbound_status']]) ? sanitize_text_field($_REQUEST[$paramMap['external_outbound_status']]) : 'any';
     $externalOutboundStatus = strtolower(trim($externalOutboundStatus));
     if (!in_array($externalOutboundStatus, ['any', 'none', 'low', 'optimal', 'excessive'], true)) $externalOutboundStatus = 'any';
 
-    $rebuild = isset($_REQUEST['lm_pages_link_rebuild']) ? sanitize_text_field($_REQUEST['lm_pages_link_rebuild']) : '0';
+    $rebuild = isset($_REQUEST[$paramMap['rebuild']]) ? sanitize_text_field($_REQUEST[$paramMap['rebuild']]) : '0';
     $rebuild = $rebuild === '1';
 
     $wpmlLang = $this->sanitize_wpml_lang_filter($this->get_wpml_current_language());
@@ -353,41 +520,7 @@ trait LM_Request_URL_Helpers_Trait {
   }
 
   private function pages_link_admin_url($filters, $override = []) {
-    $args = [
-      'page' => 'links-manager-pages-link',
-      'lm_pages_link_post_type' => $filters['post_type'],
-      'lm_pages_link_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
-      'lm_pages_link_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
-      'lm_pages_link_author' => $filters['author'],
-      'lm_pages_link_search' => $filters['search'],
-      'lm_pages_link_search_url' => isset($filters['search_url']) ? $filters['search_url'] : '',
-      'lm_pages_link_date_from' => isset($filters['date_from']) ? $filters['date_from'] : '',
-      'lm_pages_link_date_to' => isset($filters['date_to']) ? $filters['date_to'] : '',
-      'lm_pages_link_updated_date_from' => isset($filters['updated_date_from']) ? $filters['updated_date_from'] : '',
-      'lm_pages_link_updated_date_to' => isset($filters['updated_date_to']) ? $filters['updated_date_to'] : '',
-      'lm_pages_link_search_mode' => isset($filters['search_mode']) ? $filters['search_mode'] : 'contains',
-      'lm_pages_link_location' => isset($filters['location']) ? $filters['location'] : 'any',
-      'lm_pages_link_source_type' => isset($filters['source_type']) ? $filters['source_type'] : 'any',
-      'lm_pages_link_link_type' => isset($filters['link_type']) ? $filters['link_type'] : 'any',
-      'lm_pages_link_value' => isset($filters['value_contains']) ? $filters['value_contains'] : '',
-      'lm_pages_link_seo_flag' => isset($filters['seo_flag']) ? $filters['seo_flag'] : 'any',
-      'lm_pages_link_per_page' => $filters['per_page'],
-      'lm_pages_link_paged' => $filters['paged'],
-      'lm_pages_link_cursor' => isset($filters['cursor']) ? $filters['cursor'] : '',
-      'lm_pages_link_orderby' => $filters['orderby'],
-      'lm_pages_link_order' => $filters['order'],
-      'lm_pages_link_inbound_min' => $filters['inbound_min'],
-      'lm_pages_link_inbound_max' => $filters['inbound_max'],
-      'lm_pages_link_internal_outbound_min' => $filters['internal_outbound_min'],
-      'lm_pages_link_internal_outbound_max' => $filters['internal_outbound_max'],
-      'lm_pages_link_outbound_min' => $filters['outbound_min'],
-      'lm_pages_link_outbound_max' => $filters['outbound_max'],
-      'lm_pages_link_status' => $filters['status'],
-      'lm_pages_link_internal_outbound_status' => isset($filters['internal_outbound_status']) ? $filters['internal_outbound_status'] : 'any',
-      'lm_pages_link_external_outbound_status' => isset($filters['external_outbound_status']) ? $filters['external_outbound_status'] : 'any',
-      'lm_pages_link_rebuild' => $filters['rebuild'] ? '1' : '0',
-    ];
-    foreach ($override as $k => $v) $args[$k] = $v;
+    $args = $this->get_pages_link_filter_query_args($filters, $override);
     return admin_url('admin.php?' . http_build_query($args));
   }
 
@@ -397,47 +530,14 @@ trait LM_Request_URL_Helpers_Trait {
       self::NONCE_NAME => wp_create_nonce(self::NONCE_ACTION),
     ];
     foreach ($this->pages_link_admin_url_query_args($filters) as $key => $value) {
-      if ($key === 'page') continue;
+      if (in_array($key, ['page', 'lm_pages_link_per_page', 'lm_pages_link_paged', 'lm_pages_link_cursor'], true)) continue;
       $args[$key] = $value;
     }
     return admin_url('admin-post.php?' . http_build_query($args));
   }
 
   private function pages_link_admin_url_query_args($filters) {
-    return [
-      'page' => 'links-manager-pages-link',
-      'lm_pages_link_post_type' => $filters['post_type'],
-      'lm_pages_link_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
-      'lm_pages_link_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
-      'lm_pages_link_author' => $filters['author'],
-      'lm_pages_link_search' => $filters['search'],
-      'lm_pages_link_search_url' => isset($filters['search_url']) ? $filters['search_url'] : '',
-      'lm_pages_link_date_from' => isset($filters['date_from']) ? $filters['date_from'] : '',
-      'lm_pages_link_date_to' => isset($filters['date_to']) ? $filters['date_to'] : '',
-      'lm_pages_link_updated_date_from' => isset($filters['updated_date_from']) ? $filters['updated_date_from'] : '',
-      'lm_pages_link_updated_date_to' => isset($filters['updated_date_to']) ? $filters['updated_date_to'] : '',
-      'lm_pages_link_search_mode' => isset($filters['search_mode']) ? $filters['search_mode'] : 'contains',
-      'lm_pages_link_location' => isset($filters['location']) ? $filters['location'] : 'any',
-      'lm_pages_link_source_type' => isset($filters['source_type']) ? $filters['source_type'] : 'any',
-      'lm_pages_link_link_type' => isset($filters['link_type']) ? $filters['link_type'] : 'any',
-      'lm_pages_link_value' => isset($filters['value_contains']) ? $filters['value_contains'] : '',
-      'lm_pages_link_seo_flag' => isset($filters['seo_flag']) ? $filters['seo_flag'] : 'any',
-      'lm_pages_link_per_page' => $filters['per_page'],
-      'lm_pages_link_paged' => $filters['paged'],
-      'lm_pages_link_cursor' => isset($filters['cursor']) ? $filters['cursor'] : '',
-      'lm_pages_link_orderby' => $filters['orderby'],
-      'lm_pages_link_order' => $filters['order'],
-      'lm_pages_link_inbound_min' => $filters['inbound_min'],
-      'lm_pages_link_inbound_max' => $filters['inbound_max'],
-      'lm_pages_link_internal_outbound_min' => $filters['internal_outbound_min'],
-      'lm_pages_link_internal_outbound_max' => $filters['internal_outbound_max'],
-      'lm_pages_link_outbound_min' => $filters['outbound_min'],
-      'lm_pages_link_outbound_max' => $filters['outbound_max'],
-      'lm_pages_link_status' => $filters['status'],
-      'lm_pages_link_internal_outbound_status' => isset($filters['internal_outbound_status']) ? $filters['internal_outbound_status'] : 'any',
-      'lm_pages_link_external_outbound_status' => isset($filters['external_outbound_status']) ? $filters['external_outbound_status'] : 'any',
-      'lm_pages_link_rebuild' => $filters['rebuild'] ? '1' : '0',
-    ];
+    return $this->get_pages_link_filter_query_args($filters);
   }
 
   private function cited_domains_admin_url($filters, $override = []) {
@@ -481,7 +581,6 @@ trait LM_Request_URL_Helpers_Trait {
       'lm_cd_search_mode' => $filters['search_mode'],
       'lm_cd_location' => $filters['location'],
       'lm_cd_source_type' => $filters['source_type'],
-      'lm_cd_value' => $filters['value_contains'],
       'lm_cd_source' => $filters['source_contains'],
       'lm_cd_title' => $filters['title_contains'],
       'lm_cd_author' => $filters['author_contains'],
@@ -493,8 +592,6 @@ trait LM_Request_URL_Helpers_Trait {
       'lm_cd_max_pages' => $filters['max_pages'],
       'lm_cd_orderby' => $filters['orderby'],
       'lm_cd_order' => $filters['order'],
-      'lm_cd_per_page' => $filters['per_page'],
-      'lm_cd_paged' => $filters['paged'],
       'lm_cd_rebuild' => $filters['rebuild'] ? '1' : '0',
     ];
     return admin_url('admin-post.php?' . http_build_query($args));
@@ -701,8 +798,6 @@ trait LM_Request_URL_Helpers_Trait {
       'lm_at_max_destinations' => $filters['max_destinations'],
       'lm_at_orderby' => $filters['orderby'],
       'lm_at_order' => $filters['order'],
-      'lm_at_per_page' => $filters['per_page'],
-      'lm_at_paged' => $filters['paged'],
       'lm_at_rebuild' => $filters['rebuild'] ? '1' : '0',
     ];
     return admin_url('admin-post.php?' . http_build_query($args));

@@ -208,7 +208,7 @@ trait LM_All_Anchor_Text_Admin_Trait {
     echo '</td></tr>';
     echo '<tr><th scope="row">' . esc_html__('Cache', 'links-manager') . '</th><td><label><input type="checkbox" name="lm_at_rebuild" value="1"' . checked($filters['rebuild'] ? '1' : '0', '1', false) . '> ' . esc_html__('Rebuild cache', 'links-manager') . '</label></td></tr>';
     echo '<tr><th scope="row">' . esc_html__('Per Page', 'links-manager') . '</th><td><input type="number" name="lm_at_per_page" min="10" max="500" value="' . esc_attr((string)$filters['per_page']) . '" style="width:90px;" /></td></tr>';
-    echo '<tr><th scope="row">' . esc_html__('Export', 'links-manager') . '</th><td><a class="button button-secondary" href="' . esc_url($exportUrl) . '">' . esc_html__('Export CSV', 'links-manager') . '</a><div class="lm-small">' . esc_html__('Export follows the current filters.', 'links-manager') . '</div></td></tr>';
+    echo '<tr><th scope="row">' . esc_html__('Export', 'links-manager') . '</th><td><a class="button button-secondary" href="' . esc_url($exportUrl) . '">' . esc_html__('Export CSV', 'links-manager') . '</a><div class="lm-small">' . esc_html__('Export includes all filtered results.', 'links-manager') . '</div></td></tr>';
     echo '</tbody></table>';
     submit_button(__('Apply Filters', 'links-manager'), 'primary', 'submit', false);
     echo ' <a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-all-anchor-text')) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';

@@ -316,7 +316,7 @@ trait LM_Pages_Link_Admin_Trait {
 
     echo '<tr><th scope="row">Export</th><td>';
     echo '<a class="button button-secondary" href="' . esc_url($exportUrl) . '">' . esc_html__('Export CSV', 'links-manager') . '</a>';
-    echo '<div class="lm-small">' . esc_html__('Export follows the current filters.', 'links-manager') . '</div>';
+    echo '<div class="lm-small">' . esc_html__('Export includes all filtered results.', 'links-manager') . '</div>';
     echo '</td></tr>';
 
     echo '</tbody></table>';

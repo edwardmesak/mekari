@@ -216,7 +216,7 @@ trait LM_Editor_Admin_Trait {
 
     echo '<tr><th scope="row">Export</th><td>';
     echo '<a class="button button-secondary" href="' . esc_url($exportUrl) . '">' . esc_html__('Export CSV', 'links-manager') . '</a>';
-    echo '<div class="lm-small">' . esc_html__('Export includes row_id + occurrence for precise bulk updates.', 'links-manager') . '</div>';
+    echo '<div class="lm-small">' . esc_html__('Export includes all filtered results and keeps row_id + occurrence for precise bulk updates.', 'links-manager') . '</div>';
     echo '</td></tr>';
 
     echo '</tbody></table>';
@@ -327,33 +327,12 @@ trait LM_Editor_Admin_Trait {
   }
 
   private function get_editor_hidden_fields($filters, $perPage, $paged) {
-    return [
-      'lm_post_type' => $filters['post_type'],
-      'lm_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
-      'lm_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
-      'lm_location' => $filters['location'],
-      'lm_source_type' => $filters['source_type'],
-      'lm_link_type' => $filters['link_type'],
-      'lm_value_type' => $filters['value_type'],
-      'lm_value' => $filters['value_contains'],
-      'lm_source' => $filters['source_contains'],
-      'lm_title' => $filters['title_contains'],
-      'lm_author' => $filters['author_contains'],
-      'lm_publish_date_from' => isset($filters['publish_date_from']) ? (string)$filters['publish_date_from'] : '',
-      'lm_publish_date_to' => isset($filters['publish_date_to']) ? (string)$filters['publish_date_to'] : '',
-      'lm_updated_date_from' => isset($filters['updated_date_from']) ? (string)$filters['updated_date_from'] : '',
-      'lm_updated_date_to' => isset($filters['updated_date_to']) ? (string)$filters['updated_date_to'] : '',
-      'lm_anchor' => $filters['anchor_contains'],
-      'lm_quality' => $filters['quality'],
-      'lm_seo_flag' => $filters['seo_flag'],
-      'lm_alt' => $filters['alt_contains'],
-      'lm_rel' => $filters['rel_contains'],
-      'lm_text_mode' => $filters['text_match_mode'],
-      'lm_orderby' => $filters['orderby'],
-      'lm_order' => $filters['order'],
+    $hiddenFields = $this->get_editor_filter_query_args($filters, [
       'lm_per_page' => $perPage,
       'lm_paged' => $paged,
-    ];
+    ]);
+    unset($hiddenFields['page']);
+    return $hiddenFields;
   }
 
   private function get_editor_results_count_text($total) {

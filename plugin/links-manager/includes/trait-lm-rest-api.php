@@ -453,6 +453,301 @@ trait LM_REST_API_Trait {
     ];
   }
 
+  private function build_rest_endpoint_context($namespace, $filters) {
+    $scopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+
+    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $rebuildRequested = !empty($filters['rebuild']);
+    $cacheStamp = (string)get_option($this->cache_scan_option_key($scopePostType, $scopeWpmlLang), '');
+
+    return [
+      'namespace' => sanitize_key((string)$namespace),
+      'scope_post_type' => $scopePostType,
+      'scope_wpml_lang' => $scopeWpmlLang,
+      'rebuild_requested' => $rebuildRequested,
+      'cache_stamp' => $cacheStamp,
+      'cache_key' => $this->build_rest_response_cache_key($namespace, [
+        'filters' => $filters,
+        'cache_stamp' => $cacheStamp,
+      ]),
+    ];
+  }
+
+  private function get_valid_rest_cached_response($cacheKey) {
+    $cachedResponse = $this->get_rest_response_cache($cacheKey);
+    if (!is_array($cachedResponse)
+      || !isset($cachedResponse['items'])
+      || !isset($cachedResponse['pagination'])
+      || !is_array($cachedResponse['items'])
+      || !is_array($cachedResponse['pagination'])) {
+      return null;
+    }
+
+    return $cachedResponse;
+  }
+
+  private function load_pages_link_rest_summary_rows($filters, $context) {
+    $rebuildRequested = !empty($context['rebuild_requested']);
+    $executionMode = 'cache_scan';
+    $pages = null;
+
+    if (!$rebuildRequested && $this->is_indexed_datastore_ready() && $this->can_use_indexed_pages_link_summary_fastpath($filters)) {
+      $pages = $this->get_pages_with_inbound_counts_from_indexed_summary($filters);
+      if (is_array($pages) && !empty($pages)) {
+        return [
+          'pages' => $pages,
+          'execution_mode' => 'indexed_summary_fastpath',
+        ];
+      }
+      $pages = null;
+    }
+
+    if (!is_array($pages)) {
+      $all = null;
+      $usedExistingCache = false;
+      $usedIndexedAuthority = false;
+      $usedRebuild = false;
+
+      if (!$rebuildRequested) {
+        $all = $this->get_existing_cache_rows_for_rest($context['scope_post_type'], $context['scope_wpml_lang'], true);
+        if (is_array($all)) {
+          if ($this->is_indexed_datastore_ready()) {
+            $usedIndexedAuthority = true;
+          } else {
+            $usedExistingCache = true;
+          }
+        }
+      }
+
+      if (!is_array($all)) {
+        $all = $this->get_canonical_rows_for_scope(
+          $context['scope_post_type'],
+          $rebuildRequested,
+          $context['scope_wpml_lang'],
+          $filters
+        );
+        $usedRebuild = $rebuildRequested;
+      }
+
+      $this->compact_rows_for_pages_link($all);
+      $pages = $this->get_pages_with_inbound_counts($all, $filters, false);
+
+      if ($usedRebuild) {
+        $executionMode = 'rebuild_cache_scan';
+      } elseif ($usedIndexedAuthority) {
+        $executionMode = 'indexed_prefilter_php';
+      } elseif ($usedExistingCache) {
+        $executionMode = 'cache_scan';
+      } else {
+        $executionMode = 'cache_scan_fallback';
+      }
+    }
+
+    return [
+      'pages' => is_array($pages) ? $pages : [],
+      'execution_mode' => $executionMode,
+    ];
+  }
+
+  private function paginate_pages_link_rest_response($pages, $filters) {
+    $perPage = max(10, (int)$filters['per_page']);
+    $requestedPage = max(1, (int)$filters['paged']);
+    $cursor = $this->decode_pages_link_keyset_cursor((string)($filters['cursor'] ?? ''));
+    $total = count($pages);
+    $totalPages = max(1, (int)ceil($total / $perPage));
+
+    if (is_array($cursor)) {
+      $orderby = isset($filters['orderby']) ? (string)$filters['orderby'] : 'date';
+      $isAsc = ((string)($filters['order'] ?? 'DESC') === 'ASC');
+      $cursorValueRaw = (string)$cursor['order'];
+      $cursorPostId = (int)$cursor['post_id'];
+
+      $pages = array_values(array_filter($pages, function($row) use ($orderby, $isAsc, $cursorValueRaw, $cursorPostId) {
+        $meta = $this->get_pages_link_cursor_sort_meta((array)$row, $orderby);
+        $rowValue = $meta['numeric'] ? (int)$meta['value'] : (string)$meta['value'];
+        $cursorValue = $meta['numeric'] ? (int)$cursorValueRaw : (string)$cursorValueRaw;
+
+        if ($meta['numeric']) {
+          $cmp = ((int)$rowValue <=> (int)$cursorValue);
+        } else {
+          $cmp = strcmp((string)$rowValue, (string)$cursorValue);
+        }
+
+        if ($cmp === 0) {
+          $cmp = ((int)($row['post_id'] ?? 0) <=> $cursorPostId);
+        }
+
+        return $isAsc ? ($cmp > 0) : ($cmp < 0);
+      }));
+      $paged = min($requestedPage, $totalPages);
+      $offset = 0;
+    } else {
+      $paged = min($requestedPage, $totalPages);
+      $offset = ($paged - 1) * $perPage;
+    }
+
+    $pageRows = array_slice($pages, $offset, $perPage);
+    $hasMore = ($offset + count($pageRows)) < count($pages);
+    $nextCursor = '';
+    if (!empty($pageRows) && $hasMore) {
+      $lastRow = $pageRows[count($pageRows) - 1];
+      $lastMeta = $this->get_pages_link_cursor_sort_meta((array)$lastRow, isset($filters['orderby']) ? (string)$filters['orderby'] : 'date');
+      $nextCursor = $this->encode_pages_link_keyset_cursor((string)$lastMeta['value'], (int)($lastRow['post_id'] ?? 0));
+    }
+
+    foreach ($pageRows as &$row) {
+      if ((string)($row['page_url'] ?? '') === '') {
+        $row['page_url'] = (string)get_permalink((int)($row['post_id'] ?? 0));
+      }
+    }
+    unset($row);
+
+    return [
+      'items' => array_values($pageRows),
+      'summary_pages' => array_values($pages),
+      'pagination' => [
+        'total' => $total,
+        'per_page' => $perPage,
+        'paged' => $paged,
+        'total_pages' => $totalPages,
+        'next_cursor' => $nextCursor,
+      ],
+    ];
+  }
+
+  private function load_editor_rest_rows($filters, $context) {
+    $rebuildRequested = !empty($context['rebuild_requested']);
+
+    if (!$rebuildRequested) {
+      $indexedFastResponse = $this->get_indexed_editor_list_fastpath_response($context['scope_post_type'], $context['scope_wpml_lang'], $filters);
+      if (is_array($indexedFastResponse)
+        && isset($indexedFastResponse['items'])
+        && isset($indexedFastResponse['pagination'])
+        && is_array($indexedFastResponse['items'])
+        && is_array($indexedFastResponse['pagination'])) {
+        return [
+          'response' => $indexedFastResponse,
+          'execution_mode' => 'indexed_sql_fastpath',
+        ];
+      }
+    }
+
+    $all = null;
+    $executionMode = 'cache_scan_fallback';
+    $usedIndexedAuthority = false;
+    $usedExistingCache = false;
+    $usedRebuild = false;
+
+    if (!$rebuildRequested && $this->is_indexed_datastore_ready()) {
+      $all = $this->get_indexed_fact_rows($context['scope_post_type'], $context['scope_wpml_lang'], $filters);
+      if (is_array($all) && !empty($all)) {
+        $usedIndexedAuthority = true;
+      }
+      if (!$usedIndexedAuthority && ($context['scope_post_type'] !== 'any' || $context['scope_wpml_lang'] !== 'all')) {
+        $all = $this->get_indexed_fact_rows('any', 'all', $filters);
+        if (is_array($all) && !empty($all)) {
+          $usedIndexedAuthority = true;
+        }
+      }
+    }
+
+    if (!is_array($all)) {
+      $all = null;
+    }
+    if (empty($all) && !$rebuildRequested && !$usedIndexedAuthority) {
+      $all = $this->get_existing_cache_rows_for_rest($context['scope_post_type'], $context['scope_wpml_lang'], true);
+      if (is_array($all)) {
+        $usedExistingCache = true;
+      }
+    }
+    if (!is_array($all)) {
+      $all = $this->get_canonical_rows_for_scope(
+        $context['scope_post_type'],
+        $rebuildRequested,
+        $context['scope_wpml_lang'],
+        $filters
+      );
+      $usedRebuild = $rebuildRequested;
+    }
+
+    if ($usedRebuild) {
+      $executionMode = 'rebuild_cache_scan';
+    } elseif ($usedIndexedAuthority) {
+      $executionMode = 'indexed_prefilter_php';
+    } elseif ($usedExistingCache) {
+      $executionMode = 'cache_scan';
+    }
+
+    return [
+      'rows' => $this->apply_filters_and_group($all, $filters),
+      'execution_mode' => $executionMode,
+    ];
+  }
+
+  private function paginate_editor_rest_response($rows, $filters) {
+    $total = count($rows);
+    $cursor = $this->decode_editor_keyset_cursor((string)($filters['cursor'] ?? ''));
+    $orderby = isset($filters['orderby']) ? (string)$filters['orderby'] : 'date';
+    $isAsc = ((string)($filters['order'] ?? 'DESC') === 'ASC');
+    $requestedPage = max(1, (int)$filters['paged']);
+
+    if (is_array($cursor)) {
+      $cursorValueRaw = (string)$cursor['order'];
+      $cursorPostId = (int)$cursor['post_id'];
+      $cursorRowId = (int)$cursor['row_id'];
+      $rows = array_values(array_filter($rows, function($row) use ($orderby, $isAsc, $cursorValueRaw, $cursorPostId, $cursorRowId) {
+        $meta = $this->get_editor_sort_meta_for_cursor((array)$row, $orderby);
+        $rowValue = $meta['numeric'] ? (int)$meta['value'] : (string)$meta['value'];
+        $cursorValue = $meta['numeric'] ? (int)$cursorValueRaw : (string)$cursorValueRaw;
+        $cmp = $meta['numeric'] ? (((int)$rowValue <=> (int)$cursorValue)) : strcmp((string)$rowValue, (string)$cursorValue);
+        if ($cmp === 0) {
+          $cmp = ((int)($row['post_id'] ?? 0) <=> $cursorPostId);
+        }
+        if ($cmp === 0) {
+          $cmp = ((int)($row['row_id'] ?? 0) <=> $cursorRowId);
+        }
+        return $isAsc ? ($cmp > 0) : ($cmp < 0);
+      }));
+    }
+
+    $perPage = max(10, (int)$filters['per_page']);
+    $totalPages = max(1, (int)ceil($total / $perPage));
+    if (is_array($cursor)) {
+      $paged = min($requestedPage, $totalPages);
+      $offset = 0;
+    } else {
+      $paged = min($requestedPage, $totalPages);
+      $offset = ($paged - 1) * $perPage;
+    }
+
+    $pageRows = array_slice($rows, $offset, $perPage);
+    $hasMore = ($offset + count($pageRows)) < $total;
+    $nextCursor = '';
+    if (!empty($pageRows) && $hasMore) {
+      $last = $pageRows[count($pageRows) - 1];
+      $lastMeta = $this->get_editor_sort_meta_for_cursor((array)$last, $orderby);
+      $nextCursor = $this->encode_editor_keyset_cursor(
+        (string)$lastMeta['value'],
+        (int)($last['post_id'] ?? 0),
+        (int)($last['row_id'] ?? 0)
+      );
+    }
+
+    return [
+      'items' => array_values($pageRows),
+      'pagination' => [
+        'total' => $total,
+        'per_page' => $perPage,
+        'paged' => $paged,
+        'total_pages' => $totalPages,
+        'next_cursor' => $nextCursor,
+      ],
+    ];
+  }
+
   private function get_anchor_usage_map_indexed_first($wpmlLang = 'all') {
     $wpmlLang = $this->get_effective_scan_wpml_lang((string)$wpmlLang);
     $summaryFilters = [
@@ -576,186 +871,25 @@ trait LM_REST_API_Trait {
   }
 
   public function rest_pages_link_list($request) {
-    $map = [
-      'post_type' => 'lm_pages_link_post_type',
-      'post_category' => 'lm_pages_link_post_category',
-      'post_tag' => 'lm_pages_link_post_tag',
-      'author' => 'lm_pages_link_author',
-      'search' => 'lm_pages_link_search',
-      'search_url' => 'lm_pages_link_search_url',
-      'date_from' => 'lm_pages_link_date_from',
-      'date_to' => 'lm_pages_link_date_to',
-      'updated_date_from' => 'lm_pages_link_updated_date_from',
-      'updated_date_to' => 'lm_pages_link_updated_date_to',
-      'search_mode' => 'lm_pages_link_search_mode',
-      'location' => 'lm_pages_link_location',
-      'source_type' => 'lm_pages_link_source_type',
-      'link_type' => 'lm_pages_link_link_type',
-      'value' => 'lm_pages_link_value',
-      'value_contains' => 'lm_pages_link_value',
-      'seo_flag' => 'lm_pages_link_seo_flag',
-      'orderby' => 'lm_pages_link_orderby',
-      'order' => 'lm_pages_link_order',
-      'inbound_min' => 'lm_pages_link_inbound_min',
-      'inbound_max' => 'lm_pages_link_inbound_max',
-      'internal_outbound_min' => 'lm_pages_link_internal_outbound_min',
-      'internal_outbound_max' => 'lm_pages_link_internal_outbound_max',
-      'outbound_min' => 'lm_pages_link_outbound_min',
-      'outbound_max' => 'lm_pages_link_outbound_max',
-      'status' => 'lm_pages_link_status',
-      'internal_outbound_status' => 'lm_pages_link_internal_outbound_status',
-      'external_outbound_status' => 'lm_pages_link_external_outbound_status',
-      'cursor' => 'lm_pages_link_cursor',
-      'rebuild' => 'lm_pages_link_rebuild',
-      'paged' => 'lm_pages_link_paged',
-      'per_page' => 'lm_pages_link_per_page',
-    ];
-
-    $overrides = $this->build_request_overrides_from_map($request, $map);
+    $overrides = $this->build_request_overrides_from_map($request, $this->get_pages_link_rest_request_override_map());
     return rest_ensure_response($this->with_request_overrides($overrides, function() {
       $filters = $this->get_pages_link_filters_from_request();
+      $context = $this->build_rest_endpoint_context('pages_link_list', $filters);
 
-      $scopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
-      if ($scopePostType === '') {
-        $scopePostType = 'any';
-      }
-      $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
-      $rebuildRequested = !empty($filters['rebuild']);
-      $cacheStamp = (string)get_option($this->cache_scan_option_key($scopePostType, $scopeWpmlLang), '');
-      $cacheKey = $this->build_rest_response_cache_key('pages_link_list', [
-        'filters' => $filters,
-        'cache_stamp' => $cacheStamp,
-      ]);
-
-      if (!$rebuildRequested) {
-        $cachedResponse = $this->get_rest_response_cache($cacheKey);
-        if (is_array($cachedResponse)
-          && isset($cachedResponse['items'])
-          && isset($cachedResponse['pagination'])
-          && is_array($cachedResponse['items'])
-          && is_array($cachedResponse['pagination'])) {
+      if (empty($context['rebuild_requested'])) {
+        $cachedResponse = $this->get_valid_rest_cached_response($context['cache_key']);
+        if (is_array($cachedResponse)) {
           $cachedResponse = $this->attach_rest_execution_meta($cachedResponse, 'pages_link_list', 'response_cache_hit', true);
           return $this->enrich_pages_link_rest_response($cachedResponse, $filters);
         }
       }
 
-      $executionMode = 'cache_scan';
-      $pages = null;
-      if (!$rebuildRequested && $this->is_indexed_datastore_ready() && $this->can_use_indexed_pages_link_summary_fastpath($filters)) {
-        $pages = $this->get_pages_with_inbound_counts_from_indexed_summary($filters);
-        if (is_array($pages) && !empty($pages)) {
-          $executionMode = 'indexed_summary_fastpath';
-        } else {
-          $pages = null;
-        }
-      }
+      $pagesResult = $this->load_pages_link_rest_summary_rows($filters, $context);
+      $response = $this->paginate_pages_link_rest_response((array)($pagesResult['pages'] ?? []), $filters);
+      $response = $this->attach_rest_execution_meta($response, 'pages_link_list', (string)($pagesResult['execution_mode'] ?? 'cache_scan_fallback'), false);
 
-      if (!is_array($pages)) {
-        $all = null;
-        $usedExistingCache = false;
-        $usedIndexedAuthority = false;
-        $usedRebuild = false;
-        if (!$rebuildRequested) {
-          $all = $this->get_existing_cache_rows_for_rest($scopePostType, $scopeWpmlLang, true);
-          if (is_array($all)) {
-            if ($this->is_indexed_datastore_ready()) {
-              $usedIndexedAuthority = true;
-            } else {
-              $usedExistingCache = true;
-            }
-          }
-        }
-        if (!is_array($all)) {
-          $all = $this->get_canonical_rows_for_scope(
-            $scopePostType,
-            $rebuildRequested,
-            $scopeWpmlLang,
-            $filters
-          );
-          $usedRebuild = $rebuildRequested;
-        }
-        $this->compact_rows_for_pages_link($all);
-        $pages = $this->get_pages_with_inbound_counts($all, $filters, false);
-        if ($usedRebuild) {
-          $executionMode = 'rebuild_cache_scan';
-        } elseif ($usedIndexedAuthority) {
-          $executionMode = 'indexed_prefilter_php';
-        } elseif ($usedExistingCache) {
-          $executionMode = 'cache_scan';
-        } else {
-          $executionMode = 'cache_scan_fallback';
-        }
-      }
-
-      $perPage = max(10, (int)$filters['per_page']);
-      $requestedPage = max(1, (int)$filters['paged']);
-      $cursor = $this->decode_pages_link_keyset_cursor((string)($filters['cursor'] ?? ''));
-      $total = count($pages);
-      $totalPages = max(1, (int)ceil($total / $perPage));
-
-      if (is_array($cursor)) {
-        $orderby = isset($filters['orderby']) ? (string)$filters['orderby'] : 'date';
-        $isAsc = ((string)($filters['order'] ?? 'DESC') === 'ASC');
-        $cursorValueRaw = (string)$cursor['order'];
-        $cursorPostId = (int)$cursor['post_id'];
-
-        $pages = array_values(array_filter($pages, function($row) use ($orderby, $isAsc, $cursorValueRaw, $cursorPostId) {
-          $meta = $this->get_pages_link_cursor_sort_meta((array)$row, $orderby);
-          $rowValue = $meta['numeric'] ? (int)$meta['value'] : (string)$meta['value'];
-          $cursorValue = $meta['numeric'] ? (int)$cursorValueRaw : (string)$cursorValueRaw;
-
-          if ($meta['numeric']) {
-            $cmp = ((int)$rowValue <=> (int)$cursorValue);
-          } else {
-            $cmp = strcmp((string)$rowValue, (string)$cursorValue);
-          }
-
-          if ($cmp === 0) {
-            $cmp = ((int)($row['post_id'] ?? 0) <=> $cursorPostId);
-          }
-
-          return $isAsc ? ($cmp > 0) : ($cmp < 0);
-        }));
-        $paged = min($requestedPage, $totalPages);
-        $offset = 0;
-      } else {
-        $paged = $requestedPage;
-        if ($paged > $totalPages) {
-          $paged = $totalPages;
-        }
-        $offset = ($paged - 1) * $perPage;
-      }
-
-      $pageRows = array_slice($pages, $offset, $perPage);
-      $hasMore = ($offset + count($pageRows)) < count($pages);
-      $nextCursor = '';
-      if (!empty($pageRows) && $hasMore) {
-        $lastRow = $pageRows[count($pageRows) - 1];
-        $lastMeta = $this->get_pages_link_cursor_sort_meta((array)$lastRow, isset($filters['orderby']) ? (string)$filters['orderby'] : 'date');
-        $nextCursor = $this->encode_pages_link_keyset_cursor((string)$lastMeta['value'], (int)($lastRow['post_id'] ?? 0));
-      }
-      foreach ($pageRows as &$row) {
-        if ((string)($row['page_url'] ?? '') === '') {
-          $row['page_url'] = (string)get_permalink((int)($row['post_id'] ?? 0));
-        }
-      }
-      unset($row);
-
-      $response = [
-        'items' => array_values($pageRows),
-        'summary_pages' => array_values($pages),
-        'pagination' => [
-          'total' => $total,
-          'per_page' => $perPage,
-          'paged' => $paged,
-          'total_pages' => $totalPages,
-          'next_cursor' => $nextCursor,
-        ],
-      ];
-      $response = $this->attach_rest_execution_meta($response, 'pages_link_list', $executionMode, false);
-
-      if (!$rebuildRequested) {
-        $this->set_rest_response_cache($cacheKey, $response);
+      if (empty($context['rebuild_requested'])) {
+        $this->set_rest_response_cache($context['cache_key'], $response);
       }
 
       return $this->enrich_pages_link_rest_response($response, $filters);
@@ -763,187 +897,29 @@ trait LM_REST_API_Trait {
   }
 
   public function rest_editor_list($request) {
-    $map = [
-      'post_type' => 'lm_post_type',
-      'post_category' => 'lm_post_category',
-      'post_tag' => 'lm_post_tag',
-      'location' => 'lm_location',
-      'source_type' => 'lm_source_type',
-      'link_type' => 'lm_link_type',
-      'value_type' => 'lm_value_type',
-      'value' => 'lm_value',
-      'source' => 'lm_source',
-      'title' => 'lm_title',
-      'author' => 'lm_author',
-      'publish_date_from' => 'lm_publish_date_from',
-      'publish_date_to' => 'lm_publish_date_to',
-      'updated_date_from' => 'lm_updated_date_from',
-      'updated_date_to' => 'lm_updated_date_to',
-      'anchor' => 'lm_anchor',
-      'quality' => 'lm_quality',
-      'seo_flag' => 'lm_seo_flag',
-      'alt' => 'lm_alt',
-      'rel' => 'lm_rel',
-      'text_mode' => 'lm_text_mode',
-      'orderby' => 'lm_orderby',
-      'order' => 'lm_order',
-      'cursor' => 'lm_cursor',
-      'rebuild' => 'lm_rebuild',
-      'paged' => 'lm_paged',
-      'per_page' => 'lm_per_page',
-    ];
-
-    $overrides = $this->build_request_overrides_from_map($request, $map);
+    $overrides = $this->build_request_overrides_from_map($request, $this->get_editor_rest_request_override_map());
     return rest_ensure_response($this->with_request_overrides($overrides, function() {
       $filters = $this->get_filters_from_request();
+      $context = $this->build_rest_endpoint_context('editor_list', $filters);
 
-      $scopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
-      if ($scopePostType === '') {
-        $scopePostType = 'any';
-      }
-      $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
-      $rebuildRequested = !empty($filters['rebuild']);
-      $cacheStamp = (string)get_option($this->cache_scan_option_key($scopePostType, $scopeWpmlLang), '');
-      $cacheKey = $this->build_rest_response_cache_key('editor_list', [
-        'filters' => $filters,
-        'cache_stamp' => $cacheStamp,
-      ]);
-
-      if (!$rebuildRequested) {
-        $cachedResponse = $this->get_rest_response_cache($cacheKey);
-        if (is_array($cachedResponse)
-          && isset($cachedResponse['items'])
-          && isset($cachedResponse['pagination'])
-          && is_array($cachedResponse['items'])
-          && is_array($cachedResponse['pagination'])) {
+      if (empty($context['rebuild_requested'])) {
+        $cachedResponse = $this->get_valid_rest_cached_response($context['cache_key']);
+        if (is_array($cachedResponse)) {
           $cachedResponse = $this->attach_rest_execution_meta($cachedResponse, 'editor_list', 'response_cache_hit', true);
           return $this->enrich_editor_rest_response($cachedResponse, $filters);
         }
       }
 
-      if (!$rebuildRequested) {
-        $indexedFastResponse = $this->get_indexed_editor_list_fastpath_response($scopePostType, $scopeWpmlLang, $filters);
-        if (is_array($indexedFastResponse)
-          && isset($indexedFastResponse['items'])
-          && isset($indexedFastResponse['pagination'])
-          && is_array($indexedFastResponse['items'])
-          && is_array($indexedFastResponse['pagination'])) {
-          $indexedFastResponse = $this->attach_rest_execution_meta($indexedFastResponse, 'editor_list', 'indexed_sql_fastpath', false);
-          $this->set_rest_response_cache($cacheKey, $indexedFastResponse);
-          return $this->enrich_editor_rest_response($indexedFastResponse, $filters);
-        }
-      }
-
-      $all = null;
-      $executionMode = 'cache_scan_fallback';
-      $usedIndexedPrefilter = false;
-      $usedIndexedAuthority = false;
-      $usedExistingCache = false;
-      $usedRebuild = false;
-      if (!$rebuildRequested && $this->is_indexed_datastore_ready()) {
-        $all = $this->get_indexed_fact_rows($scopePostType, $scopeWpmlLang, $filters);
-        if (is_array($all) && !empty($all)) {
-          $usedIndexedAuthority = true;
-          $usedIndexedPrefilter = true;
-        }
-        if (!$usedIndexedAuthority && ($scopePostType !== 'any' || $scopeWpmlLang !== 'all')) {
-          $all = $this->get_indexed_fact_rows('any', 'all', $filters);
-          if (is_array($all) && !empty($all)) {
-            $usedIndexedAuthority = true;
-            $usedIndexedPrefilter = true;
-          }
-        }
-      }
-
-      if (!is_array($all)) {
-        $all = null;
-      }
-      if (empty($all) && !$rebuildRequested && !$usedIndexedAuthority) {
-        $all = $this->get_existing_cache_rows_for_rest($scopePostType, $scopeWpmlLang, true);
-        if (is_array($all)) {
-          $usedExistingCache = true;
-        }
-      }
-      if (!is_array($all)) {
-        $all = $this->get_canonical_rows_for_scope(
-          $scopePostType,
-          $rebuildRequested,
-          $scopeWpmlLang,
-          $filters
-        );
-        $usedRebuild = $rebuildRequested;
-      }
-      if ($usedRebuild) {
-        $executionMode = 'rebuild_cache_scan';
-      } elseif ($usedIndexedAuthority) {
-        $executionMode = 'indexed_prefilter_php';
-      } elseif ($usedExistingCache) {
-        $executionMode = 'cache_scan';
-      }
-      $rows = $this->apply_filters_and_group($all, $filters);
-      $total = count($rows);
-      $cursor = $this->decode_editor_keyset_cursor((string)($filters['cursor'] ?? ''));
-      $orderby = isset($filters['orderby']) ? (string)$filters['orderby'] : 'date';
-      $isAsc = ((string)($filters['order'] ?? 'DESC') === 'ASC');
-      $requestedPage = max(1, (int)$filters['paged']);
-      if (is_array($cursor)) {
-        $cursorValueRaw = (string)$cursor['order'];
-        $cursorPostId = (int)$cursor['post_id'];
-        $cursorRowId = (int)$cursor['row_id'];
-        $rows = array_values(array_filter($rows, function($row) use ($orderby, $isAsc, $cursorValueRaw, $cursorPostId, $cursorRowId) {
-          $meta = $this->get_editor_sort_meta_for_cursor((array)$row, $orderby);
-          $rowValue = $meta['numeric'] ? (int)$meta['value'] : (string)$meta['value'];
-          $cursorValue = $meta['numeric'] ? (int)$cursorValueRaw : (string)$cursorValueRaw;
-          $cmp = $meta['numeric'] ? (((int)$rowValue <=> (int)$cursorValue)) : strcmp((string)$rowValue, (string)$cursorValue);
-          if ($cmp === 0) {
-            $cmp = ((int)($row['post_id'] ?? 0) <=> $cursorPostId);
-          }
-          if ($cmp === 0) {
-            $cmp = ((int)($row['row_id'] ?? 0) <=> $cursorRowId);
-          }
-          return $isAsc ? ($cmp > 0) : ($cmp < 0);
-        }));
-      }
-
-      $perPage = max(10, (int)$filters['per_page']);
-      $totalPages = max(1, (int)ceil($total / $perPage));
-      if (is_array($cursor)) {
-        $paged = min($requestedPage, $totalPages);
-        $offset = 0;
+      $editorResult = $this->load_editor_rest_rows($filters, $context);
+      if (isset($editorResult['response']) && is_array($editorResult['response'])) {
+        $response = $this->attach_rest_execution_meta($editorResult['response'], 'editor_list', (string)($editorResult['execution_mode'] ?? 'indexed_sql_fastpath'), false);
       } else {
-        $paged = $requestedPage;
-        if ($paged > $totalPages) {
-          $paged = $totalPages;
-        }
-        $offset = ($paged - 1) * $perPage;
-      }
-      $pageRows = array_slice($rows, $offset, $perPage);
-      $hasMore = ($offset + count($pageRows)) < $total;
-      $nextCursor = '';
-      if (!empty($pageRows) && $hasMore) {
-        $last = $pageRows[count($pageRows) - 1];
-        $lastMeta = $this->get_editor_sort_meta_for_cursor((array)$last, $orderby);
-        $nextCursor = $this->encode_editor_keyset_cursor(
-          (string)$lastMeta['value'],
-          (int)($last['post_id'] ?? 0),
-          (int)($last['row_id'] ?? 0)
-        );
+        $response = $this->paginate_editor_rest_response((array)($editorResult['rows'] ?? []), $filters);
+        $response = $this->attach_rest_execution_meta($response, 'editor_list', (string)($editorResult['execution_mode'] ?? 'cache_scan_fallback'), false);
       }
 
-      $response = [
-        'items' => array_values($pageRows),
-        'pagination' => [
-          'total' => $total,
-          'per_page' => $perPage,
-          'paged' => $paged,
-          'total_pages' => $totalPages,
-          'next_cursor' => $nextCursor,
-        ],
-      ];
-      $response = $this->attach_rest_execution_meta($response, 'editor_list', $executionMode, false);
-
-      if (!$rebuildRequested) {
-        $this->set_rest_response_cache($cacheKey, $response);
+      if (empty($context['rebuild_requested'])) {
+        $this->set_rest_response_cache($context['cache_key'], $response);
       }
 
       return $this->enrich_editor_rest_response($response, $filters);
