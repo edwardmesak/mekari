@@ -12,7 +12,7 @@ trait LM_Statistics_Admin_Trait {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
     $filters = $this->get_filters_from_request();
-    $msg = isset($_GET['lm_msg']) ? sanitize_text_field((string)$_GET['lm_msg']) : '';
+    $msg = $this->request_text('lm_msg', '');
     $msgClass = $this->notice_class_for_message($msg, 'info');
 
     echo '<div class="wrap lm-wrap">';

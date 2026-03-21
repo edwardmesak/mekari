@@ -34,3 +34,6 @@ coverage/
 
 #non MVP plugin
 content-refresher/
+
+#Debug files
+QA_SMOKE_CHECKLIST.md

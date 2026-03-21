@@ -8,6 +8,130 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Links_Target_Admin_Trait {
+  private function get_links_target_summary_filters_from_request($groupNames, $postTypeOptions) {
+    $summaryGroupsRaw = $this->request_array('lm_summary_groups');
+    if (empty($summaryGroupsRaw) && $this->request_has('lm_summary_group')) {
+      $legacySummaryGroup = trim($this->request_text('lm_summary_group', ''));
+      if ($legacySummaryGroup !== '') {
+        $summaryGroupsRaw = [$legacySummaryGroup];
+      }
+    }
+
+    $summaryGroupSelected = [];
+    foreach ($summaryGroupsRaw as $item) {
+      $item = trim(sanitize_text_field((string)$item));
+      if ($item === '') continue;
+      if ($item === 'no_group' || in_array($item, $groupNames, true)) {
+        $summaryGroupSelected[$item] = true;
+      }
+    }
+
+    $summaryPostType = $this->request_key('lm_summary_post_type', 'any');
+    if ($summaryPostType !== 'any' && !isset($postTypeOptions[$summaryPostType])) {
+      $summaryPostType = 'any';
+    }
+
+    $summaryPostCategory = $this->request_has('lm_summary_post_category') ? $this->sanitize_post_term_filter($this->request_raw('lm_summary_post_category', 0), 'category') : 0;
+    $summaryPostTag = $this->request_has('lm_summary_post_tag') ? $this->sanitize_post_term_filter($this->request_raw('lm_summary_post_tag', 0), 'post_tag') : 0;
+    if ($summaryPostType !== 'any' && $summaryPostType !== 'post') {
+      $summaryPostCategory = 0;
+      $summaryPostTag = 0;
+    }
+
+    $summaryLocation = $this->request_text('lm_summary_location', 'any');
+    if ($summaryLocation === '') $summaryLocation = 'any';
+
+    $summarySourceType = $this->request_source_type('lm_summary_source_type', 'any');
+    $summaryLinkType = $this->request_text('lm_summary_link_type', 'any');
+    if (!in_array($summaryLinkType, ['any', 'inlink', 'exlink'], true)) $summaryLinkType = 'any';
+
+    $summarySearchMode = $this->request_text_mode('lm_summary_search_mode', 'contains');
+    $summaryAnchor = $this->request_text('lm_summary_anchor', '');
+    $summaryAnchorSearch = $this->request_text('lm_summary_anchor_search', '');
+    if ($summaryAnchorSearch === '' && $summaryAnchor !== '') {
+      $summaryAnchorSearch = $summaryAnchor;
+      $summarySearchMode = 'exact';
+    }
+
+    $summarySeoFlag = $this->request_text('lm_summary_seo_flag', 'any');
+    if (!in_array($summarySeoFlag, ['any', 'dofollow', 'nofollow', 'sponsored', 'ugc'], true)) $summarySeoFlag = 'any';
+
+    $summaryOrderby = $this->request_text('lm_summary_orderby', 'anchor');
+    if (!in_array($summaryOrderby, ['group', 'anchor', 'total', 'inlink', 'outbound'], true)) $summaryOrderby = 'anchor';
+    $summaryOrder = strtoupper($this->request_text('lm_summary_order', 'ASC'));
+    if (!in_array($summaryOrder, ['ASC', 'DESC'], true)) $summaryOrder = 'ASC';
+
+    $summaryPerPage = $this->request_int('lm_summary_per_page', 50);
+    if ($summaryPerPage < 10) $summaryPerPage = 10;
+    if ($summaryPerPage > 500) $summaryPerPage = 500;
+    $summaryPaged = $this->request_int('lm_summary_paged', 1);
+    if ($summaryPaged < 1) $summaryPaged = 1;
+
+    return [
+      'summary_groups' => array_keys($summaryGroupSelected),
+      'summary_group_search' => $this->request_text('lm_summary_group_search', ''),
+      'summary_anchor' => $summaryAnchor,
+      'summary_anchor_search' => $summaryAnchorSearch,
+      'summary_search_mode' => $summarySearchMode,
+      'summary_post_type' => $summaryPostType,
+      'summary_post_category' => $summaryPostCategory,
+      'summary_post_tag' => $summaryPostTag,
+      'summary_location' => $summaryLocation,
+      'summary_source_type' => $summarySourceType,
+      'summary_link_type' => $summaryLinkType,
+      'summary_value' => $this->request_text('lm_summary_value', ''),
+      'summary_source' => $this->request_text('lm_summary_source', ''),
+      'summary_title' => $this->request_text('lm_summary_title', ''),
+      'summary_author' => $this->request_text('lm_summary_author', ''),
+      'summary_seo_flag' => $summarySeoFlag,
+      'summary_total_min' => $this->request_text('lm_summary_total_min', ''),
+      'summary_total_max' => $this->request_text('lm_summary_total_max', ''),
+      'summary_in_min' => $this->request_text('lm_summary_in_min', ''),
+      'summary_in_max' => $this->request_text('lm_summary_in_max', ''),
+      'summary_out_min' => $this->request_text('lm_summary_out_min', ''),
+      'summary_out_max' => $this->request_text('lm_summary_out_max', ''),
+      'summary_orderby' => $summaryOrderby,
+      'summary_order' => $summaryOrder,
+      'summary_per_page' => $summaryPerPage,
+      'summary_paged' => $summaryPaged,
+    ];
+  }
+
+  private function get_links_target_summary_query_args($summaryState, $override = []) {
+    $args = [
+      'page' => 'links-manager-target',
+      'lm_summary_groups' => isset($summaryState['summary_groups']) ? (array)$summaryState['summary_groups'] : [],
+      'lm_summary_group_search' => isset($summaryState['summary_group_search']) ? $summaryState['summary_group_search'] : '',
+      'lm_summary_post_type' => isset($summaryState['summary_post_type']) ? $summaryState['summary_post_type'] : 'any',
+      'lm_summary_post_category' => isset($summaryState['summary_post_category']) ? $summaryState['summary_post_category'] : 0,
+      'lm_summary_post_tag' => isset($summaryState['summary_post_tag']) ? $summaryState['summary_post_tag'] : 0,
+      'lm_summary_location' => isset($summaryState['summary_location']) ? $summaryState['summary_location'] : 'any',
+      'lm_summary_source_type' => isset($summaryState['summary_source_type']) ? $summaryState['summary_source_type'] : 'any',
+      'lm_summary_link_type' => isset($summaryState['summary_link_type']) ? $summaryState['summary_link_type'] : 'any',
+      'lm_summary_value' => isset($summaryState['summary_value']) ? $summaryState['summary_value'] : '',
+      'lm_summary_source' => isset($summaryState['summary_source']) ? $summaryState['summary_source'] : '',
+      'lm_summary_title' => isset($summaryState['summary_title']) ? $summaryState['summary_title'] : '',
+      'lm_summary_author' => isset($summaryState['summary_author']) ? $summaryState['summary_author'] : '',
+      'lm_summary_seo_flag' => isset($summaryState['summary_seo_flag']) ? $summaryState['summary_seo_flag'] : 'any',
+      'lm_summary_anchor' => isset($summaryState['summary_anchor']) ? $summaryState['summary_anchor'] : '',
+      'lm_summary_anchor_search' => isset($summaryState['summary_anchor_search']) ? $summaryState['summary_anchor_search'] : '',
+      'lm_summary_search_mode' => isset($summaryState['summary_search_mode']) ? $summaryState['summary_search_mode'] : 'contains',
+      'lm_summary_total_min' => isset($summaryState['summary_total_min']) ? $summaryState['summary_total_min'] : '',
+      'lm_summary_total_max' => isset($summaryState['summary_total_max']) ? $summaryState['summary_total_max'] : '',
+      'lm_summary_in_min' => isset($summaryState['summary_in_min']) ? $summaryState['summary_in_min'] : '',
+      'lm_summary_in_max' => isset($summaryState['summary_in_max']) ? $summaryState['summary_in_max'] : '',
+      'lm_summary_out_min' => isset($summaryState['summary_out_min']) ? $summaryState['summary_out_min'] : '',
+      'lm_summary_out_max' => isset($summaryState['summary_out_max']) ? $summaryState['summary_out_max'] : '',
+      'lm_summary_orderby' => isset($summaryState['summary_orderby']) ? $summaryState['summary_orderby'] : 'anchor',
+      'lm_summary_order' => isset($summaryState['summary_order']) ? $summaryState['summary_order'] : 'ASC',
+      'lm_summary_per_page' => isset($summaryState['summary_per_page']) ? $summaryState['summary_per_page'] : 50,
+    ];
+    foreach ($override as $key => $value) {
+      $args[$key] = $value;
+    }
+    return $args;
+  }
+
   private function links_target_usage_cache_key($filters, $anchorKeys) {
     $payload = [
       'filters' => is_array($filters) ? $filters : [],
@@ -550,11 +674,11 @@ trait LM_Links_Target_Admin_Trait {
   public function render_admin_links_target_page() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
-    $msg = isset($_GET['lm_msg']) ? sanitize_text_field((string)$_GET['lm_msg']) : '';
+    $msg = $this->request_text('lm_msg', '');
     $msgClass = $this->notice_class_for_message($msg, 'success');
-    $groupOrderby = isset($_GET['lm_group_orderby']) ? sanitize_text_field((string)$_GET['lm_group_orderby']) : 'tag';
+    $groupOrderby = $this->request_text('lm_group_orderby', 'tag');
     if (!in_array($groupOrderby, ['tag', 'total_anchors', 'total_usage', 'inlink_usage', 'outbound_usage'], true)) $groupOrderby = 'tag';
-    $groupOrder = isset($_GET['lm_group_order']) ? strtoupper(sanitize_text_field((string)$_GET['lm_group_order'])) : 'ASC';
+    $groupOrder = strtoupper($this->request_text('lm_group_order', 'ASC'));
     if (!in_array($groupOrder, ['ASC', 'DESC'], true)) $groupOrder = 'ASC';
     $groups = $this->get_anchor_groups();
     $groupNames = [];
@@ -563,10 +687,7 @@ trait LM_Links_Target_Admin_Trait {
       if ($gname !== '') $groupNames[] = $gname;
     }
     $groupNames = array_values(array_unique($groupNames));
-    $groupFilterRaw = isset($_GET['lm_group_filter']) ? wp_unslash($_GET['lm_group_filter']) : [];
-    if (!is_array($groupFilterRaw)) {
-      $groupFilterRaw = $groupFilterRaw === '' ? [] : [$groupFilterRaw];
-    }
+    $groupFilterRaw = $this->request_array('lm_group_filter');
     $groupFilterSelected = [];
     foreach ($groupFilterRaw as $item) {
       $item = trim(sanitize_text_field((string)$item));
@@ -576,8 +697,8 @@ trait LM_Links_Target_Admin_Trait {
       }
     }
     $groupFilterSelected = array_keys($groupFilterSelected);
-    $groupSearch = isset($_GET['lm_group_search']) ? sanitize_text_field((string)$_GET['lm_group_search']) : '';
-    $groupSearchMode = isset($_GET['lm_group_search_mode']) ? $this->sanitize_text_match_mode((string)$_GET['lm_group_search_mode']) : 'contains';
+    $groupSearch = $this->request_text('lm_group_search', '');
+    $groupSearchMode = $this->request_text_mode('lm_group_search_mode', 'contains');
     $groupingExportUrl = add_query_arg([
       'action' => 'lm_export_anchor_grouping_csv',
       self::NONCE_NAME => wp_create_nonce(self::NONCE_ACTION),
@@ -746,7 +867,7 @@ trait LM_Links_Target_Admin_Trait {
 
     echo '</tbody></table></div>';
 
-    $editGroupIdx = isset($_GET['lm_edit_group']) ? intval($_GET['lm_edit_group']) : -1;
+    $editGroupIdx = $this->request_int('lm_edit_group', -1);
     if ($editGroupIdx >= 0 && isset($groups[$editGroupIdx])) {
       $g = $groups[$editGroupIdx];
       $gname = (string)($g['name'] ?? '');
@@ -787,7 +908,7 @@ trait LM_Links_Target_Admin_Trait {
     submit_button(__('Save Targets', 'links-manager'), 'secondary', 'submit', false);
     echo '</form>';
 
-    $editIdx = isset($_GET['lm_edit_target']) ? intval($_GET['lm_edit_target']) : -1;
+    $editIdx = $this->request_int('lm_edit_target', -1);
     if ($editIdx >= 0 && isset($targets[$editIdx])) {
       echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-top:10px; padding:10px; border:1px solid #e5e7eb; border-radius:6px; background:#f9fafb;">';
       echo '<input type="hidden" name="action" value="lm_update_anchor_target"/>';
@@ -808,104 +929,46 @@ trait LM_Links_Target_Admin_Trait {
     echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
     submit_button(__('Delete Selected Targets', 'links-manager'), 'delete', 'submit', false, ['onclick' => "return confirm('" . esc_js(__('Delete selected targets?', 'links-manager')) . "');"]);
     echo '</form>';
-    $summaryGroupsRaw = isset($_GET['lm_summary_groups']) ? wp_unslash($_GET['lm_summary_groups']) : [];
-    if (!is_array($summaryGroupsRaw)) {
-      $summaryGroupsRaw = $summaryGroupsRaw === '' ? [] : [$summaryGroupsRaw];
-    }
-    if (empty($summaryGroupsRaw) && isset($_GET['lm_summary_group'])) {
-      $legacySummaryGroup = trim(sanitize_text_field((string)$_GET['lm_summary_group']));
-      if ($legacySummaryGroup !== '') $summaryGroupsRaw[] = $legacySummaryGroup;
-    }
-    $summaryGroupSelected = [];
-    foreach ($summaryGroupsRaw as $item) {
-      $item = trim(sanitize_text_field((string)$item));
-      if ($item === '') continue;
-      if ($item === 'no_group' || in_array($item, $groupNames, true)) {
-        $summaryGroupSelected[$item] = true;
-      }
-    }
-    $summaryGroupSelected = array_keys($summaryGroupSelected);
-    $summaryGroupSearch = isset($_GET['lm_summary_group_search']) ? sanitize_text_field((string)$_GET['lm_summary_group_search']) : '';
-    $summaryAnchor = isset($_GET['lm_summary_anchor']) ? sanitize_text_field((string)$_GET['lm_summary_anchor']) : '';
-    $summaryAnchorSearch = isset($_GET['lm_summary_anchor_search']) ? sanitize_text_field((string)$_GET['lm_summary_anchor_search']) : '';
-    $summarySearchMode = isset($_GET['lm_summary_search_mode']) ? $this->sanitize_text_match_mode((string)$_GET['lm_summary_search_mode']) : 'contains';
-    if ($summaryAnchorSearch === '' && $summaryAnchor !== '') {
-      $summaryAnchorSearch = $summaryAnchor;
-      $summarySearchMode = 'exact';
-    }
     $summaryPostTypeOptions = $this->get_filterable_post_types();
     $summaryPostCategoryOptions = $this->get_post_term_options('category');
     $summaryPostTagOptions = $this->get_post_term_options('post_tag');
-    $summaryPostType = isset($_GET['lm_summary_post_type']) ? sanitize_key((string)$_GET['lm_summary_post_type']) : 'any';
-    if ($summaryPostType !== 'any' && !isset($summaryPostTypeOptions[$summaryPostType])) $summaryPostType = 'any';
-    $summaryPostCategory = isset($_GET['lm_summary_post_category']) ? $this->sanitize_post_term_filter($_GET['lm_summary_post_category'], 'category') : 0;
-    $summaryPostTag = isset($_GET['lm_summary_post_tag']) ? $this->sanitize_post_term_filter($_GET['lm_summary_post_tag'], 'post_tag') : 0;
-    if ($summaryPostType !== 'any' && $summaryPostType !== 'post') {
-      $summaryPostCategory = 0;
-      $summaryPostTag = 0;
-    }
-    $summaryLocation = isset($_GET['lm_summary_location']) ? sanitize_text_field((string)$_GET['lm_summary_location']) : 'any';
-    if ($summaryLocation === '') $summaryLocation = 'any';
-    $summarySourceType = isset($_GET['lm_summary_source_type'])
-      ? $this->sanitize_source_type_filter($_GET['lm_summary_source_type'])
-      : 'any';
-    $summaryLinkType = isset($_GET['lm_summary_link_type']) ? sanitize_text_field((string)$_GET['lm_summary_link_type']) : 'any';
-    if (!in_array($summaryLinkType, ['any', 'inlink', 'exlink'], true)) $summaryLinkType = 'any';
-    $summaryValueContains = isset($_GET['lm_summary_value']) ? sanitize_text_field((string)$_GET['lm_summary_value']) : '';
-    $summarySourceContains = isset($_GET['lm_summary_source']) ? sanitize_text_field((string)$_GET['lm_summary_source']) : '';
-    $summaryTitleContains = isset($_GET['lm_summary_title']) ? sanitize_text_field((string)$_GET['lm_summary_title']) : '';
-    $summaryAuthorContains = isset($_GET['lm_summary_author']) ? sanitize_text_field((string)$_GET['lm_summary_author']) : '';
-    $summarySeoFlag = isset($_GET['lm_summary_seo_flag']) ? sanitize_text_field((string)$_GET['lm_summary_seo_flag']) : 'any';
-    if (!in_array($summarySeoFlag, ['any', 'dofollow', 'nofollow', 'sponsored', 'ugc'], true)) $summarySeoFlag = 'any';
-    $summaryTotalMin = isset($_GET['lm_summary_total_min']) ? (string)$_GET['lm_summary_total_min'] : '';
-    $summaryTotalMax = isset($_GET['lm_summary_total_max']) ? (string)$_GET['lm_summary_total_max'] : '';
-    $summaryInMin = isset($_GET['lm_summary_in_min']) ? (string)$_GET['lm_summary_in_min'] : '';
-    $summaryInMax = isset($_GET['lm_summary_in_max']) ? (string)$_GET['lm_summary_in_max'] : '';
-    $summaryOutMin = isset($_GET['lm_summary_out_min']) ? (string)$_GET['lm_summary_out_min'] : '';
-    $summaryOutMax = isset($_GET['lm_summary_out_max']) ? (string)$_GET['lm_summary_out_max'] : '';
-    $summaryOrderby = isset($_GET['lm_summary_orderby']) ? sanitize_text_field((string)$_GET['lm_summary_orderby']) : 'anchor';
-    if (!in_array($summaryOrderby, ['group', 'anchor', 'total', 'inlink', 'outbound'], true)) $summaryOrderby = 'anchor';
-    $summaryOrder = isset($_GET['lm_summary_order']) ? strtoupper(sanitize_text_field((string)$_GET['lm_summary_order'])) : 'ASC';
-    if (!in_array($summaryOrder, ['ASC', 'DESC'], true)) $summaryOrder = 'ASC';
-    $summaryPerPage = isset($_GET['lm_summary_per_page']) ? intval($_GET['lm_summary_per_page']) : 50;
-    if ($summaryPerPage < 10) $summaryPerPage = 10;
-    if ($summaryPerPage > 500) $summaryPerPage = 500;
-    $summaryPaged = isset($_GET['lm_summary_paged']) ? intval($_GET['lm_summary_paged']) : 1;
-    if ($summaryPaged < 1) $summaryPaged = 1;
+    $summaryState = $this->get_links_target_summary_filters_from_request($groupNames, $summaryPostTypeOptions);
+    $summaryGroupSelected = $summaryState['summary_groups'];
+    $summaryGroupSearch = $summaryState['summary_group_search'];
+    $summaryAnchor = $summaryState['summary_anchor'];
+    $summaryAnchorSearch = $summaryState['summary_anchor_search'];
+    $summarySearchMode = $summaryState['summary_search_mode'];
+    $summaryPostType = $summaryState['summary_post_type'];
+    $summaryPostCategory = $summaryState['summary_post_category'];
+    $summaryPostTag = $summaryState['summary_post_tag'];
+    $summaryLocation = $summaryState['summary_location'];
+    $summarySourceType = $summaryState['summary_source_type'];
+    $summaryLinkType = $summaryState['summary_link_type'];
+    $summaryValueContains = $summaryState['summary_value'];
+    $summarySourceContains = $summaryState['summary_source'];
+    $summaryTitleContains = $summaryState['summary_title'];
+    $summaryAuthorContains = $summaryState['summary_author'];
+    $summarySeoFlag = $summaryState['summary_seo_flag'];
+    $summaryTotalMin = $summaryState['summary_total_min'];
+    $summaryTotalMax = $summaryState['summary_total_max'];
+    $summaryInMin = $summaryState['summary_in_min'];
+    $summaryInMax = $summaryState['summary_in_max'];
+    $summaryOutMin = $summaryState['summary_out_min'];
+    $summaryOutMax = $summaryState['summary_out_max'];
+    $summaryOrderby = $summaryState['summary_orderby'];
+    $summaryOrder = $summaryState['summary_order'];
+    $summaryPerPage = $summaryState['summary_per_page'];
+    $summaryPaged = $summaryState['summary_paged'];
     $summaryTotalMinNum = $summaryTotalMin === '' ? null : intval($summaryTotalMin);
     $summaryTotalMaxNum = $summaryTotalMax === '' ? null : intval($summaryTotalMax);
     $summaryInMinNum = $summaryInMin === '' ? null : intval($summaryInMin);
     $summaryInMaxNum = $summaryInMax === '' ? null : intval($summaryInMax);
     $summaryOutMinNum = $summaryOutMin === '' ? null : intval($summaryOutMin);
     $summaryOutMaxNum = $summaryOutMax === '' ? null : intval($summaryOutMax);
-    $summaryExportUrl = add_query_arg([
+    $summaryExportUrl = add_query_arg(array_merge([
       'action' => 'lm_export_links_target_csv',
       self::NONCE_NAME => wp_create_nonce(self::NONCE_ACTION),
-      'lm_summary_groups' => $summaryGroupSelected,
-      'lm_summary_group_search' => $summaryGroupSearch,
-      'lm_summary_post_type' => $summaryPostType,
-      'lm_summary_post_category' => $summaryPostCategory,
-      'lm_summary_post_tag' => $summaryPostTag,
-      'lm_summary_location' => $summaryLocation,
-      'lm_summary_source_type' => $summarySourceType,
-      'lm_summary_link_type' => $summaryLinkType,
-      'lm_summary_value' => $summaryValueContains,
-      'lm_summary_source' => $summarySourceContains,
-      'lm_summary_title' => $summaryTitleContains,
-      'lm_summary_author' => $summaryAuthorContains,
-      'lm_summary_seo_flag' => $summarySeoFlag,
-      'lm_summary_anchor' => $summaryAnchor,
-      'lm_summary_anchor_search' => $summaryAnchorSearch,
-      'lm_summary_search_mode' => $summarySearchMode,
-      'lm_summary_total_min' => $summaryTotalMin,
-      'lm_summary_total_max' => $summaryTotalMax,
-      'lm_summary_in_min' => $summaryInMin,
-      'lm_summary_in_max' => $summaryInMax,
-      'lm_summary_out_min' => $summaryOutMin,
-      'lm_summary_out_max' => $summaryOutMax,
-      'lm_summary_orderby' => $summaryOrderby,
-      'lm_summary_order' => $summaryOrder,
-    ], admin_url('admin-post.php'));
+    ], $this->get_links_target_summary_query_args($summaryState)), admin_url('admin-post.php'));
     echo '<form method="get" action="" style="margin:8px 0 10px;">';
     echo '<input type="hidden" name="page" value="links-manager-target"/>';
     echo '<div class="lm-filter-grid">';
@@ -1232,33 +1295,8 @@ trait LM_Links_Target_Admin_Trait {
 
     echo '</tbody></table></div>';
 
-    $paginationParams = [
-      'lm_summary_groups' => $summaryGroupSelected,
-      'lm_summary_group_search' => $summaryGroupSearch,
-      'lm_summary_post_type' => $summaryPostType,
-      'lm_summary_post_category' => $summaryPostCategory,
-      'lm_summary_post_tag' => $summaryPostTag,
-      'lm_summary_location' => $summaryLocation,
-      'lm_summary_source_type' => $summarySourceType,
-      'lm_summary_link_type' => $summaryLinkType,
-      'lm_summary_value' => $summaryValueContains,
-      'lm_summary_source' => $summarySourceContains,
-      'lm_summary_title' => $summaryTitleContains,
-      'lm_summary_author' => $summaryAuthorContains,
-      'lm_summary_seo_flag' => $summarySeoFlag,
-      'lm_summary_anchor' => $summaryAnchor,
-      'lm_summary_anchor_search' => $summaryAnchorSearch,
-      'lm_summary_search_mode' => $summarySearchMode,
-      'lm_summary_total_min' => $summaryTotalMin,
-      'lm_summary_total_max' => $summaryTotalMax,
-      'lm_summary_in_min' => $summaryInMin,
-      'lm_summary_in_max' => $summaryInMax,
-      'lm_summary_out_min' => $summaryOutMin,
-      'lm_summary_out_max' => $summaryOutMax,
-      'lm_summary_orderby' => $summaryOrderby,
-      'lm_summary_order' => $summaryOrder,
-      'lm_summary_per_page' => $summaryPerPage,
-    ];
+    $paginationParams = $this->get_links_target_summary_query_args($summaryState);
+    unset($paginationParams['page']);
     $this->render_target_pagination($summaryPaged, $totalPages, $paginationParams);
 
     echo '</div>';

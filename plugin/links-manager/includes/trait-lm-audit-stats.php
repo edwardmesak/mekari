@@ -86,7 +86,7 @@ trait LM_Audit_Stats_Trait {
   }
 
   private function get_trend_days_from_request() {
-    $days = isset($_GET['lm_trend_days']) ? intval($_GET['lm_trend_days']) : 14;
+    $days = $this->request_int('lm_trend_days', 14);
     if (!in_array($days, [7, 14, 30], true)) $days = 14;
     return $days;
   }

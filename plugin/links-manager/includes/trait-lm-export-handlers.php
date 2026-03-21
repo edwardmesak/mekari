@@ -51,7 +51,7 @@ trait LM_Export_Handlers_Trait {
   public function handle_export_pages_link_csv() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
-    $nonce = isset($_GET[self::NONCE_NAME]) ? sanitize_text_field($_GET[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $filters = $this->get_pages_link_filters_from_request();
@@ -139,7 +139,7 @@ trait LM_Export_Handlers_Trait {
   public function handle_export_cited_domains_csv() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
-    $nonce = isset($_GET[self::NONCE_NAME]) ? sanitize_text_field($_GET[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $filters = $this->get_cited_domains_filters_from_request();
@@ -246,12 +246,12 @@ trait LM_Export_Handlers_Trait {
   public function handle_export_anchor_grouping_csv() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
-    $nonce = isset($_GET[self::NONCE_NAME]) ? sanitize_text_field($_GET[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
-    $groupOrderby = isset($_GET['lm_group_orderby']) ? sanitize_text_field((string)$_GET['lm_group_orderby']) : 'tag';
+    $groupOrderby = $this->request_text('lm_group_orderby', 'tag');
     if (!in_array($groupOrderby, ['tag', 'total_anchors', 'total_usage', 'inlink_usage', 'outbound_usage'], true)) $groupOrderby = 'tag';
-    $groupOrder = isset($_GET['lm_group_order']) ? strtoupper(sanitize_text_field((string)$_GET['lm_group_order'])) : 'ASC';
+    $groupOrder = strtoupper($this->request_text('lm_group_order', 'ASC'));
     if (!in_array($groupOrder, ['ASC', 'DESC'], true)) $groupOrder = 'ASC';
 
     $groups = $this->get_anchor_groups();
@@ -262,10 +262,7 @@ trait LM_Export_Handlers_Trait {
     }
     $groupNames = array_values(array_unique($groupNames));
 
-    $groupFilterRaw = isset($_GET['lm_group_filter']) ? wp_unslash($_GET['lm_group_filter']) : [];
-    if (!is_array($groupFilterRaw)) {
-      $groupFilterRaw = $groupFilterRaw === '' ? [] : [$groupFilterRaw];
-    }
+    $groupFilterRaw = $this->request_array('lm_group_filter');
     $groupFilterSelected = [];
     foreach ($groupFilterRaw as $item) {
       $item = trim(sanitize_text_field((string)$item));
@@ -275,8 +272,8 @@ trait LM_Export_Handlers_Trait {
       }
     }
     $groupFilterSelected = array_keys($groupFilterSelected);
-    $groupSearch = isset($_GET['lm_group_search']) ? sanitize_text_field((string)$_GET['lm_group_search']) : '';
-    $groupSearchMode = isset($_GET['lm_group_search_mode']) ? $this->sanitize_text_match_mode((string)$_GET['lm_group_search_mode']) : 'contains';
+    $groupSearch = $this->request_text('lm_group_search', '');
+    $groupSearchMode = $this->request_text_mode('lm_group_search_mode', 'contains');
 
     $rows = [];
     if (!empty($groups)) {
@@ -352,7 +349,7 @@ trait LM_Export_Handlers_Trait {
   public function handle_export_links_target_csv() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
-    $nonce = isset($_GET[self::NONCE_NAME]) ? sanitize_text_field($_GET[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $groups = $this->get_anchor_groups();
@@ -364,64 +361,31 @@ trait LM_Export_Handlers_Trait {
       if ($gname !== '') $groupNames[] = $gname;
     }
     $groupNames = array_values(array_unique($groupNames));
-
-    $summaryGroupsRaw = isset($_GET['lm_summary_groups']) ? wp_unslash($_GET['lm_summary_groups']) : [];
-    if (!is_array($summaryGroupsRaw)) {
-      $summaryGroupsRaw = $summaryGroupsRaw === '' ? [] : [$summaryGroupsRaw];
-    }
-    if (empty($summaryGroupsRaw) && isset($_GET['lm_summary_group'])) {
-      $legacySummaryGroup = trim(sanitize_text_field((string)$_GET['lm_summary_group']));
-      if ($legacySummaryGroup !== '') $summaryGroupsRaw[] = $legacySummaryGroup;
-    }
-    $summaryGroupSelected = [];
-    foreach ($summaryGroupsRaw as $item) {
-      $item = trim(sanitize_text_field((string)$item));
-      if ($item === '') continue;
-      if ($item === 'no_group' || in_array($item, $groupNames, true)) {
-        $summaryGroupSelected[$item] = true;
-      }
-    }
-    $summaryGroupSelected = array_keys($summaryGroupSelected);
-    $summaryGroupSearch = isset($_GET['lm_summary_group_search']) ? sanitize_text_field((string)$_GET['lm_summary_group_search']) : '';
-    $summaryAnchor = isset($_GET['lm_summary_anchor']) ? sanitize_text_field((string)$_GET['lm_summary_anchor']) : '';
-    $summaryAnchorSearch = isset($_GET['lm_summary_anchor_search']) ? sanitize_text_field((string)$_GET['lm_summary_anchor_search']) : '';
-    $summarySearchMode = isset($_GET['lm_summary_search_mode']) ? $this->sanitize_text_match_mode((string)$_GET['lm_summary_search_mode']) : 'contains';
-    if ($summaryAnchorSearch === '' && $summaryAnchor !== '') {
-      $summaryAnchorSearch = $summaryAnchor;
-      $summarySearchMode = 'exact';
-    }
     $summaryPostTypeOptions = $this->get_filterable_post_types();
-    $summaryPostType = isset($_GET['lm_summary_post_type']) ? sanitize_key((string)$_GET['lm_summary_post_type']) : 'any';
-    if ($summaryPostType !== 'any' && !isset($summaryPostTypeOptions[$summaryPostType])) $summaryPostType = 'any';
-    $summaryPostCategory = isset($_GET['lm_summary_post_category']) ? $this->sanitize_post_term_filter($_GET['lm_summary_post_category'], 'category') : 0;
-    $summaryPostTag = isset($_GET['lm_summary_post_tag']) ? $this->sanitize_post_term_filter($_GET['lm_summary_post_tag'], 'post_tag') : 0;
-    if ($summaryPostType !== 'any' && $summaryPostType !== 'post') {
-      $summaryPostCategory = 0;
-      $summaryPostTag = 0;
-    }
-    $summaryLocation = isset($_GET['lm_summary_location']) ? sanitize_text_field((string)$_GET['lm_summary_location']) : 'any';
-    if ($summaryLocation === '') $summaryLocation = 'any';
-    $summarySourceType = isset($_GET['lm_summary_source_type'])
-      ? $this->sanitize_source_type_filter($_GET['lm_summary_source_type'])
-      : 'any';
-    $summaryLinkType = isset($_GET['lm_summary_link_type']) ? sanitize_text_field((string)$_GET['lm_summary_link_type']) : 'any';
-    if (!in_array($summaryLinkType, ['any', 'inlink', 'exlink'], true)) $summaryLinkType = 'any';
-    $summaryValueContains = isset($_GET['lm_summary_value']) ? sanitize_text_field((string)$_GET['lm_summary_value']) : '';
-    $summarySourceContains = isset($_GET['lm_summary_source']) ? sanitize_text_field((string)$_GET['lm_summary_source']) : '';
-    $summaryTitleContains = isset($_GET['lm_summary_title']) ? sanitize_text_field((string)$_GET['lm_summary_title']) : '';
-    $summaryAuthorContains = isset($_GET['lm_summary_author']) ? sanitize_text_field((string)$_GET['lm_summary_author']) : '';
-    $summarySeoFlag = isset($_GET['lm_summary_seo_flag']) ? sanitize_text_field((string)$_GET['lm_summary_seo_flag']) : 'any';
-    if (!in_array($summarySeoFlag, ['any', 'dofollow', 'nofollow', 'sponsored', 'ugc'], true)) $summarySeoFlag = 'any';
-    $summaryTotalMin = isset($_GET['lm_summary_total_min']) ? (string)$_GET['lm_summary_total_min'] : '';
-    $summaryTotalMax = isset($_GET['lm_summary_total_max']) ? (string)$_GET['lm_summary_total_max'] : '';
-    $summaryInMin = isset($_GET['lm_summary_in_min']) ? (string)$_GET['lm_summary_in_min'] : '';
-    $summaryInMax = isset($_GET['lm_summary_in_max']) ? (string)$_GET['lm_summary_in_max'] : '';
-    $summaryOutMin = isset($_GET['lm_summary_out_min']) ? (string)$_GET['lm_summary_out_min'] : '';
-    $summaryOutMax = isset($_GET['lm_summary_out_max']) ? (string)$_GET['lm_summary_out_max'] : '';
-    $summaryOrderby = isset($_GET['lm_summary_orderby']) ? sanitize_text_field((string)$_GET['lm_summary_orderby']) : 'anchor';
-    if (!in_array($summaryOrderby, ['group', 'anchor', 'total', 'inlink', 'outbound'], true)) $summaryOrderby = 'anchor';
-    $summaryOrder = isset($_GET['lm_summary_order']) ? strtoupper(sanitize_text_field((string)$_GET['lm_summary_order'])) : 'ASC';
-    if (!in_array($summaryOrder, ['ASC', 'DESC'], true)) $summaryOrder = 'ASC';
+    $summaryState = $this->get_links_target_summary_filters_from_request($groupNames, $summaryPostTypeOptions);
+    $summaryGroupSelected = $summaryState['summary_groups'];
+    $summaryGroupSearch = $summaryState['summary_group_search'];
+    $summaryAnchorSearch = $summaryState['summary_anchor_search'];
+    $summarySearchMode = $summaryState['summary_search_mode'];
+    $summaryPostType = $summaryState['summary_post_type'];
+    $summaryPostCategory = $summaryState['summary_post_category'];
+    $summaryPostTag = $summaryState['summary_post_tag'];
+    $summaryLocation = $summaryState['summary_location'];
+    $summarySourceType = $summaryState['summary_source_type'];
+    $summaryLinkType = $summaryState['summary_link_type'];
+    $summaryValueContains = $summaryState['summary_value'];
+    $summarySourceContains = $summaryState['summary_source'];
+    $summaryTitleContains = $summaryState['summary_title'];
+    $summaryAuthorContains = $summaryState['summary_author'];
+    $summarySeoFlag = $summaryState['summary_seo_flag'];
+    $summaryTotalMin = $summaryState['summary_total_min'];
+    $summaryTotalMax = $summaryState['summary_total_max'];
+    $summaryInMin = $summaryState['summary_in_min'];
+    $summaryInMax = $summaryState['summary_in_max'];
+    $summaryOutMin = $summaryState['summary_out_min'];
+    $summaryOutMax = $summaryState['summary_out_max'];
+    $summaryOrderby = $summaryState['summary_orderby'];
+    $summaryOrder = $summaryState['summary_order'];
 
     $summaryTotalMinNum = $summaryTotalMin === '' ? null : intval($summaryTotalMin);
     $summaryTotalMaxNum = $summaryTotalMax === '' ? null : intval($summaryTotalMax);
@@ -546,7 +510,7 @@ trait LM_Export_Handlers_Trait {
   public function handle_export_all_anchor_text_csv() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
-    $nonce = isset($_GET[self::NONCE_NAME]) ? sanitize_text_field($_GET[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $filters = $this->get_all_anchor_text_filters_from_request();
@@ -600,7 +564,7 @@ trait LM_Export_Handlers_Trait {
   public function handle_export_csv() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
-    $nonce = isset($_GET[self::NONCE_NAME]) ? sanitize_text_field($_GET[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $filters = $this->get_filters_from_request();

@@ -211,7 +211,7 @@ trait LM_WPML_Scan_Helpers_Trait {
   private function get_wpml_current_language() {
     if (!$this->is_wpml_active()) return 'all';
 
-    $current = isset($_REQUEST['lang']) ? sanitize_text_field((string)$_REQUEST['lang']) : '';
+    $current = $this->request_text('lang', '');
     if (!is_string($current) || trim($current) === '') {
       $current = $this->safe_wpml_apply_filters('wpml_current_language', null);
     }

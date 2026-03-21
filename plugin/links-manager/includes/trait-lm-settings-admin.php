@@ -18,9 +18,9 @@ trait LM_Settings_Admin_Trait {
     $runtimeMaxBatch = $this->get_runtime_max_crawl_batch();
     $runtimeTransientMain = $this->get_safe_transient_limit_bytes(false);
     $runtimeTransientBackup = $this->get_safe_transient_limit_bytes(true);
-    $msg = isset($_GET['lm_msg']) ? sanitize_text_field((string)$_GET['lm_msg']) : '';
+    $msg = $this->request_text('lm_msg', '');
     $msgClass = $this->notice_class_for_message($msg, 'success');
-    $activeTab = isset($_GET['lm_tab']) ? sanitize_key((string)$_GET['lm_tab']) : 'general';
+    $activeTab = $this->request_key('lm_tab', 'general');
     if (!in_array($activeTab, ['general', 'performance', 'data'], true)) {
       $activeTab = 'general';
     }
@@ -913,101 +913,102 @@ trait LM_Settings_Admin_Trait {
   public function handle_save_settings() {
     if (!current_user_can('manage_options')) wp_die($this->unauthorized_message());
 
-    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $settings = $this->get_settings();
     $availablePostTypes = $this->get_default_scan_post_types();
-    $activeTab = isset($_POST['lm_active_tab']) ? sanitize_key((string)$_POST['lm_active_tab']) : 'general';
+    $activeTab = $this->request_key('lm_active_tab', 'general');
     if (!in_array($activeTab, ['general', 'performance', 'data'], true)) {
       $activeTab = 'general';
     }
 
-    $resetGeneralSettings = isset($_POST['lm_reset_general_settings']);
-    $resetPerformanceSettings = isset($_POST['lm_reset_performance_settings']);
-    $resetDataSettings = isset($_POST['lm_reset_data_settings']);
+    $resetGeneralSettings = $this->request_has('lm_reset_general_settings');
+    $resetPerformanceSettings = $this->request_has('lm_reset_performance_settings');
+    $resetDataSettings = $this->request_has('lm_reset_data_settings');
 
-    $allowedRolesRaw = isset($_POST['lm_allowed_roles']) ? (array)wp_unslash($_POST['lm_allowed_roles']) : [];
+    $allowedRolesRaw = $this->request_array('lm_allowed_roles');
     $settings['allowed_roles'] = $this->sanitize_allowed_roles($allowedRolesRaw);
-    $settings['debug_mode'] = isset($_POST['lm_debug_mode']) ? '1' : '0';
+    $settings['debug_mode'] = $this->request_has('lm_debug_mode') ? '1' : '0';
 
-    $scanPostTypesRaw = isset($_POST['lm_scan_post_types']) ? (array)wp_unslash($_POST['lm_scan_post_types']) : [];
+    $scanPostTypesRaw = $this->request_array('lm_scan_post_types');
     $settings['scan_post_types'] = $this->sanitize_scan_post_types($scanPostTypesRaw);
 
-    $scanSourceTypesRaw = isset($_POST['lm_scan_source_types']) ? (array)wp_unslash($_POST['lm_scan_source_types']) : [];
+    $scanSourceTypesRaw = $this->request_array('lm_scan_source_types');
     $settings['scan_source_types'] = $this->sanitize_scan_source_types($scanSourceTypesRaw);
 
-    $scanValueTypesRaw = isset($_POST['lm_scan_value_types']) ? (array)wp_unslash($_POST['lm_scan_value_types']) : [];
+    $scanValueTypesRaw = $this->request_array('lm_scan_value_types');
     $settings['scan_value_types'] = $this->sanitize_scan_value_types($scanValueTypesRaw);
 
-    $scanWpmlLangsRaw = isset($_POST['lm_scan_wpml_langs']) ? (array)wp_unslash($_POST['lm_scan_wpml_langs']) : [];
+    $scanWpmlLangsRaw = $this->request_array('lm_scan_wpml_langs');
     $settings['scan_wpml_langs'] = $this->sanitize_scan_wpml_langs($scanWpmlLangsRaw);
 
-    $settings['scan_post_category_ids'] = isset($_POST['lm_scan_post_category_ids']) ? $this->sanitize_int_list((array)wp_unslash($_POST['lm_scan_post_category_ids'])) : [];
-    $settings['scan_post_tag_ids'] = isset($_POST['lm_scan_post_tag_ids']) ? $this->sanitize_int_list((array)wp_unslash($_POST['lm_scan_post_tag_ids'])) : [];
-    $settings['scan_author_ids'] = isset($_POST['lm_scan_author_ids']) ? $this->sanitize_int_list((array)wp_unslash($_POST['lm_scan_author_ids'])) : [];
+    $settings['scan_post_category_ids'] = $this->sanitize_int_list($this->request_array('lm_scan_post_category_ids'));
+    $settings['scan_post_tag_ids'] = $this->sanitize_int_list($this->request_array('lm_scan_post_tag_ids'));
+    $settings['scan_author_ids'] = $this->sanitize_int_list($this->request_array('lm_scan_author_ids'));
 
-    $scanModifiedWithinDays = isset($_POST['lm_scan_modified_within_days']) ? intval($_POST['lm_scan_modified_within_days']) : 0;
+    $scanModifiedWithinDays = $this->request_int('lm_scan_modified_within_days', 0);
     if ($scanModifiedWithinDays < 0) $scanModifiedWithinDays = 0;
     if ($scanModifiedWithinDays > 3650) $scanModifiedWithinDays = 3650;
     $settings['scan_modified_within_days'] = (string)$scanModifiedWithinDays;
 
-    $scanExcludePatterns = isset($_POST['lm_scan_exclude_url_patterns']) ? (string)wp_unslash($_POST['lm_scan_exclude_url_patterns']) : '';
+    $scanExcludePatterns = (string)wp_unslash($this->request_raw('lm_scan_exclude_url_patterns', ''));
     $settings['scan_exclude_url_patterns'] = $this->normalize_multiline_textarea($scanExcludePatterns);
 
-    $maxPostsPerRebuild = isset($_POST['lm_max_posts_per_rebuild']) ? intval($_POST['lm_max_posts_per_rebuild']) : 0;
+    $maxPostsPerRebuild = $this->request_int('lm_max_posts_per_rebuild', 0);
     if ($maxPostsPerRebuild < 0) $maxPostsPerRebuild = 0;
     if ($maxPostsPerRebuild > 50000) $maxPostsPerRebuild = 50000;
     $settings['max_posts_per_rebuild'] = (string)$maxPostsPerRebuild;
 
-    $statsRefreshValue = isset($_POST['lm_stats_snapshot_ttl_value']) ? intval($_POST['lm_stats_snapshot_ttl_value']) : 1;
+    $statsRefreshValue = $this->request_int('lm_stats_snapshot_ttl_value', 1);
     if ($statsRefreshValue < 1) $statsRefreshValue = 1;
     if ($statsRefreshValue > 12) $statsRefreshValue = 12;
-    $statsRefreshPeriod = isset($_POST['lm_stats_snapshot_ttl_period']) ? sanitize_key((string)$_POST['lm_stats_snapshot_ttl_period']) : 'week';
+    $statsRefreshPeriod = $this->request_key('lm_stats_snapshot_ttl_period', 'week');
     if (!in_array($statsRefreshPeriod, ['hour', 'day', 'week', 'month'], true)) {
       $statsRefreshPeriod = 'week';
     }
     $settings['stats_snapshot_ttl_min'] = (string)$this->convert_stats_refresh_to_minutes($statsRefreshValue, $statsRefreshPeriod);
 
-    $cacheRebuildMode = isset($_POST['lm_cache_rebuild_mode']) ? sanitize_key((string)$_POST['lm_cache_rebuild_mode']) : 'incremental';
+    $cacheRebuildMode = $this->request_key('lm_cache_rebuild_mode', 'incremental');
     if (!in_array($cacheRebuildMode, ['incremental', 'full'], true)) {
       $cacheRebuildMode = 'incremental';
     }
     $settings['cache_rebuild_mode'] = $cacheRebuildMode;
 
-    $crawlBatch = isset($_POST['lm_crawl_post_batch']) ? intval($_POST['lm_crawl_post_batch']) : self::CRAWL_POST_BATCH;
+    $crawlBatch = $this->request_int('lm_crawl_post_batch', self::CRAWL_POST_BATCH);
     $runtimeMaxBatch = $this->get_runtime_max_crawl_batch();
     if ($crawlBatch < 20) $crawlBatch = 20;
     if ($crawlBatch > $runtimeMaxBatch) $crawlBatch = $runtimeMaxBatch;
     $settings['crawl_post_batch'] = (string)$crawlBatch;
 
-    $restCacheTtl = isset($_POST['lm_rest_response_cache_ttl_sec']) ? intval($_POST['lm_rest_response_cache_ttl_sec']) : 90;
+    $restCacheTtl = $this->request_int('lm_rest_response_cache_ttl_sec', 90);
     if ($restCacheTtl < 30) $restCacheTtl = 30;
     if ($restCacheTtl > 600) $restCacheTtl = 600;
     $settings['rest_response_cache_ttl_sec'] = (string)$restCacheTtl;
 
-    $inboundThresholds = $this->sanitize_inbound_thresholds($_POST);
+    $requestSource = $this->get_active_request_input();
+    $inboundThresholds = $this->sanitize_inbound_thresholds($requestSource);
     $settings['inbound_orphan_max'] = (string)$inboundThresholds['orphan_max'];
     $settings['inbound_low_max'] = (string)$inboundThresholds['low_max'];
     $settings['inbound_standard_max'] = (string)$inboundThresholds['standard_max'];
 
-    $internalOutboundThresholds = $this->sanitize_outbound_thresholds($_POST, 'internal');
+    $internalOutboundThresholds = $this->sanitize_outbound_thresholds($requestSource, 'internal');
     $settings['internal_outbound_none_max'] = (string)$internalOutboundThresholds['none_max'];
     $settings['internal_outbound_low_max'] = (string)$internalOutboundThresholds['low_max'];
     $settings['internal_outbound_optimal_max'] = (string)$internalOutboundThresholds['optimal_max'];
 
-    $externalOutboundThresholds = $this->sanitize_outbound_thresholds($_POST, 'external');
+    $externalOutboundThresholds = $this->sanitize_outbound_thresholds($requestSource, 'external');
     $settings['external_outbound_none_max'] = (string)$externalOutboundThresholds['none_max'];
     $settings['external_outbound_low_max'] = (string)$externalOutboundThresholds['low_max'];
     $settings['external_outbound_optimal_max'] = (string)$externalOutboundThresholds['optimal_max'];
 
-    $resetPerformanceDefaults = isset($_POST['lm_reset_performance_defaults']);
+    $resetPerformanceDefaults = $this->request_has('lm_reset_performance_defaults');
     if ($resetPerformanceDefaults) {
       $settings = array_merge($settings, $this->get_recommended_performance_settings());
       $settings['performance_preset'] = 'speed';
     }
 
-    $applyLowMemoryProfile = isset($_POST['lm_apply_low_memory_profile']);
+    $applyLowMemoryProfile = $this->request_has('lm_apply_low_memory_profile');
     if ($applyLowMemoryProfile) {
       $settings = array_merge($settings, $this->get_low_memory_performance_settings());
       $settings['performance_preset'] = 'low_memory';
@@ -1058,17 +1059,17 @@ trait LM_Settings_Admin_Trait {
       $this->weak_anchor_patterns_cache = $this->get_default_weak_anchor_patterns();
     }
 
-    $globalRebuildCache = isset($_POST['lm_global_rebuild_cache']);
+    $globalRebuildCache = $this->request_has('lm_global_rebuild_cache');
 
-    $auditRetentionDays = isset($_POST['lm_audit_retention_days']) ? intval($_POST['lm_audit_retention_days']) : (int)($settings['audit_retention_days'] ?? self::AUDIT_RETENTION_DAYS);
+    $auditRetentionDays = $this->request_int('lm_audit_retention_days', (int)($settings['audit_retention_days'] ?? self::AUDIT_RETENTION_DAYS));
     if ($auditRetentionDays < 30) $auditRetentionDays = 30;
     if ($auditRetentionDays > 3650) $auditRetentionDays = 3650;
     $settings['audit_retention_days'] = (string)$auditRetentionDays;
 
-    $weakPatternsRaw = isset($_POST['lm_weak_anchor_patterns']) ? (string)wp_unslash($_POST['lm_weak_anchor_patterns']) : (string)($settings['weak_anchor_patterns'] ?? '');
+    $weakPatternsRaw = (string)wp_unslash($this->request_raw('lm_weak_anchor_patterns', (string)($settings['weak_anchor_patterns'] ?? '')));
     $normalizedWeakPatterns = $this->normalize_weak_anchor_patterns($weakPatternsRaw);
-    $restoredDefaults = isset($_POST['lm_restore_weak_anchor_patterns']);
-    $clearedAll = isset($_POST['lm_clear_weak_anchor_patterns']);
+    $restoredDefaults = $this->request_has('lm_restore_weak_anchor_patterns');
+    $clearedAll = $this->request_has('lm_clear_weak_anchor_patterns');
     if ($clearedAll) {
       $normalizedWeakPatterns = [];
     }
@@ -1117,7 +1118,7 @@ trait LM_Settings_Admin_Trait {
   public function handle_clear_diagnostics() {
     if (!$this->can_access_debug_diagnostics()) wp_die($this->unauthorized_message());
 
-    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field((string)$_POST[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     delete_option(self::DIAGNOSTIC_OPTION_KEY);

@@ -343,20 +343,6 @@ trait LM_REST_API_Trait {
     return rest_ensure_response($this->get_public_rebuild_job_state($state));
   }
 
-  private function with_request_overrides($overrides, $callback) {
-    $backupRequest = $_REQUEST;
-    try {
-      if (is_array($overrides)) {
-        foreach ($overrides as $key => $value) {
-          $_REQUEST[(string)$key] = $value;
-        }
-      }
-      return call_user_func($callback);
-    } finally {
-      $_REQUEST = $backupRequest;
-    }
-  }
-
   private function build_request_overrides_from_map($request, $map) {
     $overrides = [];
     foreach ((array)$map as $sourceKey => $targetKey) {
@@ -872,7 +858,7 @@ trait LM_REST_API_Trait {
 
   public function rest_pages_link_list($request) {
     $overrides = $this->build_request_overrides_from_map($request, $this->get_pages_link_rest_request_override_map());
-    return rest_ensure_response($this->with_request_overrides($overrides, function() {
+    return rest_ensure_response($this->with_request_input($overrides, function() {
       $filters = $this->get_pages_link_filters_from_request();
       $context = $this->build_rest_endpoint_context('pages_link_list', $filters);
 
@@ -898,7 +884,7 @@ trait LM_REST_API_Trait {
 
   public function rest_editor_list($request) {
     $overrides = $this->build_request_overrides_from_map($request, $this->get_editor_rest_request_override_map());
-    return rest_ensure_response($this->with_request_overrides($overrides, function() {
+    return rest_ensure_response($this->with_request_input($overrides, function() {
       $filters = $this->get_filters_from_request();
       $context = $this->build_rest_endpoint_context('editor_list', $filters);
 

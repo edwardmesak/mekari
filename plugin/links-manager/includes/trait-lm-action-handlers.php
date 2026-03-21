@@ -11,17 +11,17 @@ trait LM_Action_Handlers_Trait {
   public function handle_update_link() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
-    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $filters = $this->get_filters_from_request();
 
-    $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
-    $old_link = isset($_POST['old_link']) ? sanitize_text_field((string)$_POST['old_link']) : '';
-    $new_link = isset($_POST['new_link']) ? esc_url_raw((string)$_POST['new_link']) : '';
-    $new_rel  = isset($_POST['new_rel']) ? sanitize_text_field((string)$_POST['new_rel']) : '';
-    $old_anchor = isset($_POST['old_anchor']) ? sanitize_text_field((string)$_POST['old_anchor']) : '';
-    $new_anchor_raw = array_key_exists('new_anchor', $_POST) ? (string)$_POST['new_anchor'] : null;
+    $post_id = $this->request_int('post_id', 0);
+    $old_link = $this->request_text('old_link', '');
+    $new_link = $this->request_has('new_link') ? esc_url_raw((string)$this->request_raw('new_link', '')) : '';
+    $new_rel  = $this->request_text('new_rel', '');
+    $old_anchor = $this->request_text('old_anchor', '');
+    $new_anchor_raw = $this->request_has('new_anchor') ? (string)$this->request_raw('new_anchor', '') : null;
     $new_anchor = $this->normalize_new_anchor_input($new_anchor_raw, $old_anchor);
 
     if ($new_anchor !== null && $filters['anchor_contains'] !== '') {
@@ -34,16 +34,16 @@ trait LM_Action_Handlers_Trait {
       }
     }
 
-    $source = isset($_POST['source']) ? sanitize_text_field((string)$_POST['source']) : '';
-    $location = isset($_POST['link_location']) ? sanitize_text_field((string)$_POST['link_location']) : '';
-    $block_index = isset($_POST['block_index']) ? sanitize_text_field((string)$_POST['block_index']) : '';
-    $occurrence = isset($_POST['occurrence']) ? intval($_POST['occurrence']) : 0;
+    $source = $this->request_text('source', '');
+    $location = $this->request_text('link_location', '');
+    $block_index = $this->request_text('block_index', '');
+    $occurrence = $this->request_int('occurrence', 0);
 
     if (!$this->current_user_can_edit_link_target($post_id, $source)) {
       wp_die($this->unauthorized_message());
     }
 
-    $row_id = isset($_POST['row_id']) ? sanitize_text_field((string)$_POST['row_id']) : '';
+    $row_id = $this->request_text('row_id', '');
 
     $has_change = ($new_link !== '') || ($new_rel !== '') || ($new_anchor !== null);
     $effective_new_link = $new_link !== '' ? $new_link : $old_link;
@@ -72,7 +72,7 @@ trait LM_Action_Handlers_Trait {
     $this->clear_cache_all();
     $filters['rebuild'] = true;
 
-    $old_rel = isset($_POST['old_rel']) ? sanitize_text_field((string)$_POST['old_rel']) : '';
+    $old_rel = $this->request_text('old_rel', '');
     $this->log_audit_trail(
       'update_single',
       $post_id,
@@ -96,25 +96,25 @@ trait LM_Action_Handlers_Trait {
       wp_send_json_error(['msg' => $this->unauthorized_message()], 403);
     }
 
-    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) {
       wp_send_json_error(['msg' => $this->invalid_nonce_message()], 403);
     }
 
-    $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
-    $old_link = isset($_POST['old_link']) ? sanitize_text_field((string)$_POST['old_link']) : '';
-    $new_link = isset($_POST['new_link']) ? esc_url_raw((string)$_POST['new_link']) : '';
-    $new_rel  = isset($_POST['new_rel']) ? sanitize_text_field((string)$_POST['new_rel']) : '';
-    $old_anchor = isset($_POST['old_anchor']) ? sanitize_text_field((string)$_POST['old_anchor']) : '';
-    $new_anchor_raw = array_key_exists('new_anchor', $_POST) ? (string)$_POST['new_anchor'] : null;
+    $post_id = $this->request_int('post_id', 0);
+    $old_link = $this->request_text('old_link', '');
+    $new_link = $this->request_has('new_link') ? esc_url_raw((string)$this->request_raw('new_link', '')) : '';
+    $new_rel  = $this->request_text('new_rel', '');
+    $old_anchor = $this->request_text('old_anchor', '');
+    $new_anchor_raw = $this->request_has('new_anchor') ? (string)$this->request_raw('new_anchor', '') : null;
     $new_anchor = $this->normalize_new_anchor_input($new_anchor_raw, $old_anchor);
-    $old_snippet = isset($_POST['old_snippet']) ? sanitize_text_field((string)$_POST['old_snippet']) : '';
+    $old_snippet = $this->request_text('old_snippet', '');
 
-    $source = isset($_POST['source']) ? sanitize_text_field((string)$_POST['source']) : '';
-    $location = isset($_POST['link_location']) ? sanitize_text_field((string)$_POST['link_location']) : '';
-    $block_index = isset($_POST['block_index']) ? sanitize_text_field((string)$_POST['block_index']) : '';
-    $occurrence = isset($_POST['occurrence']) ? intval($_POST['occurrence']) : 0;
-    $row_id = isset($_POST['row_id']) ? sanitize_text_field((string)$_POST['row_id']) : '';
+    $source = $this->request_text('source', '');
+    $location = $this->request_text('link_location', '');
+    $block_index = $this->request_text('block_index', '');
+    $occurrence = $this->request_int('occurrence', 0);
+    $row_id = $this->request_text('row_id', '');
 
     if (!$this->current_user_can_edit_link_target($post_id, $source)) {
       wp_send_json_error(['msg' => $this->unauthorized_message()], 403);
@@ -139,7 +139,7 @@ trait LM_Action_Handlers_Trait {
     $res = $this->update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $effective_new_link, $new_rel, $new_anchor);
     $this->clear_cache_all();
 
-    $old_rel = isset($_POST['old_rel']) ? sanitize_text_field((string)$_POST['old_rel']) : '';
+    $old_rel = $this->request_text('old_rel', '');
     $this->log_audit_trail(
       'update_single',
       $post_id,
@@ -195,7 +195,7 @@ trait LM_Action_Handlers_Trait {
   public function handle_bulk_update() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
-    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $filters = $this->get_filters_from_request();
@@ -398,11 +398,11 @@ trait LM_Action_Handlers_Trait {
 
   public function handle_save_anchor_groups() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
-    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
-    $name = sanitize_text_field((string)($_POST['lm_group_name'] ?? ''));
-    $anchorsRaw = (string)($_POST['lm_group_anchors'] ?? '');
+    $name = $this->request_text('lm_group_name', '');
+    $anchorsRaw = (string)$this->request_raw('lm_group_anchors', '');
     $anchors = $this->normalize_anchor_list($anchorsRaw);
     if ($name !== '') {
       $groups = $this->get_anchor_groups();
@@ -416,10 +416,10 @@ trait LM_Action_Handlers_Trait {
 
   public function handle_delete_anchor_group() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
-    $nonce = isset($_GET[self::NONCE_NAME]) ? sanitize_text_field($_GET[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
-    $idx = isset($_GET['lm_group_idx']) ? intval($_GET['lm_group_idx']) : -1;
+    $idx = $this->request_int('lm_group_idx', -1);
     $groups = $this->get_anchor_groups();
     if ($idx >= 0 && isset($groups[$idx])) {
       array_splice($groups, $idx, 1);
@@ -432,10 +432,10 @@ trait LM_Action_Handlers_Trait {
 
   public function handle_bulk_delete_anchor_groups() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
-    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
-    $rawIndices = isset($_POST['lm_group_indices']) ? (array)$_POST['lm_group_indices'] : [];
+    $rawIndices = $this->request_array('lm_group_indices');
     $indices = array_values(array_unique(array_filter(array_map('intval', $rawIndices), function($idx) {
       return $idx >= 0;
     })));
@@ -468,12 +468,12 @@ trait LM_Action_Handlers_Trait {
 
   public function handle_update_anchor_group() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
-    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
-    $idx = isset($_POST['lm_group_idx']) ? intval($_POST['lm_group_idx']) : -1;
-    $name = sanitize_text_field((string)($_POST['lm_group_name'] ?? ''));
-    $anchorsRaw = (string)($_POST['lm_group_anchors'] ?? '');
+    $idx = $this->request_int('lm_group_idx', -1);
+    $name = $this->request_text('lm_group_name', '');
+    $anchorsRaw = (string)$this->request_raw('lm_group_anchors', '');
     $anchors = $this->normalize_anchor_list($anchorsRaw);
 
     $groups = $this->get_anchor_groups();
@@ -496,13 +496,13 @@ trait LM_Action_Handlers_Trait {
 
   public function handle_save_anchor_targets() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
-    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
-    $mode = isset($_POST['lm_anchor_mode']) ? sanitize_text_field((string)$_POST['lm_anchor_mode']) : 'only';
+    $mode = $this->request_text('lm_anchor_mode', 'only');
     if (!in_array($mode, ['only', 'tags'], true)) $mode = 'only';
 
-    $targetsRaw = (string)($_POST['lm_anchor_targets'] ?? '');
+    $targetsRaw = (string)$this->request_raw('lm_anchor_targets', '');
     $targets = [];
     $groups = $this->get_anchor_groups();
     $existingTargets = $this->get_anchor_targets();
@@ -548,11 +548,11 @@ trait LM_Action_Handlers_Trait {
 
   public function handle_update_anchor_target() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
-    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
-    $idx = isset($_POST['lm_target_idx']) ? intval($_POST['lm_target_idx']) : -1;
-    $newVal = isset($_POST['lm_target_value']) ? sanitize_text_field((string)$_POST['lm_target_value']) : '';
+    $idx = $this->request_int('lm_target_idx', -1);
+    $newVal = $this->request_text('lm_target_value', '');
     $newVal = trim($newVal);
 
     $targets = $this->get_anchor_targets();
@@ -576,12 +576,12 @@ trait LM_Action_Handlers_Trait {
 
   public function handle_update_anchor_target_group() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
-    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
-    $anchor = isset($_POST['lm_anchor_value']) ? sanitize_text_field((string)$_POST['lm_anchor_value']) : '';
+    $anchor = $this->request_text('lm_anchor_value', '');
     $anchor = trim($anchor);
-    $newGroup = isset($_POST['lm_anchor_group']) ? sanitize_text_field((string)$_POST['lm_anchor_group']) : '';
+    $newGroup = $this->request_text('lm_anchor_group', '');
     $newGroup = trim($newGroup);
 
     if ($anchor === '') {
@@ -630,14 +630,14 @@ trait LM_Action_Handlers_Trait {
       wp_send_json_error(['msg' => $this->unauthorized_message()], 403);
     }
 
-    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) {
       wp_send_json_error(['msg' => $this->invalid_nonce_message()], 403);
     }
 
-    $anchor = isset($_POST['lm_anchor_value']) ? sanitize_text_field((string)$_POST['lm_anchor_value']) : '';
+    $anchor = $this->request_text('lm_anchor_value', '');
     $anchor = trim($anchor);
-    $newGroup = isset($_POST['lm_anchor_group']) ? sanitize_text_field((string)$_POST['lm_anchor_group']) : '';
+    $newGroup = $this->request_text('lm_anchor_group', '');
     $newGroup = trim($newGroup);
 
     if ($anchor === '') {
@@ -685,10 +685,10 @@ trait LM_Action_Handlers_Trait {
 
   public function handle_delete_anchor_target() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
-    $nonce = isset($_GET[self::NONCE_NAME]) ? sanitize_text_field($_GET[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
-    $idx = isset($_GET['lm_target_idx']) ? intval($_GET['lm_target_idx']) : -1;
+    $idx = $this->request_int('lm_target_idx', -1);
     $targets = $this->get_anchor_targets();
     $deletedAnchor = '';
     if ($idx >= 0 && isset($targets[$idx])) {
@@ -716,10 +716,10 @@ trait LM_Action_Handlers_Trait {
 
   public function handle_bulk_delete_anchor_targets() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
-    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
-    $rawIndices = isset($_POST['lm_target_indices']) ? (array)$_POST['lm_target_indices'] : [];
+    $rawIndices = $this->request_array('lm_target_indices');
     $indices = array_values(array_unique(array_filter(array_map('intval', $rawIndices), function($idx) {
       return $idx >= 0;
     })));

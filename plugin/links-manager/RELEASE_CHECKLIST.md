@@ -17,6 +17,7 @@ Use this checklist before publishing a new Links Manager release to GitHub.
   - [ ] Edit a link
   - [ ] Run CSV export/import
   - [ ] Review stats and audit logs
+- [ ] Run the smoke checks in [QA_SMOKE_CHECKLIST.md](QA_SMOKE_CHECKLIST.md) for filter, pagination, export, and REST-heavy screens
 - [ ] Verify uninstall cleanup behavior using [uninstall.php](uninstall.php)
 - [ ] Re-check WPML behavior if multilingual support is expected
 

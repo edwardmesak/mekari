@@ -9,12 +9,12 @@ if (!defined('ABSPATH')) {
 
 trait LM_Diagnostics_Trait {
   private function is_lm_request_context() {
-    $action = isset($_REQUEST['action']) ? sanitize_key((string)$_REQUEST['action']) : '';
+    $action = $this->request_key('action', '');
     if ($action !== '' && strpos($action, 'lm_') === 0) {
       return true;
     }
 
-    $page = isset($_REQUEST['page']) ? sanitize_key((string)$_REQUEST['page']) : '';
+    $page = $this->request_key('page', '');
     if ($page !== '' && strpos($page, 'links-manager') === 0) {
       return true;
     }
@@ -43,9 +43,9 @@ trait LM_Diagnostics_Trait {
       return;
     }
 
-    $requestPage = isset($_REQUEST['page']) ? sanitize_text_field((string)$_REQUEST['page']) : '';
-    $requestAction = isset($_REQUEST['action']) ? sanitize_text_field((string)$_REQUEST['action']) : '';
-    $requestLang = isset($_REQUEST['lang']) ? sanitize_text_field((string)$_REQUEST['lang']) : '';
+    $requestPage = $this->request_text('page', '');
+    $requestAction = $this->request_text('action', '');
+    $requestLang = $this->request_text('lang', '');
     $memoryLimit = (string)ini_get('memory_limit');
     $executionLimit = (string)ini_get('max_execution_time');
 
@@ -106,7 +106,7 @@ trait LM_Diagnostics_Trait {
       return (bool)$this->runtime_profile_enabled;
     }
 
-    $forceProfile = isset($_REQUEST['lm_profile']) && (string)$_REQUEST['lm_profile'] === '1';
+    $forceProfile = $this->request_bool_flag('lm_profile');
     $this->runtime_profile_enabled = $forceProfile || (defined('WP_DEBUG') && WP_DEBUG);
     return (bool)$this->runtime_profile_enabled;
   }
@@ -224,8 +224,8 @@ trait LM_Diagnostics_Trait {
       return;
     }
 
-    $requestPage = isset($_REQUEST['page']) ? sanitize_text_field((string)$_REQUEST['page']) : '';
-    $requestAction = isset($_REQUEST['action']) ? sanitize_text_field((string)$_REQUEST['action']) : '';
+    $requestPage = $this->request_text('page', '');
+    $requestAction = $this->request_text('action', '');
     $requestUri = isset($_SERVER['REQUEST_URI']) ? sanitize_text_field((string)$_SERVER['REQUEST_URI']) : '';
     $payload = [
       'captured_at' => current_time('mysql'),

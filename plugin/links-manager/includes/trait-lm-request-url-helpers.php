@@ -8,6 +8,25 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Request_URL_Helpers_Trait {
+  private $request_override_data = null;
+
+  private function get_active_request_input() {
+    if (is_array($this->request_override_data)) {
+      return $this->request_override_data;
+    }
+    return $_REQUEST;
+  }
+
+  private function with_request_input($input, $callback) {
+    $previous = $this->request_override_data;
+    try {
+      $this->request_override_data = is_array($input) ? $input : [];
+      return call_user_func($callback);
+    } finally {
+      $this->request_override_data = $previous;
+    }
+  }
+
   private function get_editor_filter_request_param_map() {
     return [
       'post_type' => 'lm_post_type',
@@ -221,6 +240,142 @@ trait LM_Request_URL_Helpers_Trait {
     return $args;
   }
 
+  private function get_cited_domains_filter_request_param_map() {
+    return [
+      'post_type' => 'lm_cd_post_type',
+      'post_category' => 'lm_cd_post_category',
+      'post_tag' => 'lm_cd_post_tag',
+      'search' => 'lm_cd_search',
+      'search_mode' => 'lm_cd_search_mode',
+      'location' => 'lm_cd_location',
+      'source_type' => 'lm_cd_source_type',
+      'value_contains' => 'lm_cd_value',
+      'source_contains' => 'lm_cd_source',
+      'title_contains' => 'lm_cd_title',
+      'author_contains' => 'lm_cd_author',
+      'anchor_contains' => 'lm_cd_anchor',
+      'seo_flag' => 'lm_cd_seo_flag',
+      'min_cites' => 'lm_cd_min_cites',
+      'max_cites' => 'lm_cd_max_cites',
+      'min_pages' => 'lm_cd_min_pages',
+      'max_pages' => 'lm_cd_max_pages',
+      'orderby' => 'lm_cd_orderby',
+      'order' => 'lm_cd_order',
+      'per_page' => 'lm_cd_per_page',
+      'paged' => 'lm_cd_paged',
+      'rebuild' => 'lm_cd_rebuild',
+    ];
+  }
+
+  private function get_cited_domains_filter_query_args($filters, $override = []) {
+    $args = [
+      'page' => 'links-manager-cited-domains',
+      'lm_cd_post_type' => $filters['post_type'],
+      'lm_cd_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
+      'lm_cd_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
+      'lm_cd_search' => $filters['search'],
+      'lm_cd_search_mode' => $filters['search_mode'],
+      'lm_cd_location' => $filters['location'],
+      'lm_cd_source_type' => $filters['source_type'],
+      'lm_cd_value' => $filters['value_contains'],
+      'lm_cd_source' => $filters['source_contains'],
+      'lm_cd_title' => $filters['title_contains'],
+      'lm_cd_author' => $filters['author_contains'],
+      'lm_cd_anchor' => $filters['anchor_contains'],
+      'lm_cd_seo_flag' => $filters['seo_flag'],
+      'lm_cd_min_cites' => $filters['min_cites'],
+      'lm_cd_max_cites' => $filters['max_cites'],
+      'lm_cd_min_pages' => $filters['min_pages'],
+      'lm_cd_max_pages' => $filters['max_pages'],
+      'lm_cd_orderby' => $filters['orderby'],
+      'lm_cd_order' => $filters['order'],
+      'lm_cd_per_page' => $filters['per_page'],
+      'lm_cd_paged' => $filters['paged'],
+      'lm_cd_rebuild' => $filters['rebuild'] ? '1' : '0',
+    ];
+    foreach ($override as $k => $v) {
+      $args[$k] = $v;
+    }
+    return $args;
+  }
+
+  private function get_all_anchor_text_filter_request_param_map() {
+    return [
+      'post_type' => 'lm_at_post_type',
+      'post_category' => 'lm_at_post_category',
+      'post_tag' => 'lm_at_post_tag',
+      'search' => 'lm_at_search',
+      'search_mode' => 'lm_at_search_mode',
+      'location' => 'lm_at_location',
+      'source_type' => 'lm_at_source_type',
+      'link_type' => 'lm_at_link_type',
+      'value_contains' => 'lm_at_value',
+      'source_contains' => 'lm_at_source',
+      'title_contains' => 'lm_at_title',
+      'author_contains' => 'lm_at_author',
+      'seo_flag' => 'lm_at_seo_flag',
+      'usage_type' => 'lm_at_usage_type',
+      'quality' => 'lm_at_quality',
+      'group' => 'lm_at_group',
+      'min_total' => 'lm_at_min_total',
+      'max_total' => 'lm_at_max_total',
+      'min_inlink' => 'lm_at_min_inlink',
+      'max_inlink' => 'lm_at_max_inlink',
+      'min_outbound' => 'lm_at_min_outbound',
+      'max_outbound' => 'lm_at_max_outbound',
+      'min_pages' => 'lm_at_min_pages',
+      'max_pages' => 'lm_at_max_pages',
+      'min_destinations' => 'lm_at_min_destinations',
+      'max_destinations' => 'lm_at_max_destinations',
+      'orderby' => 'lm_at_orderby',
+      'order' => 'lm_at_order',
+      'per_page' => 'lm_at_per_page',
+      'paged' => 'lm_at_paged',
+      'rebuild' => 'lm_at_rebuild',
+    ];
+  }
+
+  private function get_all_anchor_text_filter_query_args($filters, $override = []) {
+    $args = [
+      'page' => 'links-manager-all-anchor-text',
+      'lm_at_post_type' => $filters['post_type'],
+      'lm_at_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
+      'lm_at_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
+      'lm_at_search' => $filters['search'],
+      'lm_at_search_mode' => $filters['search_mode'],
+      'lm_at_location' => $filters['location'],
+      'lm_at_source_type' => $filters['source_type'],
+      'lm_at_link_type' => $filters['link_type'],
+      'lm_at_value' => $filters['value_contains'],
+      'lm_at_source' => $filters['source_contains'],
+      'lm_at_title' => $filters['title_contains'],
+      'lm_at_author' => $filters['author_contains'],
+      'lm_at_seo_flag' => $filters['seo_flag'],
+      'lm_at_usage_type' => $filters['usage_type'],
+      'lm_at_quality' => $filters['quality'],
+      'lm_at_group' => $filters['group'],
+      'lm_at_min_total' => $filters['min_total'],
+      'lm_at_max_total' => $filters['max_total'],
+      'lm_at_min_inlink' => $filters['min_inlink'],
+      'lm_at_max_inlink' => $filters['max_inlink'],
+      'lm_at_min_outbound' => $filters['min_outbound'],
+      'lm_at_max_outbound' => $filters['max_outbound'],
+      'lm_at_min_pages' => $filters['min_pages'],
+      'lm_at_max_pages' => $filters['max_pages'],
+      'lm_at_min_destinations' => $filters['min_destinations'],
+      'lm_at_max_destinations' => $filters['max_destinations'],
+      'lm_at_orderby' => $filters['orderby'],
+      'lm_at_order' => $filters['order'],
+      'lm_at_per_page' => $filters['per_page'],
+      'lm_at_paged' => $filters['paged'],
+      'lm_at_rebuild' => $filters['rebuild'] ? '1' : '0',
+    ];
+    foreach ($override as $k => $v) {
+      $args[$k] = $v;
+    }
+    return $args;
+  }
+
   private function safe_redirect_back($filters, $extra = []) {
     $url = $this->base_admin_url($filters, array_merge(['lm_paged' => 1], $extra));
     wp_safe_redirect($url);
@@ -311,17 +466,121 @@ trait LM_Request_URL_Helpers_Trait {
     return $map;
   }
 
+  private function request_has($key) {
+    if (!is_string($key) || $key === '') {
+      return false;
+    }
+    $input = $this->get_active_request_input();
+    return isset($input[$key]);
+  }
+
+  private function request_raw($key, $default = null) {
+    if (!$this->request_has($key)) {
+      return $default;
+    }
+    $input = $this->get_active_request_input();
+    return $input[$key];
+  }
+
+  private function request_text($key, $default = '') {
+    if (!$this->request_has($key)) {
+      return (string)$default;
+    }
+    return sanitize_text_field((string)$this->request_raw($key, ''));
+  }
+
+  private function request_key($key, $default = '') {
+    if (!$this->request_has($key)) {
+      return sanitize_key((string)$default);
+    }
+    return sanitize_key((string)$this->request_raw($key, ''));
+  }
+
+  private function request_array($key) {
+    if (!$this->request_has($key)) {
+      return [];
+    }
+    $value = wp_unslash($this->request_raw($key, []));
+    if (is_array($value)) {
+      return $value;
+    }
+    if ($value === '' || $value === null) {
+      return [];
+    }
+    return [$value];
+  }
+
+  private function request_int($key, $default = 0) {
+    if (!$this->request_has($key)) {
+      return (int)$default;
+    }
+    return intval($this->request_raw($key, $default));
+  }
+
+  private function request_int_or_default($key, $default = -1, $min = -1) {
+    if (!$this->request_has($key)) {
+      return (int)$default;
+    }
+    $raw = trim((string)$this->request_raw($key, ''));
+    if ($raw === '') {
+      return (int)$default;
+    }
+    $value = intval($raw);
+    if ($value < $min) {
+      return (int)$min;
+    }
+    return $value;
+  }
+
+  private function request_bool_flag($key) {
+    return $this->request_text($key, '0') === '1';
+  }
+
+  private function request_date_ymd($key, $default = '') {
+    if (!$this->request_has($key)) {
+      return (string)$default;
+    }
+    return $this->sanitize_date_ymd($this->request_raw($key, ''));
+  }
+
+  private function request_text_mode($key, $default = 'contains') {
+    if (!$this->request_has($key)) {
+      return $this->sanitize_text_match_mode($default);
+    }
+    return $this->sanitize_text_match_mode($this->request_raw($key, $default));
+  }
+
+  private function request_source_type($key, $default = 'any') {
+    if (!$this->request_has($key)) {
+      return $this->sanitize_source_type_filter($default);
+    }
+    return $this->sanitize_source_type_filter($this->request_raw($key, $default));
+  }
+
+  private function request_enum($key, $allowed, $default = 'any', $normalizeOrAliases = null) {
+    $value = strtolower(trim($this->request_text($key, $default)));
+    if (is_array($normalizeOrAliases) && isset($normalizeOrAliases[$value])) {
+      $value = $normalizeOrAliases[$value];
+    } elseif (is_callable($normalizeOrAliases)) {
+      $value = (string)call_user_func($normalizeOrAliases, $value);
+    }
+    if (!in_array($value, $allowed, true)) {
+      return (string)$default;
+    }
+    return $value;
+  }
+
   private function get_filters_from_request() {
     $paramMap = $this->get_editor_filter_request_param_map();
     $postTypes = $this->get_filterable_post_types();
     $postTypeParam = $paramMap['post_type'];
-    $postType = isset($_REQUEST[$postTypeParam]) ? sanitize_text_field($_REQUEST[$postTypeParam]) : 'any';
+    $postType = $this->request_text($postTypeParam, 'any');
     if ($postType !== 'any' && !isset($postTypes[$postType])) $postType = 'any';
 
     $postCategoryParam = $paramMap['post_category'];
     $postTagParam = $paramMap['post_tag'];
-    $postCategory = isset($_REQUEST[$postCategoryParam]) ? $this->sanitize_post_term_filter($_REQUEST[$postCategoryParam], 'category') : 0;
-    $postTag = isset($_REQUEST[$postTagParam]) ? $this->sanitize_post_term_filter($_REQUEST[$postTagParam], 'post_tag') : 0;
+    $postCategory = $this->request_has($postCategoryParam) ? $this->sanitize_post_term_filter($this->request_raw($postCategoryParam, 0), 'category') : 0;
+    $postTag = $this->request_has($postTagParam) ? $this->sanitize_post_term_filter($this->request_raw($postTagParam, 0), 'post_tag') : 0;
     if ($postType !== 'any' && $postType !== 'post') {
       $postCategory = 0;
       $postTag = 0;
@@ -332,30 +591,30 @@ trait LM_Request_URL_Helpers_Trait {
       'post_category' => $postCategory,
       'post_tag' => $postTag,
       'wpml_lang' => $this->sanitize_wpml_lang_filter($this->get_wpml_current_language()),
-      'location' => isset($_REQUEST[$paramMap['location']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['location']]) : 'any',
-      'source_type' => isset($_REQUEST[$paramMap['source_type']]) ? $this->sanitize_source_type_filter($_REQUEST[$paramMap['source_type']]) : 'any',
-      'link_type' => isset($_REQUEST[$paramMap['link_type']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['link_type']]) : 'any',
-      'value_type' => isset($_REQUEST[$paramMap['value_type']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['value_type']]) : 'any',
-      'value_contains' => isset($_REQUEST[$paramMap['value_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['value_contains']]) : '',
-      'source_contains' => isset($_REQUEST[$paramMap['source_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['source_contains']]) : '',
-      'title_contains' => isset($_REQUEST[$paramMap['title_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['title_contains']]) : '',
-      'author_contains' => isset($_REQUEST[$paramMap['author_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['author_contains']]) : '',
-      'publish_date_from' => isset($_REQUEST[$paramMap['publish_date_from']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['publish_date_from']]) : '',
-      'publish_date_to' => isset($_REQUEST[$paramMap['publish_date_to']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['publish_date_to']]) : '',
-      'updated_date_from' => isset($_REQUEST[$paramMap['updated_date_from']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['updated_date_from']]) : '',
-      'updated_date_to' => isset($_REQUEST[$paramMap['updated_date_to']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['updated_date_to']]) : '',
-      'anchor_contains' => isset($_REQUEST[$paramMap['anchor_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['anchor_contains']]) : '',
-      'quality' => isset($_REQUEST[$paramMap['quality']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['quality']]) : 'any',
-      'seo_flag' => isset($_REQUEST[$paramMap['seo_flag']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['seo_flag']]) : 'any',
-      'alt_contains' => isset($_REQUEST[$paramMap['alt_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['alt_contains']]) : '',
-      'rel_contains' => isset($_REQUEST[$paramMap['rel_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['rel_contains']]) : '',
-      'text_match_mode' => isset($_REQUEST[$paramMap['text_match_mode']]) ? $this->sanitize_text_match_mode($_REQUEST[$paramMap['text_match_mode']]) : 'contains',
-      'orderby' => isset($_REQUEST[$paramMap['orderby']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['orderby']]) : 'date',
-      'order' => isset($_REQUEST[$paramMap['order']]) ? strtoupper(sanitize_text_field((string)$_REQUEST[$paramMap['order']])) : 'DESC',
-      'per_page' => isset($_REQUEST[$paramMap['per_page']]) ? intval($_REQUEST[$paramMap['per_page']]) : 25,
-      'paged' => isset($_REQUEST[$paramMap['paged']]) ? intval($_REQUEST[$paramMap['paged']]) : 1,
-      'rebuild' => isset($_REQUEST[$paramMap['rebuild']]) && sanitize_text_field((string)$_REQUEST[$paramMap['rebuild']]) === '1',
-      'group' => isset($_REQUEST['lm_group']) ? sanitize_text_field((string)$_REQUEST['lm_group']) : '0',
+      'location' => $this->request_text($paramMap['location'], 'any'),
+      'source_type' => $this->request_source_type($paramMap['source_type'], 'any'),
+      'link_type' => $this->request_text($paramMap['link_type'], 'any'),
+      'value_type' => $this->request_text($paramMap['value_type'], 'any'),
+      'value_contains' => $this->request_text($paramMap['value_contains'], ''),
+      'source_contains' => $this->request_text($paramMap['source_contains'], ''),
+      'title_contains' => $this->request_text($paramMap['title_contains'], ''),
+      'author_contains' => $this->request_text($paramMap['author_contains'], ''),
+      'publish_date_from' => $this->request_date_ymd($paramMap['publish_date_from'], ''),
+      'publish_date_to' => $this->request_date_ymd($paramMap['publish_date_to'], ''),
+      'updated_date_from' => $this->request_date_ymd($paramMap['updated_date_from'], ''),
+      'updated_date_to' => $this->request_date_ymd($paramMap['updated_date_to'], ''),
+      'anchor_contains' => $this->request_text($paramMap['anchor_contains'], ''),
+      'quality' => $this->request_text($paramMap['quality'], 'any'),
+      'seo_flag' => $this->request_text($paramMap['seo_flag'], 'any'),
+      'alt_contains' => $this->request_text($paramMap['alt_contains'], ''),
+      'rel_contains' => $this->request_text($paramMap['rel_contains'], ''),
+      'text_match_mode' => $this->request_text_mode($paramMap['text_match_mode'], 'contains'),
+      'orderby' => $this->request_text($paramMap['orderby'], 'date'),
+      'order' => strtoupper($this->request_text($paramMap['order'], 'DESC')),
+      'per_page' => $this->request_int($paramMap['per_page'], 25),
+      'paged' => $this->request_int($paramMap['paged'], 1),
+      'rebuild' => $this->request_bool_flag($paramMap['rebuild']),
+      'group' => $this->request_text('lm_group', '0'),
     ];
 
     if ($filters['location'] === '') $filters['location'] = 'any';
@@ -393,93 +652,84 @@ trait LM_Request_URL_Helpers_Trait {
   private function get_pages_link_filters_from_request() {
     $paramMap = $this->get_pages_link_filter_request_param_map();
     $postTypes = $this->get_filterable_post_types();
-    $postType = isset($_REQUEST[$paramMap['post_type']]) ? sanitize_text_field($_REQUEST[$paramMap['post_type']]) : 'any';
+    $postType = $this->request_text($paramMap['post_type'], 'any');
     if ($postType !== 'any' && !isset($postTypes[$postType])) $postType = 'any';
 
-    $postCategory = isset($_REQUEST[$paramMap['post_category']]) ? $this->sanitize_post_term_filter($_REQUEST[$paramMap['post_category']], 'category') : 0;
-    $postTag = isset($_REQUEST[$paramMap['post_tag']]) ? $this->sanitize_post_term_filter($_REQUEST[$paramMap['post_tag']], 'post_tag') : 0;
+    $postCategory = $this->request_has($paramMap['post_category']) ? $this->sanitize_post_term_filter($this->request_raw($paramMap['post_category'], 0), 'category') : 0;
+    $postTag = $this->request_has($paramMap['post_tag']) ? $this->sanitize_post_term_filter($this->request_raw($paramMap['post_tag'], 0), 'post_tag') : 0;
 
     if ($postType !== 'any' && $postType !== 'post') {
       $postCategory = 0;
       $postTag = 0;
     }
 
-    $author = isset($_REQUEST[$paramMap['author']]) ? intval($_REQUEST[$paramMap['author']]) : 0;
+    $author = $this->request_int($paramMap['author'], 0);
     if ($author < 0) $author = 0;
 
-    $search = isset($_REQUEST[$paramMap['search']]) ? sanitize_text_field($_REQUEST[$paramMap['search']]) : '';
-    $search_url = isset($_REQUEST[$paramMap['search_url']]) ? sanitize_text_field($_REQUEST[$paramMap['search_url']]) : '';
-    $dateFrom = isset($_REQUEST[$paramMap['date_from']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['date_from']]) : '';
-    $dateTo = isset($_REQUEST[$paramMap['date_to']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['date_to']]) : '';
-    $updatedDateFrom = isset($_REQUEST[$paramMap['updated_date_from']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['updated_date_from']]) : '';
-    $updatedDateTo = isset($_REQUEST[$paramMap['updated_date_to']]) ? $this->sanitize_date_ymd($_REQUEST[$paramMap['updated_date_to']]) : '';
-    $searchMode = isset($_REQUEST[$paramMap['search_mode']]) ? $this->sanitize_text_match_mode($_REQUEST[$paramMap['search_mode']]) : 'contains';
-    $location = isset($_REQUEST[$paramMap['location']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['location']]) : 'any';
+    $search = $this->request_text($paramMap['search'], '');
+    $search_url = $this->request_text($paramMap['search_url'], '');
+    $dateFrom = $this->request_date_ymd($paramMap['date_from'], '');
+    $dateTo = $this->request_date_ymd($paramMap['date_to'], '');
+    $updatedDateFrom = $this->request_date_ymd($paramMap['updated_date_from'], '');
+    $updatedDateTo = $this->request_date_ymd($paramMap['updated_date_to'], '');
+    $searchMode = $this->request_text_mode($paramMap['search_mode'], 'contains');
+    $location = $this->request_text($paramMap['location'], 'any');
     if ($location === '') $location = 'any';
-    $sourceType = isset($_REQUEST[$paramMap['source_type']])
-      ? $this->sanitize_source_type_filter($_REQUEST[$paramMap['source_type']])
-      : 'any';
-    $linkType = isset($_REQUEST[$paramMap['link_type']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['link_type']]) : 'any';
+    $sourceType = $this->request_source_type($paramMap['source_type'], 'any');
+    $linkType = $this->request_text($paramMap['link_type'], 'any');
     if (!in_array($linkType, ['any', 'inlink', 'exlink'], true)) $linkType = 'any';
-    $valueContains = isset($_REQUEST[$paramMap['value_contains']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['value_contains']]) : '';
-    $seoFlag = isset($_REQUEST[$paramMap['seo_flag']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['seo_flag']]) : 'any';
+    $valueContains = $this->request_text($paramMap['value_contains'], '');
+    $seoFlag = $this->request_text($paramMap['seo_flag'], 'any');
     if (!in_array($seoFlag, ['any', 'dofollow', 'nofollow', 'sponsored', 'ugc'], true)) $seoFlag = 'any';
 
-    $perPage = isset($_REQUEST[$paramMap['per_page']]) ? intval($_REQUEST[$paramMap['per_page']]) : 25;
+    $perPage = $this->request_int($paramMap['per_page'], 25);
     if ($perPage < 10) $perPage = 10;
     if ($perPage > 500) $perPage = 500;
 
-    $paged = isset($_REQUEST[$paramMap['paged']]) ? intval($_REQUEST[$paramMap['paged']]) : 1;
+    $paged = $this->request_int($paramMap['paged'], 1);
     if ($paged < 1) $paged = 1;
 
-    $cursor = isset($_REQUEST[$paramMap['cursor']]) ? sanitize_text_field((string)$_REQUEST[$paramMap['cursor']]) : '';
+    $cursor = $this->request_text($paramMap['cursor'], '');
     if (strlen($cursor) > 512) {
       $cursor = '';
     }
 
-    $orderby = isset($_REQUEST[$paramMap['orderby']]) ? sanitize_text_field($_REQUEST[$paramMap['orderby']]) : 'date';
+    $orderby = $this->request_text($paramMap['orderby'], 'date');
     if (!in_array($orderby, ['post_id', 'date', 'modified', 'title', 'post_type', 'author', 'page_url', 'inbound', 'internal_outbound', 'outbound', 'status', 'internal_outbound_status', 'external_outbound_status'], true)) $orderby = 'date';
 
-    $order = isset($_REQUEST[$paramMap['order']]) ? sanitize_text_field($_REQUEST[$paramMap['order']]) : 'DESC';
+    $order = $this->request_text($paramMap['order'], 'DESC');
     $order = strtoupper($order);
     if (!in_array($order, ['ASC', 'DESC'], true)) $order = 'DESC';
 
-    $inboundMinRaw = isset($_REQUEST[$paramMap['inbound_min']]) ? trim((string)$_REQUEST[$paramMap['inbound_min']]) : '';
-    $inboundMaxRaw = isset($_REQUEST[$paramMap['inbound_max']]) ? trim((string)$_REQUEST[$paramMap['inbound_max']]) : '';
-    $inboundMin = ($inboundMinRaw === '') ? -1 : intval($inboundMinRaw);
-    $inboundMax = ($inboundMaxRaw === '') ? -1 : intval($inboundMaxRaw);
-    if ($inboundMin < -1) $inboundMin = -1;
-    if ($inboundMax < -1) $inboundMax = -1;
+    $inboundMin = $this->request_int_or_default($paramMap['inbound_min'], -1, -1);
+    $inboundMax = $this->request_int_or_default($paramMap['inbound_max'], -1, -1);
 
-    $internalOutboundMinRaw = isset($_REQUEST[$paramMap['internal_outbound_min']]) ? trim((string)$_REQUEST[$paramMap['internal_outbound_min']]) : '';
-    $internalOutboundMaxRaw = isset($_REQUEST[$paramMap['internal_outbound_max']]) ? trim((string)$_REQUEST[$paramMap['internal_outbound_max']]) : '';
-    $internalOutboundMin = ($internalOutboundMinRaw === '') ? -1 : intval($internalOutboundMinRaw);
-    $internalOutboundMax = ($internalOutboundMaxRaw === '') ? -1 : intval($internalOutboundMaxRaw);
-    if ($internalOutboundMin < -1) $internalOutboundMin = -1;
-    if ($internalOutboundMax < -1) $internalOutboundMax = -1;
+    $internalOutboundMin = $this->request_int_or_default($paramMap['internal_outbound_min'], -1, -1);
+    $internalOutboundMax = $this->request_int_or_default($paramMap['internal_outbound_max'], -1, -1);
 
-    $outboundMinRaw = isset($_REQUEST[$paramMap['outbound_min']]) ? trim((string)$_REQUEST[$paramMap['outbound_min']]) : '';
-    $outboundMaxRaw = isset($_REQUEST[$paramMap['outbound_max']]) ? trim((string)$_REQUEST[$paramMap['outbound_max']]) : '';
-    $outboundMin = ($outboundMinRaw === '') ? -1 : intval($outboundMinRaw);
-    $outboundMax = ($outboundMaxRaw === '') ? -1 : intval($outboundMaxRaw);
-    if ($outboundMin < -1) $outboundMin = -1;
-    if ($outboundMax < -1) $outboundMax = -1;
+    $outboundMin = $this->request_int_or_default($paramMap['outbound_min'], -1, -1);
+    $outboundMax = $this->request_int_or_default($paramMap['outbound_max'], -1, -1);
 
-    $status = isset($_REQUEST[$paramMap['status']]) ? sanitize_text_field($_REQUEST[$paramMap['status']]) : 'any';
-    $status = strtolower(trim($status));
-    if ($status === 'orphaned') $status = 'orphan';
-    if (!in_array($status, ['any', 'orphan', 'low', 'standard', 'excellent'], true)) $status = 'any';
+    $status = $this->request_enum(
+      $paramMap['status'],
+      ['any', 'orphan', 'low', 'standard', 'excellent'],
+      'any',
+      ['orphaned' => 'orphan']
+    );
 
-    $internalOutboundStatus = isset($_REQUEST[$paramMap['internal_outbound_status']]) ? sanitize_text_field($_REQUEST[$paramMap['internal_outbound_status']]) : 'any';
-    $internalOutboundStatus = strtolower(trim($internalOutboundStatus));
-    if (!in_array($internalOutboundStatus, ['any', 'none', 'low', 'optimal', 'excessive'], true)) $internalOutboundStatus = 'any';
+    $internalOutboundStatus = $this->request_enum(
+      $paramMap['internal_outbound_status'],
+      ['any', 'none', 'low', 'optimal', 'excessive'],
+      'any'
+    );
 
-    $externalOutboundStatus = isset($_REQUEST[$paramMap['external_outbound_status']]) ? sanitize_text_field($_REQUEST[$paramMap['external_outbound_status']]) : 'any';
-    $externalOutboundStatus = strtolower(trim($externalOutboundStatus));
-    if (!in_array($externalOutboundStatus, ['any', 'none', 'low', 'optimal', 'excessive'], true)) $externalOutboundStatus = 'any';
+    $externalOutboundStatus = $this->request_enum(
+      $paramMap['external_outbound_status'],
+      ['any', 'none', 'low', 'optimal', 'excessive'],
+      'any'
+    );
 
-    $rebuild = isset($_REQUEST[$paramMap['rebuild']]) ? sanitize_text_field($_REQUEST[$paramMap['rebuild']]) : '0';
-    $rebuild = $rebuild === '1';
+    $rebuild = $this->request_bool_flag($paramMap['rebuild']);
 
     $wpmlLang = $this->sanitize_wpml_lang_filter($this->get_wpml_current_language());
 
@@ -541,32 +791,7 @@ trait LM_Request_URL_Helpers_Trait {
   }
 
   private function cited_domains_admin_url($filters, $override = []) {
-    $args = [
-      'page' => 'links-manager-cited-domains',
-      'lm_cd_post_type' => $filters['post_type'],
-      'lm_cd_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
-      'lm_cd_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
-      'lm_cd_search' => $filters['search'],
-      'lm_cd_search_mode' => $filters['search_mode'],
-      'lm_cd_location' => $filters['location'],
-      'lm_cd_source_type' => $filters['source_type'],
-      'lm_cd_value' => $filters['value_contains'],
-      'lm_cd_source' => $filters['source_contains'],
-      'lm_cd_title' => $filters['title_contains'],
-      'lm_cd_author' => $filters['author_contains'],
-      'lm_cd_anchor' => $filters['anchor_contains'],
-      'lm_cd_seo_flag' => $filters['seo_flag'],
-      'lm_cd_min_cites' => $filters['min_cites'],
-      'lm_cd_max_cites' => $filters['max_cites'],
-      'lm_cd_min_pages' => $filters['min_pages'],
-      'lm_cd_max_pages' => $filters['max_pages'],
-      'lm_cd_orderby' => $filters['orderby'],
-      'lm_cd_order' => $filters['order'],
-      'lm_cd_per_page' => $filters['per_page'],
-      'lm_cd_paged' => $filters['paged'],
-      'lm_cd_rebuild' => $filters['rebuild'] ? '1' : '0',
-    ];
-    foreach ($override as $k => $v) $args[$k] = $v;
+    $args = $this->get_cited_domains_filter_query_args($filters, $override);
     return admin_url('admin.php?' . http_build_query($args));
   }
 
@@ -574,68 +799,52 @@ trait LM_Request_URL_Helpers_Trait {
     $args = [
       'action' => 'lm_export_cited_domains_csv',
       self::NONCE_NAME => wp_create_nonce(self::NONCE_ACTION),
-      'lm_cd_post_type' => $filters['post_type'],
-      'lm_cd_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
-      'lm_cd_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
-      'lm_cd_search' => $filters['search'],
-      'lm_cd_search_mode' => $filters['search_mode'],
-      'lm_cd_location' => $filters['location'],
-      'lm_cd_source_type' => $filters['source_type'],
-      'lm_cd_source' => $filters['source_contains'],
-      'lm_cd_title' => $filters['title_contains'],
-      'lm_cd_author' => $filters['author_contains'],
-      'lm_cd_anchor' => $filters['anchor_contains'],
-      'lm_cd_seo_flag' => $filters['seo_flag'],
-      'lm_cd_min_cites' => $filters['min_cites'],
-      'lm_cd_max_cites' => $filters['max_cites'],
-      'lm_cd_min_pages' => $filters['min_pages'],
-      'lm_cd_max_pages' => $filters['max_pages'],
-      'lm_cd_orderby' => $filters['orderby'],
-      'lm_cd_order' => $filters['order'],
-      'lm_cd_rebuild' => $filters['rebuild'] ? '1' : '0',
     ];
+    foreach ($this->get_cited_domains_filter_query_args($filters) as $key => $value) {
+      if (in_array($key, ['page', 'lm_cd_per_page', 'lm_cd_paged'], true)) continue;
+      if ($key === 'lm_cd_value') continue;
+      $args[$key] = $value;
+    }
     return admin_url('admin-post.php?' . http_build_query($args));
   }
 
   private function get_cited_domains_filters_from_request() {
+    $paramMap = $this->get_cited_domains_filter_request_param_map();
     $postTypes = $this->get_filterable_post_types();
-    $postType = isset($_REQUEST['lm_cd_post_type']) ? sanitize_key((string)$_REQUEST['lm_cd_post_type']) : 'any';
+    $postType = $this->request_key($paramMap['post_type'], 'any');
     if ($postType !== 'any' && !isset($postTypes[$postType])) $postType = 'any';
 
-    $postCategory = isset($_REQUEST['lm_cd_post_category']) ? $this->sanitize_post_term_filter($_REQUEST['lm_cd_post_category'], 'category') : 0;
-    $postTag = isset($_REQUEST['lm_cd_post_tag']) ? $this->sanitize_post_term_filter($_REQUEST['lm_cd_post_tag'], 'post_tag') : 0;
+    $postCategory = $this->request_has($paramMap['post_category']) ? $this->sanitize_post_term_filter($this->request_raw($paramMap['post_category'], 0), 'category') : 0;
+    $postTag = $this->request_has($paramMap['post_tag']) ? $this->sanitize_post_term_filter($this->request_raw($paramMap['post_tag'], 0), 'post_tag') : 0;
     if ($postType !== 'any' && $postType !== 'post') {
       $postCategory = 0;
       $postTag = 0;
     }
-
-    $maxCitesRaw = isset($_REQUEST['lm_cd_max_cites']) ? trim((string)$_REQUEST['lm_cd_max_cites']) : '';
-    $maxPagesRaw = isset($_REQUEST['lm_cd_max_pages']) ? trim((string)$_REQUEST['lm_cd_max_pages']) : '';
 
     $filters = [
       'post_type' => $postType,
       'post_category' => $postCategory,
       'post_tag' => $postTag,
       'wpml_lang' => $this->sanitize_wpml_lang_filter($this->get_wpml_current_language()),
-      'search' => isset($_REQUEST['lm_cd_search']) ? sanitize_text_field((string)$_REQUEST['lm_cd_search']) : '',
-      'search_mode' => isset($_REQUEST['lm_cd_search_mode']) ? $this->sanitize_text_match_mode($_REQUEST['lm_cd_search_mode']) : 'contains',
-      'location' => isset($_REQUEST['lm_cd_location']) ? sanitize_text_field((string)$_REQUEST['lm_cd_location']) : 'any',
-      'source_type' => isset($_REQUEST['lm_cd_source_type']) ? $this->sanitize_source_type_filter($_REQUEST['lm_cd_source_type']) : 'any',
-      'value_contains' => isset($_REQUEST['lm_cd_value']) ? sanitize_text_field((string)$_REQUEST['lm_cd_value']) : '',
-      'source_contains' => isset($_REQUEST['lm_cd_source']) ? sanitize_text_field((string)$_REQUEST['lm_cd_source']) : '',
-      'title_contains' => isset($_REQUEST['lm_cd_title']) ? sanitize_text_field((string)$_REQUEST['lm_cd_title']) : '',
-      'author_contains' => isset($_REQUEST['lm_cd_author']) ? sanitize_text_field((string)$_REQUEST['lm_cd_author']) : '',
-      'anchor_contains' => isset($_REQUEST['lm_cd_anchor']) ? sanitize_text_field((string)$_REQUEST['lm_cd_anchor']) : '',
-      'seo_flag' => isset($_REQUEST['lm_cd_seo_flag']) ? sanitize_text_field((string)$_REQUEST['lm_cd_seo_flag']) : 'any',
-      'min_cites' => isset($_REQUEST['lm_cd_min_cites']) ? max(0, intval($_REQUEST['lm_cd_min_cites'])) : 0,
-      'max_cites' => ($maxCitesRaw === '' || intval($maxCitesRaw) < 0) ? -1 : max(0, intval($maxCitesRaw)),
-      'min_pages' => isset($_REQUEST['lm_cd_min_pages']) ? max(0, intval($_REQUEST['lm_cd_min_pages'])) : 0,
-      'max_pages' => ($maxPagesRaw === '' || intval($maxPagesRaw) < 0) ? -1 : max(0, intval($maxPagesRaw)),
-      'orderby' => isset($_REQUEST['lm_cd_orderby']) ? sanitize_text_field((string)$_REQUEST['lm_cd_orderby']) : 'cites',
-      'order' => isset($_REQUEST['lm_cd_order']) ? strtoupper(sanitize_text_field((string)$_REQUEST['lm_cd_order'])) : 'DESC',
-      'per_page' => isset($_REQUEST['lm_cd_per_page']) ? intval($_REQUEST['lm_cd_per_page']) : 50,
-      'paged' => isset($_REQUEST['lm_cd_paged']) ? intval($_REQUEST['lm_cd_paged']) : 1,
-      'rebuild' => isset($_REQUEST['lm_cd_rebuild']) && sanitize_text_field((string)$_REQUEST['lm_cd_rebuild']) === '1',
+      'search' => $this->request_text($paramMap['search'], ''),
+      'search_mode' => $this->request_text_mode($paramMap['search_mode'], 'contains'),
+      'location' => $this->request_text($paramMap['location'], 'any'),
+      'source_type' => $this->request_source_type($paramMap['source_type'], 'any'),
+      'value_contains' => $this->request_text($paramMap['value_contains'], ''),
+      'source_contains' => $this->request_text($paramMap['source_contains'], ''),
+      'title_contains' => $this->request_text($paramMap['title_contains'], ''),
+      'author_contains' => $this->request_text($paramMap['author_contains'], ''),
+      'anchor_contains' => $this->request_text($paramMap['anchor_contains'], ''),
+      'seo_flag' => $this->request_text($paramMap['seo_flag'], 'any'),
+      'min_cites' => max(0, $this->request_int_or_default($paramMap['min_cites'], 0, 0)),
+      'max_cites' => $this->request_int_or_default($paramMap['max_cites'], -1, -1),
+      'min_pages' => max(0, $this->request_int_or_default($paramMap['min_pages'], 0, 0)),
+      'max_pages' => $this->request_int_or_default($paramMap['max_pages'], -1, -1),
+      'orderby' => $this->request_text($paramMap['orderby'], 'cites'),
+      'order' => strtoupper($this->request_text($paramMap['order'], 'DESC')),
+      'per_page' => $this->request_int($paramMap['per_page'], 50),
+      'paged' => $this->request_int($paramMap['paged'], 1),
+      'rebuild' => $this->request_bool_flag($paramMap['rebuild']),
     ];
 
     if ($filters['location'] === '') $filters['location'] = 'any';
@@ -650,56 +859,51 @@ trait LM_Request_URL_Helpers_Trait {
   }
 
   private function get_all_anchor_text_filters_from_request() {
+    $paramMap = $this->get_all_anchor_text_filter_request_param_map();
     $postTypes = $this->get_filterable_post_types();
-    $postType = isset($_REQUEST['lm_at_post_type']) ? sanitize_key((string)$_REQUEST['lm_at_post_type']) : 'any';
+    $postType = $this->request_key($paramMap['post_type'], 'any');
     if ($postType !== 'any' && !isset($postTypes[$postType])) $postType = 'any';
 
-    $postCategory = isset($_REQUEST['lm_at_post_category']) ? $this->sanitize_post_term_filter($_REQUEST['lm_at_post_category'], 'category') : 0;
-    $postTag = isset($_REQUEST['lm_at_post_tag']) ? $this->sanitize_post_term_filter($_REQUEST['lm_at_post_tag'], 'post_tag') : 0;
+    $postCategory = $this->request_has($paramMap['post_category']) ? $this->sanitize_post_term_filter($this->request_raw($paramMap['post_category'], 0), 'category') : 0;
+    $postTag = $this->request_has($paramMap['post_tag']) ? $this->sanitize_post_term_filter($this->request_raw($paramMap['post_tag'], 0), 'post_tag') : 0;
     if ($postType !== 'any' && $postType !== 'post') {
       $postCategory = 0;
       $postTag = 0;
     }
-
-    $maxTotalRaw = isset($_REQUEST['lm_at_max_total']) ? trim((string)$_REQUEST['lm_at_max_total']) : '';
-    $maxInlinkRaw = isset($_REQUEST['lm_at_max_inlink']) ? trim((string)$_REQUEST['lm_at_max_inlink']) : '';
-    $maxOutboundRaw = isset($_REQUEST['lm_at_max_outbound']) ? trim((string)$_REQUEST['lm_at_max_outbound']) : '';
-    $maxPagesRaw = isset($_REQUEST['lm_at_max_pages']) ? trim((string)$_REQUEST['lm_at_max_pages']) : '';
-    $maxDestinationsRaw = isset($_REQUEST['lm_at_max_destinations']) ? trim((string)$_REQUEST['lm_at_max_destinations']) : '';
 
     $filters = [
       'post_type' => $postType,
       'post_category' => $postCategory,
       'post_tag' => $postTag,
       'wpml_lang' => $this->sanitize_wpml_lang_filter($this->get_wpml_current_language()),
-      'search' => isset($_REQUEST['lm_at_search']) ? sanitize_text_field((string)$_REQUEST['lm_at_search']) : '',
-      'search_mode' => isset($_REQUEST['lm_at_search_mode']) ? $this->sanitize_text_match_mode($_REQUEST['lm_at_search_mode']) : 'contains',
-      'location' => isset($_REQUEST['lm_at_location']) ? sanitize_text_field((string)$_REQUEST['lm_at_location']) : 'any',
-      'source_type' => isset($_REQUEST['lm_at_source_type']) ? $this->sanitize_source_type_filter($_REQUEST['lm_at_source_type']) : 'any',
-      'link_type' => isset($_REQUEST['lm_at_link_type']) ? sanitize_text_field((string)$_REQUEST['lm_at_link_type']) : 'any',
-      'value_contains' => isset($_REQUEST['lm_at_value']) ? sanitize_text_field((string)$_REQUEST['lm_at_value']) : '',
-      'source_contains' => isset($_REQUEST['lm_at_source']) ? sanitize_text_field((string)$_REQUEST['lm_at_source']) : '',
-      'title_contains' => isset($_REQUEST['lm_at_title']) ? sanitize_text_field((string)$_REQUEST['lm_at_title']) : '',
-      'author_contains' => isset($_REQUEST['lm_at_author']) ? sanitize_text_field((string)$_REQUEST['lm_at_author']) : '',
-      'seo_flag' => isset($_REQUEST['lm_at_seo_flag']) ? sanitize_text_field((string)$_REQUEST['lm_at_seo_flag']) : 'any',
-      'usage_type' => isset($_REQUEST['lm_at_usage_type']) ? sanitize_text_field((string)$_REQUEST['lm_at_usage_type']) : 'any',
-      'quality' => isset($_REQUEST['lm_at_quality']) ? sanitize_text_field((string)$_REQUEST['lm_at_quality']) : 'any',
-      'group' => isset($_REQUEST['lm_at_group']) ? sanitize_text_field((string)$_REQUEST['lm_at_group']) : 'any',
-      'min_total' => isset($_REQUEST['lm_at_min_total']) ? max(0, intval($_REQUEST['lm_at_min_total'])) : 0,
-      'max_total' => ($maxTotalRaw === '' || intval($maxTotalRaw) < 0) ? -1 : max(0, intval($maxTotalRaw)),
-      'min_inlink' => isset($_REQUEST['lm_at_min_inlink']) ? max(0, intval($_REQUEST['lm_at_min_inlink'])) : 0,
-      'max_inlink' => ($maxInlinkRaw === '' || intval($maxInlinkRaw) < 0) ? -1 : max(0, intval($maxInlinkRaw)),
-      'min_outbound' => isset($_REQUEST['lm_at_min_outbound']) ? max(0, intval($_REQUEST['lm_at_min_outbound'])) : 0,
-      'max_outbound' => ($maxOutboundRaw === '' || intval($maxOutboundRaw) < 0) ? -1 : max(0, intval($maxOutboundRaw)),
-      'min_pages' => isset($_REQUEST['lm_at_min_pages']) ? max(0, intval($_REQUEST['lm_at_min_pages'])) : 0,
-      'max_pages' => ($maxPagesRaw === '' || intval($maxPagesRaw) < 0) ? -1 : max(0, intval($maxPagesRaw)),
-      'min_destinations' => isset($_REQUEST['lm_at_min_destinations']) ? max(0, intval($_REQUEST['lm_at_min_destinations'])) : 0,
-      'max_destinations' => ($maxDestinationsRaw === '' || intval($maxDestinationsRaw) < 0) ? -1 : max(0, intval($maxDestinationsRaw)),
-      'orderby' => isset($_REQUEST['lm_at_orderby']) ? sanitize_text_field((string)$_REQUEST['lm_at_orderby']) : 'total',
-      'order' => isset($_REQUEST['lm_at_order']) ? strtoupper(sanitize_text_field((string)$_REQUEST['lm_at_order'])) : 'DESC',
-      'per_page' => isset($_REQUEST['lm_at_per_page']) ? intval($_REQUEST['lm_at_per_page']) : 50,
-      'paged' => isset($_REQUEST['lm_at_paged']) ? intval($_REQUEST['lm_at_paged']) : 1,
-      'rebuild' => isset($_REQUEST['lm_at_rebuild']) && sanitize_text_field((string)$_REQUEST['lm_at_rebuild']) === '1',
+      'search' => $this->request_text($paramMap['search'], ''),
+      'search_mode' => $this->request_text_mode($paramMap['search_mode'], 'contains'),
+      'location' => $this->request_text($paramMap['location'], 'any'),
+      'source_type' => $this->request_source_type($paramMap['source_type'], 'any'),
+      'link_type' => $this->request_text($paramMap['link_type'], 'any'),
+      'value_contains' => $this->request_text($paramMap['value_contains'], ''),
+      'source_contains' => $this->request_text($paramMap['source_contains'], ''),
+      'title_contains' => $this->request_text($paramMap['title_contains'], ''),
+      'author_contains' => $this->request_text($paramMap['author_contains'], ''),
+      'seo_flag' => $this->request_text($paramMap['seo_flag'], 'any'),
+      'usage_type' => $this->request_text($paramMap['usage_type'], 'any'),
+      'quality' => $this->request_text($paramMap['quality'], 'any'),
+      'group' => $this->request_text($paramMap['group'], 'any'),
+      'min_total' => max(0, $this->request_int_or_default($paramMap['min_total'], 0, 0)),
+      'max_total' => $this->request_int_or_default($paramMap['max_total'], -1, -1),
+      'min_inlink' => max(0, $this->request_int_or_default($paramMap['min_inlink'], 0, 0)),
+      'max_inlink' => $this->request_int_or_default($paramMap['max_inlink'], -1, -1),
+      'min_outbound' => max(0, $this->request_int_or_default($paramMap['min_outbound'], 0, 0)),
+      'max_outbound' => $this->request_int_or_default($paramMap['max_outbound'], -1, -1),
+      'min_pages' => max(0, $this->request_int_or_default($paramMap['min_pages'], 0, 0)),
+      'max_pages' => $this->request_int_or_default($paramMap['max_pages'], -1, -1),
+      'min_destinations' => max(0, $this->request_int_or_default($paramMap['min_destinations'], 0, 0)),
+      'max_destinations' => $this->request_int_or_default($paramMap['max_destinations'], -1, -1),
+      'orderby' => $this->request_text($paramMap['orderby'], 'total'),
+      'order' => strtoupper($this->request_text($paramMap['order'], 'DESC')),
+      'per_page' => $this->request_int($paramMap['per_page'], 50),
+      'paged' => $this->request_int($paramMap['paged'], 1),
+      'rebuild' => $this->request_bool_flag($paramMap['rebuild']),
     ];
 
     if ((string)$filters['location'] === '') $filters['location'] = 'any';
@@ -728,41 +932,7 @@ trait LM_Request_URL_Helpers_Trait {
   }
 
   private function all_anchor_text_admin_url($filters, $override = []) {
-    $args = [
-      'page' => 'links-manager-all-anchor-text',
-      'lm_at_post_type' => $filters['post_type'],
-      'lm_at_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
-      'lm_at_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
-      'lm_at_search' => $filters['search'],
-      'lm_at_search_mode' => $filters['search_mode'],
-      'lm_at_location' => $filters['location'],
-      'lm_at_source_type' => $filters['source_type'],
-      'lm_at_link_type' => $filters['link_type'],
-      'lm_at_value' => $filters['value_contains'],
-      'lm_at_source' => $filters['source_contains'],
-      'lm_at_title' => $filters['title_contains'],
-      'lm_at_author' => $filters['author_contains'],
-      'lm_at_seo_flag' => $filters['seo_flag'],
-      'lm_at_usage_type' => $filters['usage_type'],
-      'lm_at_quality' => $filters['quality'],
-      'lm_at_group' => $filters['group'],
-      'lm_at_min_total' => $filters['min_total'],
-      'lm_at_max_total' => $filters['max_total'],
-      'lm_at_min_inlink' => $filters['min_inlink'],
-      'lm_at_max_inlink' => $filters['max_inlink'],
-      'lm_at_min_outbound' => $filters['min_outbound'],
-      'lm_at_max_outbound' => $filters['max_outbound'],
-      'lm_at_min_pages' => $filters['min_pages'],
-      'lm_at_max_pages' => $filters['max_pages'],
-      'lm_at_min_destinations' => $filters['min_destinations'],
-      'lm_at_max_destinations' => $filters['max_destinations'],
-      'lm_at_orderby' => $filters['orderby'],
-      'lm_at_order' => $filters['order'],
-      'lm_at_per_page' => $filters['per_page'],
-      'lm_at_paged' => $filters['paged'],
-      'lm_at_rebuild' => $filters['rebuild'] ? '1' : '0',
-    ];
-    foreach ($override as $k => $v) $args[$k] = $v;
+    $args = $this->get_all_anchor_text_filter_query_args($filters, $override);
     return admin_url('admin.php?' . http_build_query($args));
   }
 
@@ -770,36 +940,11 @@ trait LM_Request_URL_Helpers_Trait {
     $args = [
       'action' => 'lm_export_all_anchor_text_csv',
       self::NONCE_NAME => wp_create_nonce(self::NONCE_ACTION),
-      'lm_at_post_type' => $filters['post_type'],
-      'lm_at_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
-      'lm_at_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
-      'lm_at_search' => $filters['search'],
-      'lm_at_search_mode' => $filters['search_mode'],
-      'lm_at_location' => $filters['location'],
-      'lm_at_source_type' => $filters['source_type'],
-      'lm_at_link_type' => $filters['link_type'],
-      'lm_at_value' => $filters['value_contains'],
-      'lm_at_source' => $filters['source_contains'],
-      'lm_at_title' => $filters['title_contains'],
-      'lm_at_author' => $filters['author_contains'],
-      'lm_at_seo_flag' => $filters['seo_flag'],
-      'lm_at_usage_type' => $filters['usage_type'],
-      'lm_at_quality' => $filters['quality'],
-      'lm_at_group' => $filters['group'],
-      'lm_at_min_total' => $filters['min_total'],
-      'lm_at_max_total' => $filters['max_total'],
-      'lm_at_min_inlink' => $filters['min_inlink'],
-      'lm_at_max_inlink' => $filters['max_inlink'],
-      'lm_at_min_outbound' => $filters['min_outbound'],
-      'lm_at_max_outbound' => $filters['max_outbound'],
-      'lm_at_min_pages' => $filters['min_pages'],
-      'lm_at_max_pages' => $filters['max_pages'],
-      'lm_at_min_destinations' => $filters['min_destinations'],
-      'lm_at_max_destinations' => $filters['max_destinations'],
-      'lm_at_orderby' => $filters['orderby'],
-      'lm_at_order' => $filters['order'],
-      'lm_at_rebuild' => $filters['rebuild'] ? '1' : '0',
     ];
+    foreach ($this->get_all_anchor_text_filter_query_args($filters) as $key => $value) {
+      if (in_array($key, ['page', 'lm_at_per_page', 'lm_at_paged'], true)) continue;
+      $args[$key] = $value;
+    }
     return admin_url('admin-post.php?' . http_build_query($args));
   }
 }

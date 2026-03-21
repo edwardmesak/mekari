@@ -12,7 +12,7 @@ trait LM_Pages_Link_Admin_Trait {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
     $filters = $this->get_pages_link_filters_from_request();
-    $msg = isset($_GET['lm_msg']) ? sanitize_text_field((string)$_GET['lm_msg']) : '';
+    $msg = $this->request_text('lm_msg', '');
     $msgClass = $this->notice_class_for_message($msg, 'info');
 
     $exportUrl = $this->build_pages_link_export_url($filters);
@@ -467,52 +467,218 @@ trait LM_Pages_Link_Admin_Trait {
     echo $this->table_header_with_tooltip('lm-col-edit', 'Edit', 'Open WordPress editor for this page.', 'right');
     echo '</tr></thead><tbody>';
 
-    if (empty($pageRows)) {
-      echo '<tr><td colspan="14">No data.</td></tr>';
-    } else {
-      $rowNumber = (($paged - 1) * $perPage) + 1;
-      foreach ($pageRows as $row) {
-        $post_id = (int)$row['post_id'];
-        $inbound = (int)$row['inbound'];
-        $outbound = isset($row['outbound']) ? (int)$row['outbound'] : 0;
-        $internal_outbound = isset($row['internal_outbound']) ? (int)$row['internal_outbound'] : 0;
-        $title = get_the_title($post_id);
-        $post = get_post($post_id);
-        if (!$post || $post->post_status !== 'publish') continue;
-        $author = $post && $post->post_author ? get_the_author_meta('display_name', $post->post_author) : '';
-        $date = $post ? get_the_date('Y-m-d H:i:s', $post_id) : '';
-        $updated = $post ? get_the_modified_date('Y-m-d H:i:s', $post_id) : '';
-        $ptype = $post ? $post->post_type : '';
-        $url = get_permalink($post_id);
-        $edit_url = admin_url('post.php?post=' . (int)$post_id . '&action=edit');
-
-        $status = $this->inbound_status($inbound);
-        $internalOutboundStatus = $this->four_level_status_label(isset($row['internal_outbound_status']) ? $row['internal_outbound_status'] : 'none');
-        $externalOutboundStatus = $this->four_level_status_label(isset($row['external_outbound_status']) ? $row['external_outbound_status'] : 'none');
-
-        echo '<tr>';
-        echo '<td class="lm-col-postid">' . esc_html((string)$rowNumber) . '</td>';
-        echo '<td class="lm-col-postid">' . esc_html((string)$post_id) . '</td>';
-        echo '<td class="lm-col-title"><span class="lm-trunc" title="' . esc_attr((string)$title) . '">' . esc_html((string)$title) . '</span></td>';
-        echo '<td class="lm-col-type">' . esc_html((string)$ptype) . '</td>';
-        echo '<td class="lm-col-author"><span class="lm-trunc" title="' . esc_attr((string)$author) . '">' . esc_html((string)$author) . '</span></td>';
-        echo '<td class="lm-col-date">' . esc_html((string)$date) . '</td>';
-        echo '<td class="lm-col-date">' . esc_html((string)$updated) . '</td>';
-        echo '<td class="lm-col-pageurl">' . ($url ? '<a href="' . esc_url($url) . '" target="_blank" rel="noopener noreferrer"><span class="lm-trunc" title="' . esc_attr($url) . '">' . esc_html($url) . '</span></a>' : '') . '</td>';
-        echo '<td class="lm-col-count" style="text-align:center;">' . esc_html((string)$inbound) . '</td>';
-        echo '<td class="lm-col-quality">' . esc_html($status) . '</td>';
-        echo '<td class="lm-col-count" style="text-align:center;">' . esc_html((string)$internal_outbound) . '</td>';
-        echo '<td class="lm-col-quality">' . esc_html((string)$internalOutboundStatus) . '</td>';
-        echo '<td class="lm-col-outbound" style="text-align:center;">' . esc_html((string)$outbound) . '</td>';
-        echo '<td class="lm-col-quality">' . esc_html((string)$externalOutboundStatus) . '</td>';
-        echo '<td class="lm-col-edit"><a class="button button-secondary" href="' . esc_url($edit_url) . '">Edit</a></td>';
-        echo '</tr>';
-        $rowNumber++;
-      }
-    }
+    echo $this->get_pages_link_results_tbody_html($pageRows, (($paged - 1) * $perPage) + 1);
 
     echo '</tbody></table></div>';
     $this->render_pages_link_pagination($filters, $paged, $totalPages);
     echo '</div>';
+  }
+
+  private function get_pages_link_results_tbody_html($pageRows, $rowNumberStart = 1) {
+    $pageRows = is_array($pageRows) ? $pageRows : [];
+    $rowNumber = max(1, (int)$rowNumberStart);
+
+    ob_start();
+
+    if (empty($pageRows)) {
+      echo '<tr><td colspan="15">No data.</td></tr>';
+      return (string)ob_get_clean();
+    }
+
+    foreach ($pageRows as $row) {
+      $post_id = (int)($row['post_id'] ?? 0);
+      $inbound = (int)($row['inbound'] ?? 0);
+      $outbound = isset($row['outbound']) ? (int)$row['outbound'] : 0;
+      $internal_outbound = isset($row['internal_outbound']) ? (int)$row['internal_outbound'] : 0;
+      $title = get_the_title($post_id);
+      $post = get_post($post_id);
+      if (!$post || $post->post_status !== 'publish') {
+        continue;
+      }
+
+      $author = $post->post_author ? get_the_author_meta('display_name', $post->post_author) : '';
+      $date = get_the_date('Y-m-d H:i:s', $post_id);
+      $updated = get_the_modified_date('Y-m-d H:i:s', $post_id);
+      $ptype = (string)$post->post_type;
+      $url = get_permalink($post_id);
+      $edit_url = admin_url('post.php?post=' . $post_id . '&action=edit');
+
+      $status = $this->inbound_status($inbound);
+      $internalOutboundStatus = $this->four_level_status_label(isset($row['internal_outbound_status']) ? $row['internal_outbound_status'] : 'none');
+      $externalOutboundStatus = $this->four_level_status_label(isset($row['external_outbound_status']) ? $row['external_outbound_status'] : 'none');
+
+      echo '<tr>';
+      echo '<td class="lm-col-postid">' . esc_html((string)$rowNumber) . '</td>';
+      echo '<td class="lm-col-postid">' . esc_html((string)$post_id) . '</td>';
+      echo '<td class="lm-col-title"><span class="lm-trunc" title="' . esc_attr((string)$title) . '">' . esc_html((string)$title) . '</span></td>';
+      echo '<td class="lm-col-type">' . esc_html($ptype) . '</td>';
+      echo '<td class="lm-col-author"><span class="lm-trunc" title="' . esc_attr((string)$author) . '">' . esc_html((string)$author) . '</span></td>';
+      echo '<td class="lm-col-date">' . esc_html((string)$date) . '</td>';
+      echo '<td class="lm-col-date">' . esc_html((string)$updated) . '</td>';
+      echo '<td class="lm-col-pageurl">' . ($url ? '<a href="' . esc_url($url) . '" target="_blank" rel="noopener noreferrer"><span class="lm-trunc" title="' . esc_attr($url) . '">' . esc_html($url) . '</span></a>' : '') . '</td>';
+      echo '<td class="lm-col-count" style="text-align:center;">' . esc_html((string)$inbound) . '</td>';
+      echo '<td class="lm-col-quality">' . esc_html($status) . '</td>';
+      echo '<td class="lm-col-count" style="text-align:center;">' . esc_html((string)$internal_outbound) . '</td>';
+      echo '<td class="lm-col-quality">' . esc_html((string)$internalOutboundStatus) . '</td>';
+      echo '<td class="lm-col-outbound" style="text-align:center;">' . esc_html((string)$outbound) . '</td>';
+      echo '<td class="lm-col-quality">' . esc_html((string)$externalOutboundStatus) . '</td>';
+      echo '<td class="lm-col-edit"><a class="button button-secondary" href="' . esc_url($edit_url) . '">Edit</a></td>';
+      echo '</tr>';
+      $rowNumber++;
+    }
+
+    $html = (string)ob_get_clean();
+    if ($html === '') {
+      return '<tr><td colspan="15">No data.</td></tr>';
+    }
+
+    return $html;
+  }
+
+  private function get_pages_link_summaries_html($pages, $filters) {
+    $pages = is_array($pages) ? $pages : [];
+    $total = count($pages);
+
+    $statusSummary = [
+      'orphan' => 0,
+      'low' => 0,
+      'standard' => 0,
+      'excellent' => 0,
+    ];
+    $internalOutboundSummary = [
+      'none' => 0,
+      'low' => 0,
+      'optimal' => 0,
+      'excessive' => 0,
+    ];
+    $externalOutboundSummary = [
+      'none' => 0,
+      'low' => 0,
+      'optimal' => 0,
+      'excessive' => 0,
+    ];
+
+    $summaryRows = [
+      ['key' => 'orphan', 'label' => 'Orphaned'],
+      ['key' => 'low', 'label' => 'Low'],
+      ['key' => 'standard', 'label' => 'Standard'],
+      ['key' => 'excellent', 'label' => 'Excellent'],
+    ];
+    $outboundSummaryRows = [
+      ['key' => 'none', 'label' => 'None'],
+      ['key' => 'low', 'label' => 'Low'],
+      ['key' => 'optimal', 'label' => 'Optimal'],
+      ['key' => 'excessive', 'label' => 'Excessive'],
+    ];
+
+    $internalOutboundThresholds = $this->get_internal_outbound_status_thresholds();
+    $externalOutboundThresholds = $this->get_external_outbound_status_thresholds();
+    $internalOutboundRanges = $this->get_four_level_status_ranges_text($internalOutboundThresholds);
+    $externalOutboundRanges = $this->get_four_level_status_ranges_text($externalOutboundThresholds);
+
+    foreach ($pages as $row) {
+      $statusKey = $this->inbound_status_key(isset($row['inbound']) ? (int)$row['inbound'] : 0);
+      if (isset($statusSummary[$statusKey])) {
+        $statusSummary[$statusKey]++;
+      }
+
+      $internalStatusKey = $this->four_level_status_key(isset($row['internal_outbound']) ? (int)$row['internal_outbound'] : 0, $internalOutboundThresholds);
+      $externalStatusKey = $this->four_level_status_key(isset($row['outbound']) ? (int)$row['outbound'] : 0, $externalOutboundThresholds);
+      if (isset($internalOutboundSummary[$internalStatusKey])) {
+        $internalOutboundSummary[$internalStatusKey]++;
+      }
+      if (isset($externalOutboundSummary[$externalStatusKey])) {
+        $externalOutboundSummary[$externalStatusKey]++;
+      }
+    }
+
+    $statusThresholds = $this->get_inbound_status_thresholds();
+    $orphanMax = (int)$statusThresholds['orphan_max'];
+    $lowMax = (int)$statusThresholds['low_max'];
+    $standardMax = (int)$statusThresholds['standard_max'];
+    $lowMin = $orphanMax + 1;
+    $standardMin = $lowMax + 1;
+    $excellentMin = $standardMax + 1;
+    $orphanLabel = ($orphanMax === 0) ? '0' : ('0-' . $orphanMax);
+    $lowLabel = ($lowMin <= $lowMax) ? ($lowMin . '-' . $lowMax) : (string)$lowMax;
+    $standardLabel = ($standardMin <= $standardMax) ? ($standardMin . '-' . $standardMax) : (string)$standardMax;
+
+    ob_start();
+
+    echo '<div class="lm-card lm-card-full">';
+    echo '<h2 style="margin-top:0;">' . esc_html__('Inbound Status Summary', 'links-manager') . '</h2>';
+    echo '<div class="lm-small" style="margin-bottom:6px;">Status reference: Orphaned = ' . esc_html((string)$orphanLabel) . ', Low = ' . esc_html((string)$lowLabel) . ', Standard = ' . esc_html((string)$standardLabel) . ', Excellent = ' . esc_html((string)$excellentMin) . '+.</div>';
+    echo '<div class="lm-table-wrap lm-summary-table-wrap"><table class="widefat striped lm-table"><thead><tr><th>#</th><th>Status</th><th>Total Page URLs</th><th>%</th></tr></thead><tbody>';
+    $summaryRowNo = 1;
+    foreach ($summaryRows as $summaryRow) {
+      $summaryKey = (string)$summaryRow['key'];
+      $summaryCount = isset($statusSummary[$summaryKey]) ? (int)$statusSummary[$summaryKey] : 0;
+      $summaryPercent = $total > 0 ? round(($summaryCount / $total) * 100, 1) : 0;
+      $summaryFilterUrl = $this->pages_link_admin_url($filters, [
+        'lm_pages_link_status' => $summaryKey,
+        'lm_pages_link_paged' => 1,
+      ]);
+
+      echo '<tr>';
+      echo '<td style="text-align:center;">' . esc_html((string)$summaryRowNo) . '</td>';
+      echo '<td>' . esc_html((string)$summaryRow['label']) . '</td>';
+      echo '<td style="text-align:center;"><a href="' . esc_url($summaryFilterUrl) . '">' . esc_html((string)$summaryCount) . '</a></td>';
+      echo '<td style="text-align:center;">' . esc_html((string)$summaryPercent) . '%</td>';
+      echo '</tr>';
+      $summaryRowNo++;
+    }
+    echo '</tbody></table></div></div>';
+
+    echo '<div class="lm-card lm-card-full">';
+    echo '<h2 style="margin-top:0;">' . esc_html__('Internal Outbound Status Summary', 'links-manager') . '</h2>';
+    echo '<div class="lm-small" style="margin-bottom:8px;">Status reference: None = ' . esc_html((string)$internalOutboundRanges['none']) . ', Low = ' . esc_html((string)$internalOutboundRanges['low']) . ', Optimal = ' . esc_html((string)$internalOutboundRanges['optimal']) . ', Excessive = ' . esc_html((string)$internalOutboundRanges['excessive']) . '.</div>';
+    echo '<div class="lm-table-wrap lm-summary-table-wrap"><table class="widefat striped lm-table"><thead><tr><th>#</th><th>Status</th><th>Total Page URLs</th><th>%</th></tr></thead><tbody>';
+    $internalSummaryRowNo = 1;
+    foreach ($outboundSummaryRows as $summaryRow) {
+      $summaryKey = (string)$summaryRow['key'];
+      $summaryCount = isset($internalOutboundSummary[$summaryKey]) ? (int)$internalOutboundSummary[$summaryKey] : 0;
+      $summaryPercent = $total > 0 ? round(($summaryCount / $total) * 100, 1) : 0;
+      $summaryFilterUrl = $this->pages_link_admin_url($filters, [
+        'lm_pages_link_internal_outbound_status' => $summaryKey,
+        'lm_pages_link_external_outbound_status' => isset($filters['external_outbound_status']) ? $filters['external_outbound_status'] : 'any',
+        'lm_pages_link_paged' => 1,
+      ]);
+
+      echo '<tr>';
+      echo '<td style="text-align:center;">' . esc_html((string)$internalSummaryRowNo) . '</td>';
+      echo '<td>' . esc_html((string)$summaryRow['label']) . '</td>';
+      echo '<td style="text-align:center;"><a href="' . esc_url($summaryFilterUrl) . '">' . esc_html((string)$summaryCount) . '</a></td>';
+      echo '<td style="text-align:center;">' . esc_html((string)$summaryPercent) . '%</td>';
+      echo '</tr>';
+      $internalSummaryRowNo++;
+    }
+    echo '</tbody></table></div></div>';
+
+    echo '<div class="lm-card lm-card-full">';
+    echo '<h2 style="margin-top:0;">' . esc_html__('External Outbound Status Summary', 'links-manager') . '</h2>';
+    echo '<div class="lm-small" style="margin-bottom:8px;">Status reference: None = ' . esc_html((string)$externalOutboundRanges['none']) . ', Low = ' . esc_html((string)$externalOutboundRanges['low']) . ', Optimal = ' . esc_html((string)$externalOutboundRanges['optimal']) . ', Excessive = ' . esc_html((string)$externalOutboundRanges['excessive']) . '.</div>';
+    echo '<div class="lm-table-wrap lm-summary-table-wrap"><table class="widefat striped lm-table"><thead><tr><th>#</th><th>Status</th><th>Total Page URLs</th><th>%</th></tr></thead><tbody>';
+    $externalSummaryRowNo = 1;
+    foreach ($outboundSummaryRows as $summaryRow) {
+      $summaryKey = (string)$summaryRow['key'];
+      $summaryCount = isset($externalOutboundSummary[$summaryKey]) ? (int)$externalOutboundSummary[$summaryKey] : 0;
+      $summaryPercent = $total > 0 ? round(($summaryCount / $total) * 100, 1) : 0;
+      $summaryFilterUrl = $this->pages_link_admin_url($filters, [
+        'lm_pages_link_external_outbound_status' => $summaryKey,
+        'lm_pages_link_internal_outbound_status' => isset($filters['internal_outbound_status']) ? $filters['internal_outbound_status'] : 'any',
+        'lm_pages_link_paged' => 1,
+      ]);
+
+      echo '<tr>';
+      echo '<td style="text-align:center;">' . esc_html((string)$externalSummaryRowNo) . '</td>';
+      echo '<td>' . esc_html((string)$summaryRow['label']) . '</td>';
+      echo '<td style="text-align:center;"><a href="' . esc_url($summaryFilterUrl) . '">' . esc_html((string)$summaryCount) . '</a></td>';
+      echo '<td style="text-align:center;">' . esc_html((string)$summaryPercent) . '%</td>';
+      echo '</tr>';
+      $externalSummaryRowNo++;
+    }
+    echo '</tbody></table></div></div>';
+
+    return (string)ob_get_clean();
   }
 }
