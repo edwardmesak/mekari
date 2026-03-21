@@ -523,6 +523,9 @@ trait LM_Request_URL_Helpers_Trait {
       $postTag = 0;
     }
 
+    $maxCitesRaw = isset($_REQUEST['lm_cd_max_cites']) ? trim((string)$_REQUEST['lm_cd_max_cites']) : '';
+    $maxPagesRaw = isset($_REQUEST['lm_cd_max_pages']) ? trim((string)$_REQUEST['lm_cd_max_pages']) : '';
+
     $filters = [
       'post_type' => $postType,
       'post_category' => $postCategory,
@@ -539,9 +542,9 @@ trait LM_Request_URL_Helpers_Trait {
       'anchor_contains' => isset($_REQUEST['lm_cd_anchor']) ? sanitize_text_field((string)$_REQUEST['lm_cd_anchor']) : '',
       'seo_flag' => isset($_REQUEST['lm_cd_seo_flag']) ? sanitize_text_field((string)$_REQUEST['lm_cd_seo_flag']) : 'any',
       'min_cites' => isset($_REQUEST['lm_cd_min_cites']) ? max(0, intval($_REQUEST['lm_cd_min_cites'])) : 0,
-      'max_cites' => isset($_REQUEST['lm_cd_max_cites']) ? max(-1, intval($_REQUEST['lm_cd_max_cites'])) : -1,
+      'max_cites' => ($maxCitesRaw === '' || intval($maxCitesRaw) < 0) ? -1 : max(0, intval($maxCitesRaw)),
       'min_pages' => isset($_REQUEST['lm_cd_min_pages']) ? max(0, intval($_REQUEST['lm_cd_min_pages'])) : 0,
-      'max_pages' => isset($_REQUEST['lm_cd_max_pages']) ? max(-1, intval($_REQUEST['lm_cd_max_pages'])) : -1,
+      'max_pages' => ($maxPagesRaw === '' || intval($maxPagesRaw) < 0) ? -1 : max(0, intval($maxPagesRaw)),
       'orderby' => isset($_REQUEST['lm_cd_orderby']) ? sanitize_text_field((string)$_REQUEST['lm_cd_orderby']) : 'cites',
       'order' => isset($_REQUEST['lm_cd_order']) ? strtoupper(sanitize_text_field((string)$_REQUEST['lm_cd_order'])) : 'DESC',
       'per_page' => isset($_REQUEST['lm_cd_per_page']) ? intval($_REQUEST['lm_cd_per_page']) : 50,

@@ -36,6 +36,7 @@ trait LM_Cited_Domains_Admin_Trait {
         $pagination = (array)$indexedPaged['pagination'];
         $total = max(0, (int)($pagination['total'] ?? 0));
         $perPage = max(10, (int)($pagination['per_page'] ?? $perPage));
+        $filters['per_page'] = $perPage;
         $filters['paged'] = max(1, (int)($pagination['paged'] ?? $filters['paged']));
         $totalPages = max(1, (int)($pagination['total_pages'] ?? 1));
       }
@@ -45,6 +46,7 @@ trait LM_Cited_Domains_Admin_Trait {
       $rows = $this->build_cited_domains_summary_rows([], $filters);
       $total = count($rows);
       $perPage = $filters['per_page'];
+      $filters['per_page'] = $perPage;
       $totalPages = max(1, (int)ceil($total / $perPage));
       if ($filters['paged'] > $totalPages) $filters['paged'] = $totalPages;
       $offset = ($filters['paged'] - 1) * $perPage;
@@ -58,8 +60,9 @@ trait LM_Cited_Domains_Admin_Trait {
 
     echo '<div class="lm-card lm-card-full">';
     echo '<h2 style="margin-top:0;">' . esc_html__('Filter', 'links-manager') . '</h2>';
-    echo '<form method="get" action="">';
+    echo '<form method="get" action="' . esc_url(admin_url('admin.php')) . '">';
     echo '<input type="hidden" name="page" value="links-manager-cited-domains"/>';
+    echo '<input type="hidden" name="lm_cd_paged" value="1"/>';
     echo '<table class="form-table lm-filter-table" role="presentation"><tbody>';
     echo '<tr><th scope="row">Post Type</th><td><select name="lm_cd_post_type">';
     echo '<option value="any"' . selected($filters['post_type'], 'any', false) . '>All</option>';

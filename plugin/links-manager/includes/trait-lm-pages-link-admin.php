@@ -351,10 +351,12 @@ trait LM_Pages_Link_Admin_Trait {
     echo '<div class="lm-table-wrap lm-summary-table-wrap">';
     echo '<table class="widefat striped lm-table">';
     echo '<thead><tr>';
+    echo '<th>#</th>';
     echo '<th>Status</th>';
     echo '<th>Total Page URLs</th>';
     echo '<th>%</th>';
     echo '</tr></thead><tbody>';
+    $summaryRowNo = 1;
     foreach ($summaryRows as $summaryRow) {
       $summaryKey = (string)$summaryRow['key'];
       $summaryLabel = (string)$summaryRow['label'];
@@ -366,10 +368,12 @@ trait LM_Pages_Link_Admin_Trait {
       ]);
 
       echo '<tr>';
+      echo '<td style="text-align:center;">' . esc_html((string)$summaryRowNo) . '</td>';
       echo '<td>' . esc_html($summaryLabel) . '</td>';
       echo '<td style="text-align:center;"><a href="' . esc_url($summaryFilterUrl) . '">' . esc_html((string)$summaryCount) . '</a></td>';
       echo '<td style="text-align:center;">' . esc_html((string)$summaryPercent) . '%</td>';
       echo '</tr>';
+      $summaryRowNo++;
     }
     echo '</tbody></table></div>';
     echo '</div>';
@@ -380,10 +384,12 @@ trait LM_Pages_Link_Admin_Trait {
     echo '<div class="lm-table-wrap lm-summary-table-wrap">';
     echo '<table class="widefat striped lm-table">';
     echo '<thead><tr>';
+    echo '<th>#</th>';
     echo '<th>Status</th>';
     echo '<th>Total Page URLs</th>';
     echo '<th>%</th>';
     echo '</tr></thead><tbody>';
+    $internalSummaryRowNo = 1;
     foreach ($outboundSummaryRows as $summaryRow) {
       $summaryKey = (string)$summaryRow['key'];
       $summaryLabel = (string)$summaryRow['label'];
@@ -396,10 +402,12 @@ trait LM_Pages_Link_Admin_Trait {
       ]);
 
       echo '<tr>';
+      echo '<td style="text-align:center;">' . esc_html((string)$internalSummaryRowNo) . '</td>';
       echo '<td>' . esc_html($summaryLabel) . '</td>';
       echo '<td style="text-align:center;"><a href="' . esc_url($summaryFilterUrl) . '">' . esc_html((string)$summaryCount) . '</a></td>';
       echo '<td style="text-align:center;">' . esc_html((string)$summaryPercent) . '%</td>';
       echo '</tr>';
+      $internalSummaryRowNo++;
     }
     echo '</tbody></table></div>';
     echo '</div>';
@@ -410,10 +418,12 @@ trait LM_Pages_Link_Admin_Trait {
     echo '<div class="lm-table-wrap lm-summary-table-wrap">';
     echo '<table class="widefat striped lm-table">';
     echo '<thead><tr>';
+    echo '<th>#</th>';
     echo '<th>Status</th>';
     echo '<th>Total Page URLs</th>';
     echo '<th>%</th>';
     echo '</tr></thead><tbody>';
+    $externalSummaryRowNo = 1;
     foreach ($outboundSummaryRows as $summaryRow) {
       $summaryKey = (string)$summaryRow['key'];
       $summaryLabel = (string)$summaryRow['label'];
@@ -426,10 +436,12 @@ trait LM_Pages_Link_Admin_Trait {
       ]);
 
       echo '<tr>';
+      echo '<td style="text-align:center;">' . esc_html((string)$externalSummaryRowNo) . '</td>';
       echo '<td>' . esc_html($summaryLabel) . '</td>';
       echo '<td style="text-align:center;"><a href="' . esc_url($summaryFilterUrl) . '">' . esc_html((string)$summaryCount) . '</a></td>';
       echo '<td style="text-align:center;">' . esc_html((string)$summaryPercent) . '%</td>';
       echo '</tr>';
+      $externalSummaryRowNo++;
     }
     echo '</tbody></table></div>';
     echo '</div>';
@@ -438,6 +450,7 @@ trait LM_Pages_Link_Admin_Trait {
     echo '<div class="lm-table-wrap">';
     echo '<table class="widefat striped lm-table">';
     echo '<thead><tr>';
+    echo $this->table_header_with_tooltip('lm-col-postid', '#', 'Row number in current result page.', 'left');
     echo $this->table_header_with_tooltip('lm-col-postid', 'Post ID', 'WordPress post ID.', 'left');
     echo $this->table_header_with_tooltip('lm-col-title', 'Title', 'Title of the page/post.');
     echo $this->table_header_with_tooltip('lm-col-type', 'Post Type', 'Content type (post, page, custom type).');
@@ -457,6 +470,7 @@ trait LM_Pages_Link_Admin_Trait {
     if (empty($pageRows)) {
       echo '<tr><td colspan="14">No data.</td></tr>';
     } else {
+      $rowNumber = (($paged - 1) * $perPage) + 1;
       foreach ($pageRows as $row) {
         $post_id = (int)$row['post_id'];
         $inbound = (int)$row['inbound'];
@@ -477,6 +491,7 @@ trait LM_Pages_Link_Admin_Trait {
         $externalOutboundStatus = $this->four_level_status_label(isset($row['external_outbound_status']) ? $row['external_outbound_status'] : 'none');
 
         echo '<tr>';
+        echo '<td class="lm-col-postid">' . esc_html((string)$rowNumber) . '</td>';
         echo '<td class="lm-col-postid">' . esc_html((string)$post_id) . '</td>';
         echo '<td class="lm-col-title"><span class="lm-trunc" title="' . esc_attr((string)$title) . '">' . esc_html((string)$title) . '</span></td>';
         echo '<td class="lm-col-type">' . esc_html((string)$ptype) . '</td>';
@@ -492,6 +507,7 @@ trait LM_Pages_Link_Admin_Trait {
         echo '<td class="lm-col-quality">' . esc_html((string)$externalOutboundStatus) . '</td>';
         echo '<td class="lm-col-edit"><a class="button button-secondary" href="' . esc_url($edit_url) . '">Edit</a></td>';
         echo '</tr>';
+        $rowNumber++;
       }
     }
 

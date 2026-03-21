@@ -8,6 +8,16 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Anchor_Helpers_Trait {
+  private function get_anchor_config_version() {
+    return (int)get_option('lm_anchor_config_version', 1);
+  }
+
+  private function bump_anchor_config_version() {
+    $version = $this->get_anchor_config_version();
+    update_option('lm_anchor_config_version', $version + 1, false);
+    return $version + 1;
+  }
+
   private function normalize_weak_anchor_patterns($raw) {
     $parts = preg_split('/[\r\n,]+/', (string)$raw);
     $clean = [];
@@ -60,10 +70,12 @@ trait LM_Anchor_Helpers_Trait {
 
   private function save_anchor_groups($groups) {
     update_option('lm_anchor_groups', $groups, false);
+    $this->bump_anchor_config_version();
   }
 
   private function save_anchor_targets($targets) {
     update_option('lm_anchor_targets', $targets, false);
+    $this->bump_anchor_config_version();
   }
 
   private function sync_targets_with_groups($targets, $groups) {

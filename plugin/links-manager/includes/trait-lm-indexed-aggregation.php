@@ -4,6 +4,17 @@
  */
 
 trait LM_Indexed_Aggregation_Trait {
+  private function all_anchor_text_result_cache_key($filters) {
+    $payload = [
+      'filters' => is_array($filters) ? $filters : [],
+      'blog_id' => get_current_blog_id(),
+      'db_version' => (string)get_option('lm_db_version', '0'),
+      'stats_version' => (int)get_option('lm_stats_snapshot_version', 1),
+      'dataset_version' => $this->get_dataset_cache_version(),
+    ];
+    return 'lm_all_anchor_text_paged_' . md5(wp_json_encode($payload));
+  }
+
   private function get_indexed_rows_for_custom_aggregation($filters, $forceLinkType = 'any') {
     if (!is_array($filters) || !$this->is_indexed_datastore_ready()) {
       return [];
@@ -194,7 +205,7 @@ trait LM_Indexed_Aggregation_Trait {
     $whereSql = (string)$parts['where_sql'];
     $params = (array)$parts['params'];
 
-    $domainExpr = "LOWER(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(link, 'https://', ''), 'http://', ''), '/', 1), '?', 1), ':', 1))";
+    $domainExpr = $this->get_indexed_link_domain_sql_expression();
 
     $sql = "SELECT
       $domainExpr AS domain,
@@ -240,7 +251,7 @@ trait LM_Indexed_Aggregation_Trait {
     $whereSql = (string)$parts['where_sql'];
     $baseParams = (array)$parts['params'];
 
-    $domainExpr = "LOWER(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(link, 'https://', ''), 'http://', ''), '/', 1), '?', 1), ':', 1))";
+    $domainExpr = $this->get_indexed_link_domain_sql_expression();
     $baseAggSql = "SELECT
       $domainExpr AS domain,
       COUNT(*) AS cites,
@@ -597,6 +608,12 @@ trait LM_Indexed_Aggregation_Trait {
       return null;
     }
 
+    $cacheKey = $this->all_anchor_text_result_cache_key($filters);
+    $cached = get_transient($cacheKey);
+    if (is_array($cached)) {
+      return $cached;
+    }
+
     $parts = $this->build_indexed_custom_aggregation_query_parts($filters, 'any');
     if (!is_array($parts)) {
       return null;
@@ -705,7 +722,7 @@ trait LM_Indexed_Aggregation_Trait {
 
     $qualitySummary = $this->get_indexed_all_anchor_text_quality_summary($filters);
 
-    return [
+    $result = [
       'items' => $items,
       'pagination' => [
         'total' => $total,
@@ -715,5 +732,8 @@ trait LM_Indexed_Aggregation_Trait {
       ],
       'quality_summary' => is_array($qualitySummary) ? $qualitySummary : null,
     ];
+
+    set_transient($cacheKey, $result, self::CACHE_TTL);
+    return $result;
   }
 }

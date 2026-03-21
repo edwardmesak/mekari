@@ -4,6 +4,16 @@
  */
 
 trait LM_Cache_Index_Sync_Trait {
+  private function get_dataset_cache_version() {
+    return (int)get_option('lm_dataset_cache_version', 1);
+  }
+
+  private function bump_dataset_cache_version() {
+    $version = $this->get_dataset_cache_version();
+    update_option('lm_dataset_cache_version', $version + 1, false);
+    return $version + 1;
+  }
+
   private function cache_key($scope_post_type, $wpml_lang = 'all') {
     return 'lm_cache_' . md5((string)$scope_post_type . '|' . (string)$wpml_lang . '|' . get_current_blog_id());
   }
@@ -46,6 +56,7 @@ trait LM_Cache_Index_Sync_Trait {
     set_transient($this->cache_key($scope_post_type, $wpml_lang), $rows, self::CACHE_TTL);
     set_transient($this->cache_backup_key($scope_post_type, $wpml_lang), $rows, self::CACHE_BASE_TTL);
     update_option($this->cache_scan_option_key($scope_post_type, $wpml_lang), gmdate('Y-m-d H:i:s'), false);
+    $this->bump_dataset_cache_version();
 
     $scope_post_type = sanitize_key((string)$scope_post_type);
     if ($scope_post_type === 'any') {
@@ -105,6 +116,7 @@ trait LM_Cache_Index_Sync_Trait {
       $occurrence = sanitize_text_field((string)($row['occurrence'] ?? ''));
       $linkType = sanitize_key((string)($row['link_type'] ?? ''));
       $link = esc_url_raw((string)($row['link'] ?? ''));
+      $linkDomain = strtolower((string)parse_url($link, PHP_URL_HOST));
       $anchorText = sanitize_text_field((string)($row['anchor_text'] ?? ''));
       $altText = sanitize_text_field((string)($row['alt_text'] ?? ''));
       $snippet = sanitize_textarea_field((string)($row['snippet'] ?? ''));
@@ -131,6 +143,7 @@ trait LM_Cache_Index_Sync_Trait {
         'occurrence' => $occurrence,
         'link_type' => $linkType,
         'link' => $link,
+        'link_domain' => $linkDomain,
         'anchor_text' => $anchorText,
         'alt_text' => $altText,
         'snippet' => $snippet,
@@ -228,10 +241,15 @@ trait LM_Cache_Index_Sync_Trait {
       return;
     }
 
+    $supportsLinkDomain = $this->indexed_fact_has_link_domain_column();
     $valuesSql = [];
     $params = [];
     foreach ($batch as $row) {
-      $valuesSql[] = '(%s,%s,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%s)';
+      if ($supportsLinkDomain) {
+        $valuesSql[] = '(%s,%s,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%s)';
+      } else {
+        $valuesSql[] = '(%s,%s,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%s)';
+      }
       $params[] = (string)($row['wpml_lang'] ?? 'all');
       $params[] = (string)($row['row_id'] ?? '');
       $params[] = (int)($row['post_id'] ?? 0);
@@ -247,6 +265,9 @@ trait LM_Cache_Index_Sync_Trait {
       $params[] = (string)($row['occurrence'] ?? '');
       $params[] = (string)($row['link_type'] ?? '');
       $params[] = (string)($row['link'] ?? '');
+      if ($supportsLinkDomain) {
+        $params[] = (string)($row['link_domain'] ?? '');
+      }
       $params[] = (string)($row['anchor_text'] ?? '');
       $params[] = (string)($row['alt_text'] ?? '');
       $params[] = (string)($row['snippet'] ?? '');
@@ -258,33 +279,64 @@ trait LM_Cache_Index_Sync_Trait {
       $params[] = (string)($row['value_type'] ?? '');
     }
 
-    $sql = "INSERT INTO $table (
-      wpml_lang,row_id,post_id,post_title,post_type,post_author,post_date,post_modified,page_url,
-      source,link_location,block_index,occurrence,link_type,link,anchor_text,alt_text,snippet,rel_raw,relationship,rel_nofollow,rel_sponsored,rel_ugc,value_type
-    ) VALUES " . implode(',', $valuesSql) . "
-    ON DUPLICATE KEY UPDATE
-      post_id=VALUES(post_id),
-      post_title=VALUES(post_title),
-      post_type=VALUES(post_type),
-      post_author=VALUES(post_author),
-      post_date=VALUES(post_date),
-      post_modified=VALUES(post_modified),
-      page_url=VALUES(page_url),
-      source=VALUES(source),
-      link_location=VALUES(link_location),
-      block_index=VALUES(block_index),
-      occurrence=VALUES(occurrence),
-      link_type=VALUES(link_type),
-      link=VALUES(link),
-      anchor_text=VALUES(anchor_text),
-      alt_text=VALUES(alt_text),
-      snippet=VALUES(snippet),
-      rel_raw=VALUES(rel_raw),
-      relationship=VALUES(relationship),
-      rel_nofollow=VALUES(rel_nofollow),
-      rel_sponsored=VALUES(rel_sponsored),
-      rel_ugc=VALUES(rel_ugc),
-      value_type=VALUES(value_type)";
+    if ($supportsLinkDomain) {
+      $sql = "INSERT INTO $table (
+        wpml_lang,row_id,post_id,post_title,post_type,post_author,post_date,post_modified,page_url,
+        source,link_location,block_index,occurrence,link_type,link,link_domain,anchor_text,alt_text,snippet,rel_raw,relationship,rel_nofollow,rel_sponsored,rel_ugc,value_type
+      ) VALUES " . implode(',', $valuesSql) . "
+      ON DUPLICATE KEY UPDATE
+        post_id=VALUES(post_id),
+        post_title=VALUES(post_title),
+        post_type=VALUES(post_type),
+        post_author=VALUES(post_author),
+        post_date=VALUES(post_date),
+        post_modified=VALUES(post_modified),
+        page_url=VALUES(page_url),
+        source=VALUES(source),
+        link_location=VALUES(link_location),
+        block_index=VALUES(block_index),
+        occurrence=VALUES(occurrence),
+        link_type=VALUES(link_type),
+        link=VALUES(link),
+        link_domain=VALUES(link_domain),
+        anchor_text=VALUES(anchor_text),
+        alt_text=VALUES(alt_text),
+        snippet=VALUES(snippet),
+        rel_raw=VALUES(rel_raw),
+        relationship=VALUES(relationship),
+        rel_nofollow=VALUES(rel_nofollow),
+        rel_sponsored=VALUES(rel_sponsored),
+        rel_ugc=VALUES(rel_ugc),
+        value_type=VALUES(value_type)";
+    } else {
+      $sql = "INSERT INTO $table (
+        wpml_lang,row_id,post_id,post_title,post_type,post_author,post_date,post_modified,page_url,
+        source,link_location,block_index,occurrence,link_type,link,anchor_text,alt_text,snippet,rel_raw,relationship,rel_nofollow,rel_sponsored,rel_ugc,value_type
+      ) VALUES " . implode(',', $valuesSql) . "
+      ON DUPLICATE KEY UPDATE
+        post_id=VALUES(post_id),
+        post_title=VALUES(post_title),
+        post_type=VALUES(post_type),
+        post_author=VALUES(post_author),
+        post_date=VALUES(post_date),
+        post_modified=VALUES(post_modified),
+        page_url=VALUES(page_url),
+        source=VALUES(source),
+        link_location=VALUES(link_location),
+        block_index=VALUES(block_index),
+        occurrence=VALUES(occurrence),
+        link_type=VALUES(link_type),
+        link=VALUES(link),
+        anchor_text=VALUES(anchor_text),
+        alt_text=VALUES(alt_text),
+        snippet=VALUES(snippet),
+        rel_raw=VALUES(rel_raw),
+        relationship=VALUES(relationship),
+        rel_nofollow=VALUES(rel_nofollow),
+        rel_sponsored=VALUES(rel_sponsored),
+        rel_ugc=VALUES(rel_ugc),
+        value_type=VALUES(value_type)";
+    }
 
     $wpdb->query($wpdb->prepare($sql, $params));
   }

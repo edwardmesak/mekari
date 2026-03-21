@@ -8,6 +8,543 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Links_Target_Admin_Trait {
+  private function links_target_usage_cache_key($filters, $anchorKeys) {
+    $payload = [
+      'filters' => is_array($filters) ? $filters : [],
+      'anchors' => array_values(array_map('strtolower', (array)$anchorKeys)),
+      'blog_id' => get_current_blog_id(),
+      'version' => (int)get_option('lm_stats_snapshot_version', 1),
+      'dataset_version' => $this->get_dataset_cache_version(),
+    ];
+    return 'lm_links_target_usage_' . md5(wp_json_encode($payload));
+  }
+
+  private function links_target_grouping_cache_key($groupOrderby, $groupOrder, $groupFilterSelected, $groupSearch, $groupSearchMode) {
+    $payload = [
+      'orderby' => (string)$groupOrderby,
+      'order' => (string)$groupOrder,
+      'group_filter' => array_values((array)$groupFilterSelected),
+      'group_search' => (string)$groupSearch,
+      'group_search_mode' => (string)$groupSearchMode,
+      'blog_id' => get_current_blog_id(),
+      'dataset_version' => $this->get_dataset_cache_version(),
+      'anchor_config_version' => $this->get_anchor_config_version(),
+      'wpml_lang' => $this->sanitize_wpml_lang_filter($this->get_wpml_current_language()),
+    ];
+    return 'lm_links_target_grouping_' . md5(wp_json_encode($payload));
+  }
+
+  private function links_target_summary_cache_key($filters, $targetKeys, $summaryPage, $summaryPerPage, $summaryOrderby, $summaryOrder) {
+    $payload = [
+      'filters' => is_array($filters) ? $filters : [],
+      'targets' => array_values(array_map('strtolower', (array)$targetKeys)),
+      'page' => max(1, (int)$summaryPage),
+      'per_page' => max(10, (int)$summaryPerPage),
+      'orderby' => (string)$summaryOrderby,
+      'order' => (string)$summaryOrder,
+      'blog_id' => get_current_blog_id(),
+      'version' => (int)get_option('lm_stats_snapshot_version', 1),
+      'dataset_version' => $this->get_dataset_cache_version(),
+      'anchor_config_version' => $this->get_anchor_config_version(),
+    ];
+    return 'lm_links_target_summary_' . md5(wp_json_encode($payload));
+  }
+
+  private function links_target_summary_base_cache_key($filters, $targetKeys) {
+    $payload = [
+      'filters' => is_array($filters) ? $filters : [],
+      'targets' => array_values(array_map('strtolower', (array)$targetKeys)),
+      'blog_id' => get_current_blog_id(),
+      'dataset_version' => $this->get_dataset_cache_version(),
+      'anchor_config_version' => $this->get_anchor_config_version(),
+    ];
+    return 'lm_links_target_summary_base_' . md5(wp_json_encode($payload));
+  }
+
+  private function get_links_target_anchor_usage_map($filters, $anchorKeys = []) {
+    $filters = is_array($filters) ? $filters : [];
+    $anchorKeys = array_values(array_unique(array_filter(array_map('strval', (array)$anchorKeys), static function($value) {
+      return trim($value) !== '';
+    })));
+    $cacheKey = $this->links_target_usage_cache_key($filters, $anchorKeys);
+    $cached = get_transient($cacheKey);
+    if (is_array($cached)) {
+      return $cached;
+    }
+
+    if (!empty($anchorKeys) && $this->is_indexed_datastore_ready()) {
+      $summaryFilters = $filters;
+      $anchorKeyMap = [];
+      foreach ($anchorKeys as $anchorKey) {
+        $anchorKeyMap[strtolower(trim($anchorKey))] = true;
+      }
+
+      $parts = $this->build_indexed_custom_aggregation_query_parts($summaryFilters, 'any');
+      if (is_array($parts)) {
+        global $wpdb;
+        $table = (string)$parts['table'];
+        $whereSql = (string)$parts['where_sql'];
+        $params = (array)$parts['params'];
+        $anchorList = array_keys($anchorKeyMap);
+        if (!empty($anchorList)) {
+          $placeholders = implode(',', array_fill(0, count($anchorList), '%s'));
+          $whereSql .= " AND anchor_text IN ($placeholders)";
+          foreach ($anchorList as $anchorKey) {
+            $params[] = $anchorKey;
+          }
+        }
+
+        $sql = "SELECT
+          LOWER(anchor_text) AS anchor_key,
+          COUNT(*) AS total,
+          SUM(CASE WHEN link_type = 'inlink' THEN 1 ELSE 0 END) AS inlink,
+          SUM(CASE WHEN link_type = 'exlink' THEN 1 ELSE 0 END) AS outbound
+          FROM $table
+          $whereSql
+          AND TRIM(COALESCE(anchor_text, '')) <> ''
+          GROUP BY anchor_key";
+
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+        $counts = [];
+        foreach ((array)$rows as $row) {
+          $key = strtolower(trim((string)($row['anchor_key'] ?? '')));
+          if ($key === '') {
+            continue;
+          }
+          $counts[$key] = [
+            'total' => (int)($row['total'] ?? 0),
+            'inlink' => (int)($row['inlink'] ?? 0),
+            'outbound' => (int)($row['outbound'] ?? 0),
+          ];
+        }
+        set_transient($cacheKey, $counts, self::CACHE_TTL);
+        return $counts;
+      }
+    }
+
+    $indexedSummaryRows = $this->get_indexed_all_anchor_text_summary_rows($filters);
+    if (!empty($indexedSummaryRows)) {
+      $counts = [];
+      foreach ($indexedSummaryRows as $summaryRow) {
+        $key = strtolower(trim((string)($summaryRow['anchor_text'] ?? '')));
+        if ($key === '') {
+          continue;
+        }
+        $counts[$key] = [
+          'total' => (int)($summaryRow['total'] ?? 0),
+          'inlink' => (int)($summaryRow['inlink'] ?? 0),
+          'outbound' => (int)($summaryRow['outbound'] ?? 0),
+        ];
+      }
+      set_transient($cacheKey, $counts, self::CACHE_TTL);
+      return $counts;
+    }
+
+    $all = $this->get_canonical_rows_for_scope(
+      isset($filters['post_type']) ? (string)$filters['post_type'] : 'any',
+      false,
+      isset($filters['wpml_lang']) ? (string)$filters['wpml_lang'] : $this->sanitize_wpml_lang_filter($this->get_wpml_current_language()),
+      $filters
+    );
+
+    $allowedSummaryPostIds = $this->get_post_ids_by_post_terms(
+      isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
+      isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0
+    );
+
+    $counts = [];
+    foreach ((array)$all as $row) {
+      if (is_array($allowedSummaryPostIds)) {
+        $rowPostId = isset($row['post_id']) ? (string)intval($row['post_id']) : '';
+        if ($rowPostId === '' || !isset($allowedSummaryPostIds[$rowPostId])) continue;
+      }
+      if (isset($filters['post_type']) && (string)$filters['post_type'] !== 'any' && (string)($row['post_type'] ?? '') !== (string)$filters['post_type']) continue;
+      if (isset($filters['location']) && (string)$filters['location'] !== 'any' && (string)($row['link_location'] ?? '') !== (string)$filters['location']) continue;
+      if (isset($filters['source_type']) && (string)$filters['source_type'] !== 'any' && (string)($row['source'] ?? '') !== (string)$filters['source_type']) continue;
+      if (isset($filters['link_type']) && (string)$filters['link_type'] !== 'any' && (string)($row['link_type'] ?? '') !== (string)$filters['link_type']) continue;
+      if (!empty($filters['value_contains']) && !$this->text_matches((string)($row['link'] ?? ''), (string)$filters['value_contains'], (string)($filters['search_mode'] ?? 'contains'))) continue;
+      if (!empty($filters['source_contains']) && !$this->text_matches((string)($row['page_url'] ?? ''), (string)$filters['source_contains'], (string)($filters['search_mode'] ?? 'contains'))) continue;
+      if (!empty($filters['title_contains']) && !$this->text_matches((string)($row['post_title'] ?? ''), (string)$filters['title_contains'], (string)($filters['search_mode'] ?? 'contains'))) continue;
+      if (!empty($filters['author_contains']) && !$this->text_matches((string)($row['post_author'] ?? ''), (string)$filters['author_contains'], (string)($filters['search_mode'] ?? 'contains'))) continue;
+      if (isset($filters['seo_flag']) && (string)$filters['seo_flag'] !== 'any') {
+        $nofollow = (string)($row['rel_nofollow'] ?? '0') === '1';
+        $sponsored = (string)($row['rel_sponsored'] ?? '0') === '1';
+        $ugc = (string)($row['rel_ugc'] ?? '0') === '1';
+        if ($filters['seo_flag'] === 'dofollow' && ($nofollow || $sponsored || $ugc)) continue;
+        if ($filters['seo_flag'] === 'nofollow' && !$nofollow) continue;
+        if ($filters['seo_flag'] === 'sponsored' && !$sponsored) continue;
+        if ($filters['seo_flag'] === 'ugc' && !$ugc) continue;
+      }
+
+      $anchor = trim((string)($row['anchor_text'] ?? ''));
+      if ($anchor === '') continue;
+      $key = strtolower($anchor);
+      if (!isset($counts[$key])) $counts[$key] = ['total' => 0, 'inlink' => 0, 'outbound' => 0];
+      $counts[$key]['total']++;
+      if (($row['link_type'] ?? '') === 'inlink') $counts[$key]['inlink']++;
+      if (($row['link_type'] ?? '') === 'exlink') $counts[$key]['outbound']++;
+    }
+
+    set_transient($cacheKey, $counts, self::CACHE_TTL);
+    return $counts;
+  }
+
+  private function get_links_target_summary_base_rows($summaryTargetsMap, $anchorToGroups, $counts, $targetIndexByKey, $baseFilters) {
+    $cacheKey = $this->links_target_summary_base_cache_key($baseFilters, array_keys((array)$summaryTargetsMap));
+    $cached = get_transient($cacheKey);
+    if (is_array($cached)) {
+      return $cached;
+    }
+
+    $baseRows = [];
+    foreach ((array)$summaryTargetsMap as $tKey => $tLabel) {
+      $c = $counts[$tKey] ?? ['total' => 0, 'inlink' => 0, 'outbound' => 0];
+      $glist = isset($anchorToGroups[$tKey]) ? implode(', ', array_keys($anchorToGroups[$tKey])) : '—';
+      if (isset($anchorToGroups[$tKey]) && is_array($anchorToGroups[$tKey]) && count($anchorToGroups[$tKey]) > 0) {
+        $keys = array_keys($anchorToGroups[$tKey]);
+        $currentGroup = (string)$keys[0];
+      } else {
+        $currentGroup = 'no_group';
+      }
+      $idx = isset($targetIndexByKey[$tKey]) ? (int)$targetIndexByKey[$tKey] : -1;
+
+      $baseRows[] = [
+        'tKey' => $tKey,
+        'tLabel' => $tLabel,
+        'c' => $c,
+        'glist' => $glist,
+        'currentGroup' => $currentGroup,
+        'idx' => $idx,
+      ];
+    }
+
+    set_transient($cacheKey, $baseRows, self::CACHE_TTL);
+    return $baseRows;
+  }
+
+  private function get_links_target_summary_rows($summaryTargetsMap, $anchorToGroups, $counts, $summaryGroupSelected, $summaryGroupSearch, $summaryAnchorSearch, $summarySearchMode, $summaryTotalMinNum, $summaryTotalMaxNum, $summaryInMinNum, $summaryInMaxNum, $summaryOutMinNum, $summaryOutMaxNum, $summaryOrderby, $summaryOrder, $summaryPaged, $summaryPerPage, $targetIndexByKey, $baseFilters = []) {
+    $cacheKey = $this->links_target_summary_cache_key(
+      [
+        'group_selected' => $summaryGroupSelected,
+        'group_search' => $summaryGroupSearch,
+        'anchor_search' => $summaryAnchorSearch,
+        'search_mode' => $summarySearchMode,
+        'min_total' => $summaryTotalMinNum,
+        'max_total' => $summaryTotalMaxNum,
+        'min_inlink' => $summaryInMinNum,
+        'max_inlink' => $summaryInMaxNum,
+        'min_outbound' => $summaryOutMinNum,
+        'max_outbound' => $summaryOutMaxNum,
+      ],
+      array_keys((array)$summaryTargetsMap),
+      $summaryPaged,
+      $summaryPerPage,
+      $summaryOrderby,
+      $summaryOrder
+    );
+
+    $cached = get_transient($cacheKey);
+    if (is_array($cached)) {
+      return $cached;
+    }
+
+    $baseRows = $this->get_links_target_summary_base_rows(
+      $summaryTargetsMap,
+      $anchorToGroups,
+      $counts,
+      $targetIndexByKey,
+      $baseFilters
+    );
+
+    $filteredRows = [];
+    foreach ((array)$baseRows as $baseRow) {
+      $tKey = (string)($baseRow['tKey'] ?? '');
+      $tLabel = (string)($baseRow['tLabel'] ?? '');
+      $c = isset($baseRow['c']) && is_array($baseRow['c']) ? $baseRow['c'] : ['total' => 0, 'inlink' => 0, 'outbound' => 0];
+      $glist = (string)($baseRow['glist'] ?? '—');
+      $groupSearchText = $glist !== '—' ? $glist : 'No Group';
+      if (!empty($summaryGroupSelected)) {
+        $gset = isset($anchorToGroups[$tKey]) ? array_keys($anchorToGroups[$tKey]) : [];
+        $includeByGroup = false;
+        foreach ($summaryGroupSelected as $selectedGroup) {
+          if ($selectedGroup === 'no_group' && empty($gset)) {
+            $includeByGroup = true;
+            break;
+          }
+          if ($selectedGroup !== 'no_group' && in_array($selectedGroup, $gset, true)) {
+            $includeByGroup = true;
+            break;
+          }
+        }
+        if (!$includeByGroup) continue;
+      }
+      if ($summaryGroupSearch !== '' && !$this->text_matches((string)$groupSearchText, (string)$summaryGroupSearch, (string)$summarySearchMode)) continue;
+      if ($summaryAnchorSearch !== '' && !$this->text_matches((string)$tLabel, (string)$summaryAnchorSearch, (string)$summarySearchMode)) continue;
+      if ($summaryTotalMinNum !== null && (int)$c['total'] < $summaryTotalMinNum) continue;
+      if ($summaryTotalMaxNum !== null && (int)$c['total'] > $summaryTotalMaxNum) continue;
+      if ($summaryInMinNum !== null && (int)$c['inlink'] < $summaryInMinNum) continue;
+      if ($summaryInMaxNum !== null && (int)$c['inlink'] > $summaryInMaxNum) continue;
+      if ($summaryOutMinNum !== null && (int)$c['outbound'] < $summaryOutMinNum) continue;
+      if ($summaryOutMaxNum !== null && (int)$c['outbound'] > $summaryOutMaxNum) continue;
+
+      $filteredRows[] = [
+        'tKey' => $tKey,
+        'tLabel' => $tLabel,
+        'c' => $c,
+        'glist' => $glist,
+        'currentGroup' => (string)($baseRow['currentGroup'] ?? 'no_group'),
+        'idx' => (int)($baseRow['idx'] ?? -1),
+      ];
+    }
+
+    usort($filteredRows, function($a, $b) use ($summaryOrderby, $summaryOrder) {
+      $dir = $summaryOrder === 'ASC' ? 1 : -1;
+      $cmp = 0;
+      switch ($summaryOrderby) {
+        case 'group':
+          $cmp = strcmp((string)$a['glist'], (string)$b['glist']);
+          break;
+        case 'total':
+          $cmp = ((int)($a['c']['total'] ?? 0) <=> (int)($b['c']['total'] ?? 0));
+          break;
+        case 'inlink':
+          $cmp = ((int)($a['c']['inlink'] ?? 0) <=> (int)($b['c']['inlink'] ?? 0));
+          break;
+        case 'outbound':
+          $cmp = ((int)($a['c']['outbound'] ?? 0) <=> (int)($b['c']['outbound'] ?? 0));
+          break;
+        case 'anchor':
+        default:
+          $cmp = strcmp((string)$a['tLabel'], (string)$b['tLabel']);
+          break;
+      }
+      if ($cmp === 0) {
+        $cmp = strcmp((string)$a['tLabel'], (string)$b['tLabel']);
+      }
+      return $cmp * $dir;
+    });
+
+    $totalFiltered = count($filteredRows);
+    $totalPages = max(1, (int)ceil($totalFiltered / $summaryPerPage));
+    $summaryPaged = min(max(1, (int)$summaryPaged), $totalPages);
+    $offset = ($summaryPaged - 1) * $summaryPerPage;
+    $pagedRows = array_slice($filteredRows, $offset, $summaryPerPage);
+
+    $result = [
+      'paged_rows' => $pagedRows,
+      'total_filtered' => $totalFiltered,
+      'total_pages' => $totalPages,
+      'summary_paged' => $summaryPaged,
+      'summary_per_page' => $summaryPerPage,
+    ];
+
+    set_transient($cacheKey, $result, self::CACHE_TTL);
+    return $result;
+  }
+
+  private function get_links_target_grouping_rows($groups, $targetsMap, $groupOrderby, $groupOrder, $groupFilterSelected, $groupSearch, $groupSearchMode) {
+    $cacheKey = $this->links_target_grouping_cache_key($groupOrderby, $groupOrder, $groupFilterSelected, $groupSearch, $groupSearchMode);
+    $cached = get_transient($cacheKey);
+    if (is_array($cached)) {
+      return $cached;
+    }
+
+    $groupIndexByName = [];
+    $groupedKeys = [];
+    $groupCounts = [];
+    $groupUsage = [];
+    $totalAnchors = 0;
+
+    $anchorUsage = $this->get_links_target_anchor_usage_map([
+      'post_type' => 'any',
+      'post_category' => 0,
+      'post_tag' => 0,
+      'wpml_lang' => $this->sanitize_wpml_lang_filter($this->get_wpml_current_language()),
+      'location' => 'any',
+      'source_type' => 'any',
+      'link_type' => 'any',
+      'value_contains' => '',
+      'source_contains' => '',
+      'title_contains' => '',
+      'author_contains' => '',
+      'seo_flag' => 'any',
+      'search_mode' => 'contains',
+    ], array_keys((array)$targetsMap));
+
+    foreach ((array)$groups as $idx => $g) {
+      $gname = trim((string)($g['name'] ?? ''));
+      if ($gname === '') {
+        continue;
+      }
+      if (!isset($groupIndexByName[$gname])) {
+        $groupIndexByName[$gname] = $idx;
+      }
+      $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
+      $count = 0;
+      $gUsage = ['total' => 0, 'inlink' => 0, 'outbound' => 0];
+      foreach ($anchors as $a) {
+        $a = trim((string)$a);
+        if ($a === '') {
+          continue;
+        }
+        $count++;
+        $k = strtolower($a);
+        $groupedKeys[$k] = true;
+        if (isset($anchorUsage[$k])) {
+          $gUsage['total'] += (int)$anchorUsage[$k]['total'];
+          $gUsage['inlink'] += (int)$anchorUsage[$k]['inlink'];
+          $gUsage['outbound'] += (int)$anchorUsage[$k]['outbound'];
+        }
+      }
+      $groupCounts[$gname] = $count;
+      $groupUsage[$gname] = $gUsage;
+      $totalAnchors += $count;
+    }
+
+    foreach ((array)$targetsMap as $k => $label) {
+      if (isset($groupedKeys[$k])) {
+        continue;
+      }
+      if (!isset($groupCounts['No Group'])) {
+        $groupCounts['No Group'] = 0;
+      }
+      if (!isset($groupUsage['No Group'])) {
+        $groupUsage['No Group'] = ['total' => 0, 'inlink' => 0, 'outbound' => 0];
+      }
+      $groupCounts['No Group']++;
+      if (isset($anchorUsage[$k])) {
+        $groupUsage['No Group']['total'] += (int)$anchorUsage[$k]['total'];
+        $groupUsage['No Group']['inlink'] += (int)$anchorUsage[$k]['inlink'];
+        $groupUsage['No Group']['outbound'] += (int)$anchorUsage[$k]['outbound'];
+      }
+      $totalAnchors++;
+    }
+
+    $filteredGroupUsage = [];
+    foreach ($groupUsage as $gname => $usage) {
+      $usageKey = $gname === 'No Group' ? 'no_group' : $gname;
+      if (!empty($groupFilterSelected) && !in_array($usageKey, $groupFilterSelected, true)) {
+        continue;
+      }
+      if ($groupSearch !== '' && !$this->text_matches((string)$gname, (string)$groupSearch, (string)$groupSearchMode)) {
+        continue;
+      }
+      $filteredGroupUsage[$gname] = $usage;
+    }
+
+    $totalUsage = 0;
+    $totalInlinks = 0;
+    $totalOutbound = 0;
+    foreach ($filteredGroupUsage as $usage) {
+      $totalUsage += (int)$usage['total'];
+      $totalInlinks += (int)$usage['inlink'];
+      $totalOutbound += (int)$usage['outbound'];
+    }
+
+    $entries = [];
+    $sumBase = 0;
+    $sumBaseOutbound = 0;
+    $i = 0;
+    foreach ($filteredGroupUsage as $gname => $usageRow) {
+      $count = isset($groupCounts[$gname]) ? (int)$groupCounts[$gname] : 0;
+      $usage = (int)($usageRow['total'] ?? 0);
+      $usageInlink = (int)($usageRow['inlink'] ?? 0);
+      $usageOutbound = (int)($usageRow['outbound'] ?? 0);
+
+      $raw = ($totalUsage > 0) ? (($usage / $totalUsage) * 100) : 0;
+      $base = (int)floor($raw);
+      $frac = $raw - $base;
+      $rawInlink = ($totalInlinks > 0) ? (($usageInlink / $totalInlinks) * 100) : 0;
+      $rawOutbound = ($totalOutbound > 0) ? (($usageOutbound / $totalOutbound) * 100) : 0;
+      $baseOutbound = (int)floor($rawOutbound);
+      $fracOutbound = $rawOutbound - $baseOutbound;
+
+      $entries[] = [
+        'name' => $gname,
+        'count' => $count,
+        'usage' => $usage,
+        'usageInlink' => $usageInlink,
+        'usageOutbound' => $usageOutbound,
+        'base' => $base,
+        'frac' => $frac,
+        'rawInlink' => $rawInlink,
+        'baseOutbound' => $baseOutbound,
+        'fracOutbound' => $fracOutbound,
+        'order' => $i,
+      ];
+      $sumBase += $base;
+      $sumBaseOutbound += $baseOutbound;
+      $i++;
+    }
+
+    $remainder = max(0, 100 - $sumBase);
+    if ($totalUsage > 0 && $remainder > 0 && count($entries) > 0) {
+      usort($entries, function($a, $b) {
+        if ($a['frac'] === $b['frac']) return $a['order'] <=> $b['order'];
+        return ($a['frac'] < $b['frac']) ? 1 : -1;
+      });
+      $len = count($entries);
+      for ($k = 0; $k < $remainder; $k++) {
+        $entries[$k % $len]['base']++;
+      }
+      usort($entries, function($a, $b) {
+        return $a['order'] <=> $b['order'];
+      });
+    }
+
+    $remainderOutbound = max(0, 100 - $sumBaseOutbound);
+    if ($totalOutbound > 0 && $remainderOutbound > 0 && count($entries) > 0) {
+      usort($entries, function($a, $b) {
+        if ($a['fracOutbound'] === $b['fracOutbound']) return $a['order'] <=> $b['order'];
+        return ($a['fracOutbound'] < $b['fracOutbound']) ? 1 : -1;
+      });
+      $len = count($entries);
+      for ($k = 0; $k < $remainderOutbound; $k++) {
+        $entries[$k % $len]['baseOutbound']++;
+      }
+      usort($entries, function($a, $b) {
+        return $a['order'] <=> $b['order'];
+      });
+    }
+
+    usort($entries, function($a, $b) use ($groupOrderby, $groupOrder) {
+      $dir = $groupOrder === 'ASC' ? 1 : -1;
+      $cmp = 0;
+      switch ($groupOrderby) {
+        case 'total_anchors':
+          $cmp = ((int)$a['count'] <=> (int)$b['count']);
+          break;
+        case 'total_usage':
+          $cmp = ((int)$a['usage'] <=> (int)$b['usage']);
+          break;
+        case 'inlink_usage':
+          $cmp = ((int)$a['usageInlink'] <=> (int)$b['usageInlink']);
+          break;
+        case 'outbound_usage':
+          $cmp = ((int)$a['usageOutbound'] <=> (int)$b['usageOutbound']);
+          break;
+        case 'tag':
+        default:
+          $cmp = strcmp((string)$a['name'], (string)$b['name']);
+          break;
+      }
+      if ($cmp === 0) {
+        $cmp = strcmp((string)$a['name'], (string)$b['name']);
+      }
+      return $cmp * $dir;
+    });
+
+    $result = [
+      'entries' => $entries,
+      'group_usage' => $groupUsage,
+      'group_index_by_name' => $groupIndexByName,
+      'total_anchors' => $totalAnchors,
+    ];
+
+    set_transient($cacheKey, $result, self::CACHE_TTL);
+    return $result;
+  }
+
   public function render_admin_links_target_page() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
@@ -129,6 +666,7 @@ trait LM_Links_Target_Admin_Trait {
     echo '<table class="widefat striped lm-table">';
     echo '<thead><tr>';
     echo '<th class="lm-col-block"><input type="checkbox" id="lm-select-all-groups" /></th>';
+    echo $this->table_header_with_tooltip('lm-col-postid', '#', 'Row number in current result page.', 'left');
     echo $this->table_header_with_tooltip('lm-col-group', 'Group', 'Anchor group name.', 'left');
     echo $this->table_header_with_tooltip('lm-col-count', 'Total Anchors', 'Number of anchors inside this group.');
     echo $this->table_header_with_tooltip('lm-col-total', 'Total Usage Across All Pages (All Link Types)', 'Combined uses of all anchors in this group.');
@@ -143,188 +681,33 @@ trait LM_Links_Target_Admin_Trait {
     if (empty($groups)) {
       echo '<tr><td colspan="10">No groups yet.</td></tr>';
     } else {
-      $all = $this->build_or_get_cache('any', false, $this->sanitize_wpml_lang_filter($this->get_wpml_current_language()));
-      $anchorUsage = [];
-      foreach ($all as $row) {
-        $a = trim((string)($row['anchor_text'] ?? ''));
-        if ($a === '') continue;
-        $k = strtolower($a);
-        if (!isset($anchorUsage[$k])) $anchorUsage[$k] = ['total' => 0, 'inlink' => 0, 'outbound' => 0];
-        $anchorUsage[$k]['total']++;
-        if (($row['link_type'] ?? '') === 'inlink') $anchorUsage[$k]['inlink']++;
-        if (($row['link_type'] ?? '') === 'exlink') $anchorUsage[$k]['outbound']++;
-      }
-
-      $groupCounts = [];
-      $groupUsage = [];
-      $totalAnchors = 0;
-      $groupIndexByName = [];
-      $groupedKeys = [];
-      $groupAnchorsMap = [];
-      foreach ($groups as $idx => $g) {
-        $gname = trim((string)($g['name'] ?? ''));
-        if ($gname === '') continue;
-        if (!isset($groupIndexByName[$gname])) $groupIndexByName[$gname] = $idx;
+      foreach ($groups as $g) {
         $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
-        $count = 0;
-        $gUsage = ['total' => 0, 'inlink' => 0, 'outbound' => 0];
         foreach ($anchors as $a) {
           $a = trim((string)$a);
           if ($a === '') continue;
-          $count++;
           $k = strtolower($a);
-          $groupedKeys[$k] = true;
           if (!isset($groupAnchorsMap[$k])) $groupAnchorsMap[$k] = $a;
-          if (isset($anchorUsage[$k])) {
-            $gUsage['total'] += $anchorUsage[$k]['total'];
-            $gUsage['inlink'] += $anchorUsage[$k]['inlink'];
-            $gUsage['outbound'] += $anchorUsage[$k]['outbound'];
-          }
         }
-        $groupCounts[$gname] = $count;
-        $groupUsage[$gname] = $gUsage;
-        $totalAnchors += $count;
       }
 
-      if (empty($groupCounts)) {
-        echo '<tr><td colspan="10">No groups yet.</td></tr>';
+      $groupingPack = $this->get_links_target_grouping_rows(
+        $groups,
+        $targetsMap,
+        $groupOrderby,
+        $groupOrder,
+        $groupFilterSelected,
+        $groupSearch,
+        $groupSearchMode
+      );
+      $entries = is_array($groupingPack['entries'] ?? null) ? $groupingPack['entries'] : [];
+      $groupUsage = is_array($groupingPack['group_usage'] ?? null) ? $groupingPack['group_usage'] : [];
+      $groupIndexByName = is_array($groupingPack['group_index_by_name'] ?? null) ? $groupingPack['group_index_by_name'] : [];
+
+      if (empty($entries)) {
+        echo '<tr><td colspan="11">No groups yet.</td></tr>';
       } else {
-        $noGroupCount = 0;
-        $noGroupUsage = ['total' => 0, 'inlink' => 0, 'outbound' => 0];
-        foreach ($targetsMap as $k => $label) {
-          if (!isset($groupedKeys[$k])) {
-            $noGroupCount++;
-            if (isset($anchorUsage[$k])) {
-              $noGroupUsage['total'] += $anchorUsage[$k]['total'];
-              $noGroupUsage['inlink'] += $anchorUsage[$k]['inlink'];
-              $noGroupUsage['outbound'] += $anchorUsage[$k]['outbound'];
-            }
-          }
-        }
-        if ($noGroupCount > 0) {
-          if (!isset($groupCounts['No Group'])) $groupCounts['No Group'] = 0;
-          $groupCounts['No Group'] += $noGroupCount;
-          if (!isset($groupUsage['No Group'])) $groupUsage['No Group'] = ['total' => 0, 'inlink' => 0, 'outbound' => 0];
-          $groupUsage['No Group']['total'] += $noGroupUsage['total'];
-          $groupUsage['No Group']['inlink'] += $noGroupUsage['inlink'];
-          $groupUsage['No Group']['outbound'] += $noGroupUsage['outbound'];
-          $totalAnchors += $noGroupCount;
-        }
-
-        $filteredGroupUsage = [];
-        foreach ($groupUsage as $gname => $usage) {
-          $usageKey = $gname === 'No Group' ? 'no_group' : $gname;
-          if (!empty($groupFilterSelected) && !in_array($usageKey, $groupFilterSelected, true)) {
-            continue;
-          }
-          if ($groupSearch !== '' && !$this->text_matches((string)$gname, (string)$groupSearch, (string)$groupSearchMode)) {
-            continue;
-          }
-          $filteredGroupUsage[$gname] = $usage;
-        }
-
-        $totalUsage = 0;
-        $totalInlinks = 0;
-        $totalOutbound = 0;
-        foreach ($filteredGroupUsage as $usage) {
-          $totalUsage += (int)$usage['total'];
-          $totalInlinks += (int)$usage['inlink'];
-          $totalOutbound += (int)$usage['outbound'];
-        }
-
-        $entries = [];
-        $sumBase = 0;
-        $sumBaseOutbound = 0;
-        $i = 0;
-        foreach ($filteredGroupUsage as $gname => $usageRow) {
-          $count = isset($groupCounts[$gname]) ? (int)$groupCounts[$gname] : 0;
-          $usage = (int)($usageRow['total'] ?? 0);
-          $usageInlink = (int)($usageRow['inlink'] ?? 0);
-          $usageOutbound = (int)($usageRow['outbound'] ?? 0);
-
-          $raw = ($totalUsage > 0) ? (($usage / $totalUsage) * 100) : 0;
-          $base = (int)floor($raw);
-          $frac = $raw - $base;
-          $rawInlink = ($totalInlinks > 0) ? (($usageInlink / $totalInlinks) * 100) : 0;
-          $rawOutbound = ($totalOutbound > 0) ? (($usageOutbound / $totalOutbound) * 100) : 0;
-          $baseOutbound = (int)floor($rawOutbound);
-          $fracOutbound = $rawOutbound - $baseOutbound;
-
-          $entries[] = [
-            'name' => $gname,
-            'count' => $count,
-            'usage' => $usage,
-            'usageInlink' => $usageInlink,
-            'usageOutbound' => $usageOutbound,
-            'base' => $base,
-            'frac' => $frac,
-            'rawInlink' => $rawInlink,
-            'baseOutbound' => $baseOutbound,
-            'fracOutbound' => $fracOutbound,
-            'order' => $i,
-          ];
-          $sumBase += $base;
-          $sumBaseOutbound += $baseOutbound;
-          $i++;
-        }
-
-        $remainder = max(0, 100 - $sumBase);
-        if ($totalUsage > 0 && $remainder > 0 && count($entries) > 0) {
-          usort($entries, function($a, $b) {
-            if ($a['frac'] === $b['frac']) return $a['order'] <=> $b['order'];
-            return ($a['frac'] < $b['frac']) ? 1 : -1;
-          });
-          $len = count($entries);
-          for ($k = 0; $k < $remainder; $k++) {
-            $entries[$k % $len]['base']++;
-          }
-          usort($entries, function($a, $b) {
-            return $a['order'] <=> $b['order'];
-          });
-        }
-
-        $remainderOutbound = max(0, 100 - $sumBaseOutbound);
-        if ($totalOutbound > 0 && $remainderOutbound > 0 && count($entries) > 0) {
-          usort($entries, function($a, $b) {
-            if ($a['fracOutbound'] === $b['fracOutbound']) return $a['order'] <=> $b['order'];
-            return ($a['fracOutbound'] < $b['fracOutbound']) ? 1 : -1;
-          });
-          $len = count($entries);
-          for ($k = 0; $k < $remainderOutbound; $k++) {
-            $entries[$k % $len]['baseOutbound']++;
-          }
-          usort($entries, function($a, $b) {
-            return $a['order'] <=> $b['order'];
-          });
-        }
-
-        usort($entries, function($a, $b) use ($groupOrderby, $groupOrder) {
-          $dir = $groupOrder === 'ASC' ? 1 : -1;
-          $cmp = 0;
-          switch ($groupOrderby) {
-            case 'total_anchors':
-              $cmp = ((int)$a['count'] <=> (int)$b['count']);
-              break;
-            case 'total_usage':
-              $cmp = ((int)$a['usage'] <=> (int)$b['usage']);
-              break;
-            case 'inlink_usage':
-              $cmp = ((int)$a['usageInlink'] <=> (int)$b['usageInlink']);
-              break;
-            case 'outbound_usage':
-              $cmp = ((int)$a['usageOutbound'] <=> (int)$b['usageOutbound']);
-              break;
-            case 'tag':
-            default:
-              $cmp = strcmp((string)$a['name'], (string)$b['name']);
-              break;
-          }
-          if ($cmp === 0) {
-            $cmp = strcmp((string)$a['name'], (string)$b['name']);
-          }
-          return $cmp * $dir;
-        });
-
+        $groupRowNo = 1;
         foreach ($entries as $e) {
           $gidx = isset($groupIndexByName[$e['name']]) ? (int)$groupIndexByName[$e['name']] : -1;
           $editGroupUrl = $gidx >= 0 ? admin_url('admin.php?page=links-manager-target&lm_edit_group=' . $gidx) : '';
@@ -336,6 +719,7 @@ trait LM_Links_Target_Admin_Trait {
           } else {
             echo '<td class="lm-col-block" style="text-align:center;">—</td>';
           }
+          echo '<td class="lm-col-postid">' . esc_html((string)$groupRowNo) . '</td>';
           echo '<td class="lm-col-group"><span class="lm-trunc" title="' . esc_attr($e['name']) . '">' . esc_html($e['name']) . '</span></td>';
           echo '<td class="lm-col-count" style="text-align:center;">' . esc_html((string)$e['count']) . '</td>';
           echo '<td class="lm-col-total">' . esc_html((string)$gUsage['total']) . '</td>';
@@ -353,6 +737,7 @@ trait LM_Links_Target_Admin_Trait {
             echo '<td class="lm-col-action">—</td>';
           }
           echo '</tr>';
+          $groupRowNo++;
         }
       }
     }
@@ -709,7 +1094,7 @@ trait LM_Links_Target_Admin_Trait {
 
     $totalFiltered = 0;
     $totalPages = 1;
-    $filteredRows = [];
+    $pagedRows = [];
 
     if (!empty($summaryTargetsMap)) {
       $counts = [];
@@ -730,52 +1115,7 @@ trait LM_Links_Target_Admin_Trait {
         'search_mode' => $summarySearchMode,
       ];
 
-      $indexedSummaryRows = $this->get_indexed_all_anchor_text_summary_rows($summaryFilters);
-      if (!empty($indexedSummaryRows)) {
-        foreach ($indexedSummaryRows as $summaryRow) {
-          $k = strtolower(trim((string)($summaryRow['anchor_text'] ?? '')));
-          if ($k === '') continue;
-          $counts[$k] = [
-            'total' => (int)($summaryRow['total'] ?? 0),
-            'inlink' => (int)($summaryRow['inlink'] ?? 0),
-            'outbound' => (int)($summaryRow['outbound'] ?? 0),
-          ];
-        }
-      } else {
-        $all = $this->get_canonical_rows_for_scope('any', false, $this->sanitize_wpml_lang_filter($this->get_wpml_current_language()), $summaryFilters);
-        $allowedSummaryPostIds = $this->get_post_ids_by_post_terms((int)$summaryPostCategory, (int)$summaryPostTag);
-
-        foreach ($all as $row) {
-          if (is_array($allowedSummaryPostIds)) {
-            $rowPostId = isset($row['post_id']) ? (string)intval($row['post_id']) : '';
-            if ($rowPostId === '' || !isset($allowedSummaryPostIds[$rowPostId])) continue;
-          }
-          if ($summaryPostType !== 'any' && (string)($row['post_type'] ?? '') !== (string)$summaryPostType) continue;
-          if ($summaryLocation !== 'any' && (string)($row['link_location'] ?? '') !== (string)$summaryLocation) continue;
-          if ($summarySourceType !== 'any' && (string)($row['source'] ?? '') !== (string)$summarySourceType) continue;
-          if ($summaryLinkType !== 'any' && (string)($row['link_type'] ?? '') !== (string)$summaryLinkType) continue;
-          if ($summaryValueContains !== '' && !$this->text_matches((string)($row['link'] ?? ''), $summaryValueContains, $summarySearchMode)) continue;
-          if ($summarySourceContains !== '' && !$this->text_matches((string)($row['page_url'] ?? ''), $summarySourceContains, $summarySearchMode)) continue;
-          if ($summaryTitleContains !== '' && !$this->text_matches((string)($row['post_title'] ?? ''), $summaryTitleContains, $summarySearchMode)) continue;
-          if ($summaryAuthorContains !== '' && !$this->text_matches((string)($row['post_author'] ?? ''), $summaryAuthorContains, $summarySearchMode)) continue;
-          if ($summarySeoFlag !== 'any') {
-            $nofollow = (string)($row['rel_nofollow'] ?? '0') === '1';
-            $sponsored = (string)($row['rel_sponsored'] ?? '0') === '1';
-            $ugc = (string)($row['rel_ugc'] ?? '0') === '1';
-            if ($summarySeoFlag === 'dofollow' && ($nofollow || $sponsored || $ugc)) continue;
-            if ($summarySeoFlag === 'nofollow' && !$nofollow) continue;
-            if ($summarySeoFlag === 'sponsored' && !$sponsored) continue;
-            if ($summarySeoFlag === 'ugc' && !$ugc) continue;
-          }
-          $a = trim((string)($row['anchor_text'] ?? ''));
-          if ($a === '') continue;
-          $k = strtolower($a);
-          if (!isset($counts[$k])) $counts[$k] = ['total' => 0, 'inlink' => 0, 'outbound' => 0];
-          $counts[$k]['total']++;
-          if (($row['link_type'] ?? '') === 'inlink') $counts[$k]['inlink']++;
-          if (($row['link_type'] ?? '') === 'exlink') $counts[$k]['outbound']++;
-        }
-      }
+      $counts = $this->get_links_target_anchor_usage_map($summaryFilters, array_keys($summaryTargetsMap));
 
       $anchorToGroups = [];
       foreach ($groups as $g) {
@@ -790,81 +1130,34 @@ trait LM_Links_Target_Admin_Trait {
         }
       }
 
-      foreach ($summaryTargetsMap as $tKey => $tLabel) {
-        $c = $counts[$tKey] ?? ['total' => 0, 'inlink' => 0, 'outbound' => 0];
-        $glist = isset($anchorToGroups[$tKey]) ? implode(', ', array_keys($anchorToGroups[$tKey])) : '—';
-        $groupSearchText = isset($anchorToGroups[$tKey]) && !empty($anchorToGroups[$tKey]) ? $glist : 'No Group';
-        if (!empty($summaryGroupSelected)) {
-          $gset = isset($anchorToGroups[$tKey]) ? array_keys($anchorToGroups[$tKey]) : [];
-          $includeByGroup = false;
-          foreach ($summaryGroupSelected as $selectedGroup) {
-            if ($selectedGroup === 'no_group' && empty($gset)) {
-              $includeByGroup = true;
-              break;
-            }
-            if ($selectedGroup !== 'no_group' && in_array($selectedGroup, $gset, true)) {
-              $includeByGroup = true;
-              break;
-            }
-          }
-          if (!$includeByGroup) continue;
-        }
-        if ($summaryGroupSearch !== '' && !$this->text_matches((string)$groupSearchText, (string)$summaryGroupSearch, (string)$summarySearchMode)) continue;
-        if ($summaryAnchorSearch !== '' && !$this->text_matches((string)$tLabel, (string)$summaryAnchorSearch, (string)$summarySearchMode)) continue;
-        if ($summaryTotalMinNum !== null && (int)$c['total'] < $summaryTotalMinNum) continue;
-        if ($summaryTotalMaxNum !== null && (int)$c['total'] > $summaryTotalMaxNum) continue;
-        if ($summaryInMinNum !== null && (int)$c['inlink'] < $summaryInMinNum) continue;
-        if ($summaryInMaxNum !== null && (int)$c['inlink'] > $summaryInMaxNum) continue;
-        if ($summaryOutMinNum !== null && (int)$c['outbound'] < $summaryOutMinNum) continue;
-        if ($summaryOutMaxNum !== null && (int)$c['outbound'] > $summaryOutMaxNum) continue;
-        if (isset($anchorToGroups[$tKey]) && is_array($anchorToGroups[$tKey]) && count($anchorToGroups[$tKey]) > 0) {
-          $keys = array_keys($anchorToGroups[$tKey]);
-          $currentGroup = (string)$keys[0];
-        } else {
-          $currentGroup = 'no_group';
-        }
-        $idx = isset($targetIndexByKey[$tKey]) ? (int)$targetIndexByKey[$tKey] : -1;
-
-        $filteredRows[] = [
-          'tKey' => $tKey,
-          'tLabel' => $tLabel,
-          'c' => $c,
-          'glist' => $glist,
-          'currentGroup' => $currentGroup,
-          'idx' => $idx,
-        ];
+      $summaryPack = $this->get_links_target_summary_rows(
+        $summaryTargetsMap,
+        $anchorToGroups,
+        $counts,
+        $summaryGroupSelected,
+        $summaryGroupSearch,
+        $summaryAnchorSearch,
+        $summarySearchMode,
+        $summaryTotalMinNum,
+        $summaryTotalMaxNum,
+        $summaryInMinNum,
+        $summaryInMaxNum,
+        $summaryOutMinNum,
+        $summaryOutMaxNum,
+        $summaryOrderby,
+        $summaryOrder,
+        $summaryPaged,
+        $summaryPerPage,
+        $targetIndexByKey,
+        $summaryFilters
+      );
+      if (is_array($summaryPack)) {
+        $pagedRows = isset($summaryPack['paged_rows']) && is_array($summaryPack['paged_rows']) ? $summaryPack['paged_rows'] : [];
+        $totalFiltered = (int)($summaryPack['total_filtered'] ?? 0);
+        $totalPages = max(1, (int)($summaryPack['total_pages'] ?? 1));
+        $summaryPaged = max(1, (int)($summaryPack['summary_paged'] ?? $summaryPaged));
+        $summaryPerPage = max(10, (int)($summaryPack['summary_per_page'] ?? $summaryPerPage));
       }
-
-      usort($filteredRows, function($a, $b) use ($summaryOrderby, $summaryOrder) {
-        $dir = $summaryOrder === 'ASC' ? 1 : -1;
-        $cmp = 0;
-        switch ($summaryOrderby) {
-          case 'group':
-            $cmp = strcmp((string)$a['glist'], (string)$b['glist']);
-            break;
-          case 'total':
-            $cmp = ((int)($a['c']['total'] ?? 0) <=> (int)($b['c']['total'] ?? 0));
-            break;
-          case 'inlink':
-            $cmp = ((int)($a['c']['inlink'] ?? 0) <=> (int)($b['c']['inlink'] ?? 0));
-            break;
-          case 'outbound':
-            $cmp = ((int)($a['c']['outbound'] ?? 0) <=> (int)($b['c']['outbound'] ?? 0));
-            break;
-          case 'anchor':
-          default:
-            $cmp = strcmp((string)$a['tLabel'], (string)$b['tLabel']);
-            break;
-        }
-        if ($cmp === 0) {
-          $cmp = strcmp((string)$a['tLabel'], (string)$b['tLabel']);
-        }
-        return $cmp * $dir;
-      });
-
-      $totalFiltered = count($filteredRows);
-      $totalPages = max(1, (int)ceil($totalFiltered / $summaryPerPage));
-      if ($summaryPaged > $totalPages) $summaryPaged = $totalPages;
     }
 
     echo '<div style="margin:8px 0; font-weight:bold;">Total: <span id="lm-total-filtered">' . esc_html((string)$totalFiltered) . '</span> target anchors</div>';
@@ -885,7 +1178,6 @@ trait LM_Links_Target_Admin_Trait {
       echo '<tr><td colspan="8">No target anchors yet.</td></tr>';
     } else {
       $offset = ($summaryPaged - 1) * $summaryPerPage;
-      $pagedRows = array_slice($filteredRows, $offset, $summaryPerPage);
       $rowNum = $offset + 1;
 
       foreach ($pagedRows as $row) {

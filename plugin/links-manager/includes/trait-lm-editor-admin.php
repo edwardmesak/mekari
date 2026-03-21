@@ -276,6 +276,7 @@ trait LM_Editor_Admin_Trait {
     echo '<thead><tr>';
 
     $cols = [
+      ['label' => '#', 'class' => 'lm-col-postid', 'tooltip' => 'Row number in current result page.'],
       ['label' => 'Page URL', 'class' => 'lm-col-pageurl', 'tooltip' => 'URL of the content where this link appears.'],
       ['label' => 'Title', 'class' => 'lm-col-title', 'tooltip' => 'Title of the source post/page containing the link.'],
       ['label' => 'Author', 'class' => 'lm-col-author', 'tooltip' => 'Author of the source content.'],
@@ -309,7 +310,7 @@ trait LM_Editor_Admin_Trait {
       echo '<th class="' . esc_attr($col['class']) . '">' . $label . '</th>';
     }
     echo '</tr></thead><tbody>';
-    echo $this->get_editor_results_tbody_html($pageRows, $editorHiddenFields);
+    echo $this->get_editor_results_tbody_html($pageRows, $editorHiddenFields, (($paged - 1) * $perPage) + 1);
 
     echo '</tbody></table></div>';
 
@@ -438,12 +439,13 @@ trait LM_Editor_Admin_Trait {
     ];
   }
 
-  private function get_editor_results_tbody_html($pageRows, $editorHiddenFields) {
+  private function get_editor_results_tbody_html($pageRows, $editorHiddenFields, $rowNumberStart = 1) {
     $pageRows = is_array($pageRows) ? $pageRows : [];
+    $rowNumber = max(1, (int)$rowNumberStart);
     ob_start();
 
     if (empty($pageRows)) {
-      echo '<tr><td colspan="16">No links match the filter.</td></tr>';
+      echo '<tr><td colspan="17">No links match the filter.</td></tr>';
       return (string)ob_get_clean();
     }
 
@@ -451,6 +453,7 @@ trait LM_Editor_Admin_Trait {
       $typeLabel = ($r['link_type'] === 'exlink') ? 'External' : 'Internal';
 
       echo '<tr>';
+      echo '<td class="lm-col-postid">' . esc_html((string)$rowNumber) . '</td>';
       echo '<td class="lm-col-pageurl">' . ($r['page_url'] ? '<a href="' . esc_url($r['page_url']) . '" target="_blank" rel="noopener noreferrer"><span class="lm-trunc" title="' . esc_attr($r['page_url']) . '">' . esc_html($r['page_url']) . '</span></a>' : '') . '</td>';
       echo '<td class="lm-col-title"><span class="lm-trunc" title="' . esc_attr((string)$r['post_title']) . '">' . esc_html((string)$r['post_title']) . '</span></td>';
       echo '<td class="lm-col-author"><span class="lm-trunc" title="' . esc_attr((string)$r['post_author']) . '">' . esc_html((string)$r['post_author']) . '</span></td>';
@@ -519,6 +522,7 @@ trait LM_Editor_Admin_Trait {
       }
       echo '</td>';
       echo '</tr>';
+      $rowNumber++;
     }
 
     return (string)ob_get_clean();

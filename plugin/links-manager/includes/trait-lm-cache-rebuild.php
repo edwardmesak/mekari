@@ -470,6 +470,7 @@ trait LM_Cache_Rebuild_Trait {
     delete_option('lm_last_wpml_lang_context');
     $v = (int)get_option('lm_stats_snapshot_version', 1);
     update_option('lm_stats_snapshot_version', $v + 1, false);
+    $this->bump_dataset_cache_version();
   }
 
   private function clear_main_cache_all() {
@@ -489,6 +490,7 @@ trait LM_Cache_Rebuild_Trait {
         delete_transient($this->cache_key($scope, $lang));
       }
     }
+    $this->bump_dataset_cache_version();
   }
 
   private function schedule_background_rebuild($scope_post_type = 'any', $wpml_lang = 'all', $delaySeconds = 5) {

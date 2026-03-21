@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) {
 trait LM_Plugin_Bootstrap_Trait {
   public static function activate() {
     $plugin = new self(false);
-    $plugin->maybe_create_audit_table();
+    $plugin->maybe_upgrade_schema();
     $plugin->ensure_scheduled_cache_rebuild();
   }
 

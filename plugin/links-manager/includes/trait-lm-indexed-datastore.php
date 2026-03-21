@@ -4,6 +4,27 @@
  */
 
 trait LM_Indexed_Datastore_Trait {
+  private function indexed_fact_has_link_domain_column() {
+    static $hasColumn = null;
+    if ($hasColumn !== null) {
+      return (bool)$hasColumn;
+    }
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'lm_link_fact';
+    $column = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM $table LIKE %s", 'link_domain'));
+    $hasColumn = !empty($column);
+    return (bool)$hasColumn;
+  }
+
+  private function get_indexed_link_domain_sql_expression() {
+    $fallbackExpr = "LOWER(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(link, 'https://', ''), 'http://', ''), '/', 1), '?', 1), ':', 1))";
+    if ($this->indexed_fact_has_link_domain_column()) {
+      return "COALESCE(NULLIF(link_domain, ''), $fallbackExpr)";
+    }
+    return $fallbackExpr;
+  }
+
   private function get_indexed_datastore_tables() {
     global $wpdb;
     return [

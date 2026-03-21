@@ -94,7 +94,7 @@ class LM_Links_Manager {
   const PAGE_SLUG = 'links-manager-editor';
   const NONCE_ACTION = 'lm_links_manager_nonce_action';
   const NONCE_NAME = 'lm_nonce';
-  const DB_VERSION = '4.6';
+  const DB_VERSION = '4.8';
 
   const CACHE_TTL = 6 * HOUR_IN_SECONDS;
   const CACHE_BASE_TTL = 30 * DAY_IN_SECONDS;
@@ -127,6 +127,7 @@ class LM_Links_Manager {
     }
 
     add_action('plugins_loaded', [$this, 'load_textdomain']);
+    add_action('plugins_loaded', [$this, 'maybe_upgrade_schema'], 20);
     add_action('admin_menu', [$this, 'admin_menu']);
     add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
 
@@ -153,7 +154,6 @@ class LM_Links_Manager {
     add_action('admin_post_lm_bulk_delete_anchor_targets', [$this, 'handle_bulk_delete_anchor_targets']);
     add_action('rest_api_init', [$this, 'register_rest_routes']);
 
-    add_action('init', [$this, 'maybe_create_audit_table']);
     add_action('init', [$this, 'ensure_scheduled_cache_rebuild']);
     add_action('admin_init', [$this, 'run_daily_maintenance']);
     add_action('shutdown', [$this, 'capture_fatal_diagnostic']);

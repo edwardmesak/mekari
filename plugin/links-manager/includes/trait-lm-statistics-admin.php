@@ -288,6 +288,7 @@ trait LM_Statistics_Admin_Trait {
       echo '<h3 style="margin:10px 0 6px;">Recent Change Log</h3>';
       echo '<table class="widefat striped lm-audit-table" style="font-size:12px;">';
       echo '<thead><tr>';
+      echo $this->table_header_with_tooltip('', '#', 'Row number in current table.', 'left');
       echo $this->table_header_with_tooltip('', 'Time', 'Timestamp when the action was logged.', 'left');
       echo $this->table_header_with_tooltip('', 'User', 'User who triggered the action.');
       echo $this->table_header_with_tooltip('', 'Action', 'Type of operation performed.');
@@ -296,9 +297,11 @@ trait LM_Statistics_Admin_Trait {
       echo $this->table_header_with_tooltip('', 'New URL', 'Updated URL after action.');
       echo $this->table_header_with_tooltip('', 'Status', 'Operation result: success or failed.', 'right');
       echo '</tr></thead><tbody>';
+      $auditRowNo = 1;
       foreach ($audit_logs as $log) {
         $status_color = $log->status === 'success' ? '#4caf50' : '#d63638';
         echo '<tr>';
+        echo '<td>' . esc_html((string)$auditRowNo) . '</td>';
         echo '<td>' . esc_html(substr((string)$log->timestamp, 0, 19)) . '</td>';
         echo '<td>' . esc_html((string)$log->user_name) . '</td>';
         echo '<td><small>' . esc_html((string)$log->action) . '</small></td>';
@@ -307,6 +310,7 @@ trait LM_Statistics_Admin_Trait {
         echo '<td><small style="max-width:150px; display:block; overflow:hidden; text-overflow:ellipsis;">' . esc_html((string)$log->new_url) . '</small></td>';
         echo '<td><span style="color:' . esc_attr($status_color) . '; font-weight:bold;">' . esc_html((string)$log->status) . '</span></td>';
         echo '</tr>';
+        $auditRowNo++;
       }
       echo '</tbody></table>';
       echo '</div>';
