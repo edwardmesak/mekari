@@ -34,9 +34,10 @@ trait LM_Links_Target_Admin_Trait {
     return 'lm_links_target_grouping_' . md5(wp_json_encode($payload));
   }
 
-  private function links_target_summary_cache_key($filters, $targetKeys, $summaryPage, $summaryPerPage, $summaryOrderby, $summaryOrder) {
+  private function links_target_summary_cache_key($filters, $targetKeys, $summaryPage, $summaryPerPage, $summaryOrderby, $summaryOrder, $baseFilters = []) {
     $payload = [
       'filters' => is_array($filters) ? $filters : [],
+      'base_filters' => is_array($baseFilters) ? $baseFilters : [],
       'targets' => array_values(array_map('strtolower', (array)$targetKeys)),
       'page' => max(1, (int)$summaryPage),
       'per_page' => max(10, (int)$summaryPerPage),
@@ -240,7 +241,8 @@ trait LM_Links_Target_Admin_Trait {
       $summaryPaged,
       $summaryPerPage,
       $summaryOrderby,
-      $summaryOrder
+      $summaryOrder,
+      $baseFilters
     );
 
     $cached = get_transient($cacheKey);

@@ -133,9 +133,6 @@ trait LM_Request_URL_Helpers_Trait {
       'alt_contains' => isset($_REQUEST['lm_alt']) ? sanitize_text_field((string)$_REQUEST['lm_alt']) : '',
       'rel_contains' => isset($_REQUEST['lm_rel']) ? sanitize_text_field((string)$_REQUEST['lm_rel']) : '',
       'text_match_mode' => isset($_REQUEST['lm_text_mode']) ? $this->sanitize_text_match_mode($_REQUEST['lm_text_mode']) : 'contains',
-      'rel_nofollow' => isset($_REQUEST['lm_rel_nofollow']) ? sanitize_text_field((string)$_REQUEST['lm_rel_nofollow']) : 'any',
-      'rel_sponsored' => isset($_REQUEST['lm_rel_sponsored']) ? sanitize_text_field((string)$_REQUEST['lm_rel_sponsored']) : 'any',
-      'rel_ugc' => isset($_REQUEST['lm_rel_ugc']) ? sanitize_text_field((string)$_REQUEST['lm_rel_ugc']) : 'any',
       'orderby' => isset($_REQUEST['lm_orderby']) ? sanitize_text_field((string)$_REQUEST['lm_orderby']) : 'date',
       'order' => isset($_REQUEST['lm_order']) ? strtoupper(sanitize_text_field((string)$_REQUEST['lm_order'])) : 'DESC',
       'per_page' => isset($_REQUEST['lm_per_page']) ? intval($_REQUEST['lm_per_page']) : 25,
@@ -150,9 +147,6 @@ trait LM_Request_URL_Helpers_Trait {
     if (!in_array($filters['value_type'], ['any', 'url', 'relative', 'anchor', 'mailto', 'tel', 'javascript', 'other', 'empty'], true)) $filters['value_type'] = 'any';
     if (!in_array($filters['quality'], ['any', 'good', 'poor', 'bad'], true)) $filters['quality'] = 'any';
     if (!in_array($filters['seo_flag'], ['any', 'dofollow', 'nofollow', 'sponsored', 'ugc'], true)) $filters['seo_flag'] = 'any';
-    if (!in_array($filters['rel_nofollow'], ['any', 'yes', 'no'], true)) $filters['rel_nofollow'] = 'any';
-    if (!in_array($filters['rel_sponsored'], ['any', 'yes', 'no'], true)) $filters['rel_sponsored'] = 'any';
-    if (!in_array($filters['rel_ugc'], ['any', 'yes', 'no'], true)) $filters['rel_ugc'] = 'any';
     if (!in_array($filters['orderby'], ['date', 'title', 'post_type', 'post_author', 'page_url', 'link', 'source', 'link_location', 'anchor_text', 'quality', 'link_type', 'seo_flags', 'alt_text', 'count'], true)) $filters['orderby'] = 'date';
     if (!in_array($filters['order'], ['ASC', 'DESC'], true)) $filters['order'] = 'DESC';
     if ($filters['per_page'] < 10) $filters['per_page'] = 10;
@@ -187,9 +181,6 @@ trait LM_Request_URL_Helpers_Trait {
       'lm_alt' => $filters['alt_contains'],
       'lm_rel' => $filters['rel_contains'],
       'lm_text_mode' => $filters['text_match_mode'],
-      'lm_rel_nofollow' => $filters['rel_nofollow'],
-      'lm_rel_sponsored' => $filters['rel_sponsored'],
-      'lm_rel_ugc' => $filters['rel_ugc'],
       'lm_orderby' => $filters['orderby'],
       'lm_order' => $filters['order'],
       'lm_per_page' => $filters['per_page'],
@@ -223,13 +214,11 @@ trait LM_Request_URL_Helpers_Trait {
       'lm_anchor' => $filters['anchor_contains'],
       'lm_alt' => $filters['alt_contains'],
       'lm_rel' => $filters['rel_contains'],
-      'lm_rel_nofollow' => $filters['rel_nofollow'],
-      'lm_rel_sponsored' => $filters['rel_sponsored'],
-      'lm_rel_ugc' => $filters['rel_ugc'],
       'lm_orderby' => $filters['orderby'],
       'lm_order' => $filters['order'],
       'lm_per_page' => $filters['per_page'],
       'lm_paged' => $filters['paged'],
+      'lm_rebuild' => $filters['rebuild'] ? '1' : '0',
     ];
     foreach ($override as $k => $v) $args[$k] = $v;
     return admin_url('admin.php?' . http_build_query($args));

@@ -125,9 +125,6 @@ trait LM_Summary_Builders_Trait {
     $postTagFilter = isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0;
     $allowedPostIds = $this->get_post_ids_by_post_terms($postCategoryFilter, $postTagFilter);
 
-    $relNofollow = $filters['rel_nofollow'];
-    $relSponsored = $filters['rel_sponsored'];
-    $relUgc = $filters['rel_ugc'];
     $relContains = $filters['rel_contains'];
 
     $hasValueContains = $valueContains !== '';
@@ -178,10 +175,6 @@ trait LM_Summary_Builders_Trait {
         $relText = !empty($flags) ? implode(', ', $flags) : 'dofollow';
         if (!$this->text_matches($relText, $relContains, $textMode)) continue;
       }
-
-      if ($relNofollow !== 'any' && $row['rel_nofollow'] !== ($relNofollow === '1' ? '1' : '0')) continue;
-      if ($relSponsored !== 'any' && $row['rel_sponsored'] !== ($relSponsored === '1' ? '1' : '0')) continue;
-      if ($relUgc !== 'any' && $row['rel_ugc'] !== ($relUgc === '1' ? '1' : '0')) continue;
 
       if ($qualityFilter !== 'any') {
         $quality = $this->get_anchor_quality_label((string)($row['anchor_text'] ?? ''));

@@ -131,7 +131,7 @@ trait LM_Editor_Admin_Trait {
     foreach ($textModes as $modeKey => $modeLabel) {
       echo '<option value="' . esc_attr($modeKey) . '"' . selected($filters['text_match_mode'], $modeKey, false) . '>' . esc_html($modeLabel) . '</option>';
     }
-    echo '</select><div class="lm-small">Applies to Destination URL, Source URL, Title, Author, Anchor Text, and Alt.</div></td></tr>';
+    echo '</select><div class="lm-small">Applies to Destination URL, Source URL, Title, Author, Anchor Text, Alt, and Rel.</div></td></tr>';
 
     echo '<tr><th scope="row">' . esc_html__('Search Source URL', 'links-manager') . '</th><td>';
     echo '<input type="text" name="lm_source" value="' . esc_attr($filters['source_contains'] ?? '') . '" class="regular-text" placeholder="page URL / /category / /slug"/>';
@@ -161,6 +161,10 @@ trait LM_Editor_Admin_Trait {
 
     echo '<tr><th scope="row">' . esc_html__('Search in Alt', 'links-manager') . '</th><td>';
     echo '<input type="text" name="lm_alt" value="' . esc_attr($filters['alt_contains']) . '" class="regular-text" placeholder="logo / banner / icon"/>';
+    echo '</td></tr>';
+
+    echo '<tr><th scope="row">' . esc_html__('Search Rel', 'links-manager') . '</th><td>';
+    echo '<input type="text" name="lm_rel" value="' . esc_attr($filters['rel_contains']) . '" class="regular-text" placeholder="nofollow / sponsored / ugc / dofollow"/>';
     echo '</td></tr>';
 
     echo '<tr><th scope="row">Quality</th><td><select name="lm_quality">';
@@ -345,9 +349,6 @@ trait LM_Editor_Admin_Trait {
       'lm_alt' => $filters['alt_contains'],
       'lm_rel' => $filters['rel_contains'],
       'lm_text_mode' => $filters['text_match_mode'],
-      'lm_rel_nofollow' => $filters['rel_nofollow'],
-      'lm_rel_sponsored' => $filters['rel_sponsored'],
-      'lm_rel_ugc' => $filters['rel_ugc'],
       'lm_orderby' => $filters['orderby'],
       'lm_order' => $filters['order'],
       'lm_per_page' => $perPage,

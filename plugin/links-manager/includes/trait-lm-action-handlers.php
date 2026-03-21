@@ -383,9 +383,6 @@ trait LM_Action_Handlers_Trait {
     $filters['anchor_contains'] = '';
     $filters['alt_contains'] = '';
     $filters['rel_contains'] = '';
-    $filters['rel_nofollow'] = 'any';
-    $filters['rel_sponsored'] = 'any';
-    $filters['rel_ugc'] = 'any';
     $filters['group'] = '0';
     $filters['paged'] = 1;
 
