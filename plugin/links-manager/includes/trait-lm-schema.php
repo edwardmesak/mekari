@@ -102,9 +102,21 @@ trait LM_Schema_Trait {
       KEY idx_lang_post (wpml_lang, post_id),
       KEY idx_lang_post_type (wpml_lang, post_type),
       KEY idx_lang_link_type (wpml_lang, link_type),
+      KEY idx_lang_post_type_date (wpml_lang, post_type, post_date),
+      KEY idx_lang_post_type_modified (wpml_lang, post_type, post_modified),
+      KEY idx_lang_post_type_link_type (wpml_lang, post_type, link_type),
+      KEY idx_lang_post_type_source (wpml_lang, post_type, source),
+      KEY idx_lang_post_type_location (wpml_lang, post_type, link_location),
+      KEY idx_lang_post_type_source_date (wpml_lang, post_type, source, post_date),
+      KEY idx_lang_post_type_location_date (wpml_lang, post_type, link_location, post_date),
+      KEY idx_lang_post_type_date_post_row (wpml_lang, post_type, post_date, post_id, row_id),
+      KEY idx_lang_post_type_source_date_post_row (wpml_lang, post_type, source, post_date, post_id, row_id),
+      KEY idx_lang_post_type_location_date_post_row (wpml_lang, post_type, link_location, post_date, post_id, row_id),
       KEY idx_lang_occurrence (wpml_lang, occurrence),
       KEY idx_link (link(191)),
-      KEY idx_page_url (page_url(191))
+      KEY idx_page_url (page_url(191)),
+      KEY idx_lang_post_type_page_url (wpml_lang, post_type, page_url(191)),
+      KEY idx_lang_post_type_link (wpml_lang, post_type, link(191))
     ) $charset;";
 
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');

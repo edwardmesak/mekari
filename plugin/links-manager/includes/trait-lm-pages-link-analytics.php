@@ -4,6 +4,220 @@
  */
 
 trait LM_Pages_Link_Analytics_Trait {
+  private function build_pages_link_candidate_query_args($filters, $postsPerPage = -1, $paged = 1, $withFoundRows = false) {
+    $ptList = $this->get_filterable_post_types();
+    $postTypes = ($filters['post_type'] === 'any') ? array_keys($ptList) : [$filters['post_type']];
+
+    $taxQuery = [];
+    $postCategoryFilter = isset($filters['post_category']) ? (int)$filters['post_category'] : 0;
+    $postTagFilter = isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0;
+    if ($postCategoryFilter > 0 || $postTagFilter > 0) {
+      if ($filters['post_type'] !== 'any' && $filters['post_type'] !== 'post') {
+        return null;
+      }
+      $taxQuery = ['relation' => 'AND'];
+      if ($postCategoryFilter > 0) {
+        $taxQuery[] = [
+          'taxonomy' => 'category',
+          'field' => 'term_id',
+          'terms' => [$postCategoryFilter],
+        ];
+      }
+      if ($postTagFilter > 0) {
+        $taxQuery[] = [
+          'taxonomy' => 'post_tag',
+          'field' => 'term_id',
+          'terms' => [$postTagFilter],
+        ];
+      }
+    }
+
+    $queryOrderbyMap = [
+      'date' => 'date',
+      'title' => 'title',
+      'modified' => 'modified',
+      'post_id' => 'ID',
+    ];
+    $orderby = isset($filters['orderby']) ? (string)$filters['orderby'] : 'date';
+    $queryOrderby = isset($queryOrderbyMap[$orderby]) ? $queryOrderbyMap[$orderby] : 'date';
+
+    $queryArgs = [
+      'post_type' => $postTypes,
+      'post_status' => 'publish',
+      'posts_per_page' => (int)$postsPerPage,
+      'paged' => max(1, (int)$paged),
+      'fields' => 'ids',
+      'no_found_rows' => !$withFoundRows,
+      'orderby' => $queryOrderby,
+      'order' => isset($filters['order']) ? (string)$filters['order'] : 'DESC',
+      'author' => isset($filters['author']) ? (int)$filters['author'] : 0,
+      's' => '',
+      'update_post_meta_cache' => false,
+      'update_post_term_cache' => false,
+      'cache_results' => false,
+    ];
+    if (!empty($taxQuery)) {
+      $queryArgs['tax_query'] = $taxQuery;
+    }
+
+    $dateQuery = [];
+    if (!empty($filters['date_from'])) {
+      $dateQuery['after'] = (string)$filters['date_from'];
+      $dateQuery['inclusive'] = true;
+    }
+    if (!empty($filters['date_to'])) {
+      $dateQuery['before'] = (string)$filters['date_to'];
+      $dateQuery['inclusive'] = true;
+    }
+    $updatedDateQuery = [];
+    if (!empty($filters['updated_date_from'])) {
+      $updatedDateQuery['after'] = (string)$filters['updated_date_from'];
+      $updatedDateQuery['inclusive'] = true;
+      $updatedDateQuery['column'] = 'post_modified';
+    }
+    if (!empty($filters['updated_date_to'])) {
+      $updatedDateQuery['before'] = (string)$filters['updated_date_to'];
+      $updatedDateQuery['inclusive'] = true;
+      $updatedDateQuery['column'] = 'post_modified';
+    }
+    $dateQueryClauses = [];
+    if (!empty($dateQuery)) $dateQueryClauses[] = $dateQuery;
+    if (!empty($updatedDateQuery)) $dateQueryClauses[] = $updatedDateQuery;
+    if (!empty($dateQueryClauses)) {
+      if (count($dateQueryClauses) > 1) {
+        $dateQueryClauses['relation'] = 'AND';
+      }
+      $queryArgs['date_query'] = $dateQueryClauses;
+    }
+
+    return [$queryArgs, $postTypes];
+  }
+
+  private function get_pages_link_status_summaries_from_ids($candidatePostIds, $summaryMap) {
+    $statusSummary = [
+      'orphan' => 0,
+      'low' => 0,
+      'standard' => 0,
+      'excellent' => 0,
+    ];
+    $internalOutboundSummary = [
+      'none' => 0,
+      'low' => 0,
+      'optimal' => 0,
+      'excessive' => 0,
+    ];
+    $externalOutboundSummary = [
+      'none' => 0,
+      'low' => 0,
+      'optimal' => 0,
+      'excessive' => 0,
+    ];
+
+    $internalOutboundThresholds = $this->get_internal_outbound_status_thresholds();
+    $externalOutboundThresholds = $this->get_external_outbound_status_thresholds();
+    foreach ((array)$candidatePostIds as $postId) {
+      $pid = (string)(int)$postId;
+      $counts = isset($summaryMap[$pid]) && is_array($summaryMap[$pid]) ? $summaryMap[$pid] : [
+        'inbound' => 0,
+        'internal_outbound' => 0,
+        'outbound' => 0,
+      ];
+      $statusKey = $this->inbound_status_key((int)($counts['inbound'] ?? 0));
+      $internalStatusKey = $this->four_level_status_key((int)($counts['internal_outbound'] ?? 0), $internalOutboundThresholds);
+      $externalStatusKey = $this->four_level_status_key((int)($counts['outbound'] ?? 0), $externalOutboundThresholds);
+      if (isset($statusSummary[$statusKey])) {
+        $statusSummary[$statusKey]++;
+      }
+      if (isset($internalOutboundSummary[$internalStatusKey])) {
+        $internalOutboundSummary[$internalStatusKey]++;
+      }
+      if (isset($externalOutboundSummary[$externalStatusKey])) {
+        $externalOutboundSummary[$externalStatusKey]++;
+      }
+    }
+
+    return [
+      'status' => $statusSummary,
+      'internal_outbound' => $internalOutboundSummary,
+      'external_outbound' => $externalOutboundSummary,
+    ];
+  }
+
+  private function get_pages_link_paged_result_from_indexed_summary($filters) {
+    $queryConfig = $this->build_pages_link_candidate_query_args($filters, (int)$filters['per_page'], (int)$filters['paged'], true);
+    if (!is_array($queryConfig)) {
+      return null;
+    }
+    list($pageQueryArgs, $postTypes) = $queryConfig;
+
+    $pageQuery = new WP_Query($pageQueryArgs);
+    $candidatePostIds = !empty($pageQuery->posts) ? array_values(array_unique(array_map('intval', (array)$pageQuery->posts))) : [];
+
+    $scopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $summaryMap = $this->get_indexed_summary_map($scopePostType, $scopeWpmlLang);
+    if (empty($summaryMap) && ($scopePostType !== 'any' || $scopeWpmlLang !== 'all')) {
+      $summaryMap = $this->get_indexed_summary_map('any', 'all');
+    }
+
+    $needAllPageUrls = ((string)($filters['orderby'] ?? 'date') === 'page_url') || !empty($filters['search_url']);
+    $postDataMap = $this->get_pages_link_post_data_map($candidatePostIds, $postTypes, $needAllPageUrls, []);
+
+    $rows = [];
+    foreach ($candidatePostIds as $postId) {
+      $pid = (string)$postId;
+      $counts = isset($summaryMap[$pid]) && is_array($summaryMap[$pid]) ? $summaryMap[$pid] : [
+        'inbound' => 0,
+        'internal_outbound' => 0,
+        'outbound' => 0,
+      ];
+      $postData = isset($postDataMap[$pid]) && is_array($postDataMap[$pid]) ? $postDataMap[$pid] : [];
+      $rows[] = [
+        'post_id' => $postId,
+        'post_title' => isset($postData['post_title']) ? (string)$postData['post_title'] : (string)get_the_title($postId),
+        'post_type' => isset($postData['post_type']) ? (string)$postData['post_type'] : '',
+        'author_name' => isset($postData['author_name']) ? (string)$postData['author_name'] : '',
+        'post_date' => isset($postData['post_date']) ? (string)$postData['post_date'] : '',
+        'post_modified' => isset($postData['post_modified']) ? (string)$postData['post_modified'] : '',
+        'page_url' => isset($postData['page_url']) ? (string)$postData['page_url'] : '',
+        'inbound' => (int)($counts['inbound'] ?? 0),
+        'outbound' => (int)($counts['outbound'] ?? 0),
+        'internal_outbound' => (int)($counts['internal_outbound'] ?? 0),
+        'status' => $this->inbound_status_key((int)($counts['inbound'] ?? 0)),
+        'internal_outbound_status' => $this->four_level_status_key((int)($counts['internal_outbound'] ?? 0), $this->get_internal_outbound_status_thresholds()),
+        'external_outbound_status' => $this->four_level_status_key((int)($counts['outbound'] ?? 0), $this->get_external_outbound_status_thresholds()),
+      ];
+    }
+
+    $summaryQueryConfig = $this->build_pages_link_candidate_query_args($filters, -1, 1, false);
+    $summaryPostIds = [];
+    if (is_array($summaryQueryConfig)) {
+      list($summaryQueryArgs) = $summaryQueryConfig;
+      $summaryQuery = new WP_Query($summaryQueryArgs);
+      $summaryPostIds = !empty($summaryQuery->posts) ? array_values(array_unique(array_map('intval', (array)$summaryQuery->posts))) : [];
+    }
+    $summaries = $this->get_pages_link_status_summaries_from_ids($summaryPostIds, $summaryMap);
+
+    $total = max(0, (int)$pageQuery->found_posts);
+    $perPage = max(10, (int)$filters['per_page']);
+    $totalPages = max(1, (int)ceil($total / max(1, $perPage)));
+    $paged = max(1, min((int)$filters['paged'], $totalPages));
+
+    return [
+      'pages' => $rows,
+      'total' => $total,
+      'per_page' => $perPage,
+      'paged' => $paged,
+      'total_pages' => $totalPages,
+      'status_summary' => $summaries['status'],
+      'internal_outbound_summary' => $summaries['internal_outbound'],
+      'external_outbound_summary' => $summaries['external_outbound'],
+    ];
+  }
+
   private function build_pages_link_target_variants($url) {
     $url = trim((string)$url);
     if ($url === '') {

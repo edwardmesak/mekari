@@ -21,15 +21,24 @@ trait LM_Pages_Link_Admin_Trait {
     $postTagOptions = $this->get_post_term_options('post_tag');
     try {
       $pages = null;
+      $pagedResult = null;
       if (
         !$filters['rebuild']
         && $this->is_indexed_datastore_ready()
         && $this->indexed_dataset_has_rows($filters['post_type'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all')
         && $this->can_use_indexed_pages_link_summary_fastpath($filters)
       ) {
-        $pages = $this->get_pages_with_inbound_counts_from_indexed_summary($filters);
-        if (is_array($pages) && empty($pages)) {
-          $pages = null;
+        if ($this->can_use_indexed_pages_link_paged_fastpath($filters)) {
+          $pagedResult = $this->get_pages_link_paged_result_from_indexed_summary($filters);
+          if (is_array($pagedResult)) {
+            $pages = isset($pagedResult['pages']) && is_array($pagedResult['pages']) ? $pagedResult['pages'] : [];
+          }
+        }
+        if (!is_array($pagedResult)) {
+          $pages = $this->get_pages_with_inbound_counts_from_indexed_summary($filters);
+          if (is_array($pages) && empty($pages)) {
+            $pages = null;
+          }
         }
       }
       if (!is_array($pages)) {
@@ -38,19 +47,28 @@ trait LM_Pages_Link_Admin_Trait {
         $pages = $this->get_pages_with_inbound_counts($all, $filters, false);
       }
     } catch (Throwable $e) {
+      $pagedResult = null;
       $pages = [];
       if (defined('WP_DEBUG') && WP_DEBUG) {
         error_log('LM Pages Link error.');
       }
     }
 
-    $total = count($pages);
-    $perPage = $filters['per_page'];
-    $paged = $filters['paged'];
-    $totalPages = max(1, (int)ceil($total / $perPage));
-    if ($paged > $totalPages) $paged = $totalPages;
-    $offset = ($paged - 1) * $perPage;
-    $pageRows = array_slice($pages, $offset, $perPage);
+    if (is_array($pagedResult)) {
+      $total = (int)($pagedResult['total'] ?? 0);
+      $perPage = (int)($pagedResult['per_page'] ?? $filters['per_page']);
+      $paged = (int)($pagedResult['paged'] ?? $filters['paged']);
+      $totalPages = (int)($pagedResult['total_pages'] ?? max(1, (int)ceil(max(0, $total) / max(1, $perPage))));
+      $pageRows = $pages;
+    } else {
+      $total = count($pages);
+      $perPage = $filters['per_page'];
+      $paged = $filters['paged'];
+      $totalPages = max(1, (int)ceil($total / $perPage));
+      if ($paged > $totalPages) $paged = $totalPages;
+      $offset = ($paged - 1) * $perPage;
+      $pageRows = array_slice($pages, $offset, $perPage);
+    }
     foreach ($pageRows as &$pageRow) {
       if ((string)($pageRow['page_url'] ?? '') === '') {
         $pageRow['page_url'] = (string)get_permalink((int)($pageRow['post_id'] ?? 0));
@@ -58,16 +76,20 @@ trait LM_Pages_Link_Admin_Trait {
     }
     unset($pageRow);
 
-    $statusSummary = [
-      'orphan' => 0,
-      'low' => 0,
-      'standard' => 0,
-      'excellent' => 0,
-    ];
-    foreach ($pages as $row) {
-      $statusKey = $this->inbound_status_key(isset($row['inbound']) ? (int)$row['inbound'] : 0);
-      if (isset($statusSummary[$statusKey])) {
-        $statusSummary[$statusKey]++;
+    $statusSummary = is_array($pagedResult) && isset($pagedResult['status_summary']) && is_array($pagedResult['status_summary'])
+      ? $pagedResult['status_summary']
+      : [
+        'orphan' => 0,
+        'low' => 0,
+        'standard' => 0,
+        'excellent' => 0,
+      ];
+    if (!is_array($pagedResult)) {
+      foreach ($pages as $row) {
+        $statusKey = $this->inbound_status_key(isset($row['inbound']) ? (int)$row['inbound'] : 0);
+        if (isset($statusSummary[$statusKey])) {
+          $statusSummary[$statusKey]++;
+        }
       }
     }
     $summaryRows = [
@@ -87,26 +109,32 @@ trait LM_Pages_Link_Admin_Trait {
     $externalOutboundThresholds = $this->get_external_outbound_status_thresholds();
     $internalOutboundRanges = $this->get_four_level_status_ranges_text($internalOutboundThresholds);
     $externalOutboundRanges = $this->get_four_level_status_ranges_text($externalOutboundThresholds);
-    $internalOutboundSummary = [
-      'none' => 0,
-      'low' => 0,
-      'optimal' => 0,
-      'excessive' => 0,
-    ];
-    $externalOutboundSummary = [
-      'none' => 0,
-      'low' => 0,
-      'optimal' => 0,
-      'excessive' => 0,
-    ];
-    foreach ($pages as $row) {
-      $internalStatusKey = $this->four_level_status_key(isset($row['internal_outbound']) ? (int)$row['internal_outbound'] : 0, $internalOutboundThresholds);
-      $externalStatusKey = $this->four_level_status_key(isset($row['outbound']) ? (int)$row['outbound'] : 0, $externalOutboundThresholds);
-      if (isset($internalOutboundSummary[$internalStatusKey])) {
-        $internalOutboundSummary[$internalStatusKey]++;
-      }
-      if (isset($externalOutboundSummary[$externalStatusKey])) {
-        $externalOutboundSummary[$externalStatusKey]++;
+    $internalOutboundSummary = is_array($pagedResult) && isset($pagedResult['internal_outbound_summary']) && is_array($pagedResult['internal_outbound_summary'])
+      ? $pagedResult['internal_outbound_summary']
+      : [
+        'none' => 0,
+        'low' => 0,
+        'optimal' => 0,
+        'excessive' => 0,
+      ];
+    $externalOutboundSummary = is_array($pagedResult) && isset($pagedResult['external_outbound_summary']) && is_array($pagedResult['external_outbound_summary'])
+      ? $pagedResult['external_outbound_summary']
+      : [
+        'none' => 0,
+        'low' => 0,
+        'optimal' => 0,
+        'excessive' => 0,
+      ];
+    if (!is_array($pagedResult)) {
+      foreach ($pages as $row) {
+        $internalStatusKey = $this->four_level_status_key(isset($row['internal_outbound']) ? (int)$row['internal_outbound'] : 0, $internalOutboundThresholds);
+        $externalStatusKey = $this->four_level_status_key(isset($row['outbound']) ? (int)$row['outbound'] : 0, $externalOutboundThresholds);
+        if (isset($internalOutboundSummary[$internalStatusKey])) {
+          $internalOutboundSummary[$internalStatusKey]++;
+        }
+        if (isset($externalOutboundSummary[$externalStatusKey])) {
+          $externalOutboundSummary[$externalStatusKey]++;
+        }
       }
     }
 

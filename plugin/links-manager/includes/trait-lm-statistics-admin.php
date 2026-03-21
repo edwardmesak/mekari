@@ -28,15 +28,23 @@ trait LM_Statistics_Admin_Trait {
       $statsScopePostType = 'any';
     }
     $statsWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
-    $isDefaultStatsScope = !$filters['rebuild'] && $statsScopePostType === 'any' && $statsWpmlLang === 'all';
-    if ($isDefaultStatsScope) {
+    if (!$filters['rebuild']) {
       $snapshot = $this->get_precomputed_stats_snapshot_if_available(
-        $this->default_stats_snapshot_filters('any', 'all'),
+        $this->default_stats_snapshot_filters($statsScopePostType, $statsWpmlLang),
         $includeOrphanPages
       );
     }
     if (!is_array($snapshot)) {
-      $all = $this->get_canonical_rows_for_scope($filters['post_type'], $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
+      $all = [];
+      if (
+        !$filters['rebuild']
+        && $this->indexed_dataset_has_rows($statsScopePostType, $statsWpmlLang)
+      ) {
+        $all = $this->get_lightweight_indexed_stats_rows($statsScopePostType, $statsWpmlLang);
+      }
+      if (empty($all)) {
+        $all = $this->get_canonical_rows_for_scope($filters['post_type'], $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
+      }
       $snapshot = $this->get_stats_snapshot_payload($all, $filters, $includeOrphanPages);
     }
     $stats = $snapshot['stats'];

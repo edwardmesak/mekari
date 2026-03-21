@@ -4,11 +4,60 @@
  */
 
 trait LM_Dashboard_Stats_Trait {
+  private function get_lightweight_indexed_stats_rows($scopePostType = 'any', $wpmlLang = 'all') {
+    global $wpdb;
+
+    if (!$this->is_indexed_datastore_ready()) {
+      return [];
+    }
+
+    $table = $wpdb->prefix . 'lm_link_fact';
+    $scopePostType = sanitize_key((string)$scopePostType);
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $wpmlLang = $this->get_effective_scan_wpml_lang((string)$wpmlLang);
+
+    $whereParts = ['wpml_lang = %s'];
+    $params = [$wpmlLang];
+    if ($scopePostType !== 'any') {
+      $whereParts[] = 'post_type = %s';
+      $params[] = $scopePostType;
+    }
+
+    $whereSql = 'WHERE ' . implode(' AND ', $whereParts);
+    $sql = "SELECT post_type, link_type, link, anchor_text, rel_nofollow
+      FROM $table
+      $whereSql";
+
+    $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+    if (!is_array($rows) || empty($rows)) {
+      if (($scopePostType !== 'any' || $wpmlLang !== 'all') && $this->indexed_dataset_has_rows('any', 'all')) {
+        return $this->get_lightweight_indexed_stats_rows('any', 'all');
+      }
+      return [];
+    }
+
+    return $rows;
+  }
+
   private function default_stats_snapshot_filters($scopePostType = 'any', $wpmlLang = 'all') {
     return [
       'post_type' => sanitize_key((string)$scopePostType) ?: 'any',
       'wpml_lang' => $this->get_effective_scan_wpml_lang((string)$wpmlLang),
     ];
+  }
+
+  private function filter_rows_for_stats_snapshot_scope($rows, $scopePostType) {
+    $rows = is_array($rows) ? $rows : [];
+    $scopePostType = sanitize_key((string)$scopePostType);
+    if ($scopePostType === '' || $scopePostType === 'any') {
+      return $rows;
+    }
+
+    return array_values(array_filter($rows, static function($row) use ($scopePostType) {
+      return sanitize_key((string)($row['post_type'] ?? '')) === $scopePostType;
+    }));
   }
 
   private function get_precomputed_stats_snapshot_if_available($filters, $includeOrphanPages = false) {
@@ -20,11 +69,39 @@ trait LM_Dashboard_Stats_Trait {
 
   private function warm_precomputed_stats_snapshot($rows, $scopePostType = 'any', $wpmlLang = 'all', $includeOrphanPages = false) {
     $rows = is_array($rows) ? $rows : [];
+    $rows = $this->filter_rows_for_stats_snapshot_scope($rows, $scopePostType);
     $filters = $this->default_stats_snapshot_filters($scopePostType, $wpmlLang);
     $payload = $this->build_stats_snapshot_payload($rows, $includeOrphanPages);
     set_transient($this->stats_snapshot_key($filters, $includeOrphanPages), $payload, $this->get_stats_snapshot_ttl());
     update_option('lm_last_stats_snapshot_at', current_time('mysql'), false);
     return $payload;
+  }
+
+  private function warm_common_precomputed_stats_snapshots($rows, $wpmlLang = 'all', $includeOrphanPages = false) {
+    $rows = is_array($rows) ? $rows : [];
+    $wpmlLang = $this->get_effective_scan_wpml_lang((string)$wpmlLang);
+
+    $this->warm_precomputed_stats_snapshot($rows, 'any', $wpmlLang, $includeOrphanPages);
+
+    $enabledPostTypes = array_values(array_filter(array_map('sanitize_key', (array)$this->get_enabled_scan_post_types())));
+    if (empty($enabledPostTypes)) {
+      return;
+    }
+
+    $presentPostTypes = [];
+    foreach ($rows as $row) {
+      $postType = sanitize_key((string)($row['post_type'] ?? ''));
+      if ($postType !== '') {
+        $presentPostTypes[$postType] = true;
+      }
+    }
+
+    foreach ($enabledPostTypes as $postType) {
+      if (!isset($presentPostTypes[$postType])) {
+        continue;
+      }
+      $this->warm_precomputed_stats_snapshot($rows, $postType, $wpmlLang, $includeOrphanPages);
+    }
   }
 
   private function get_dashboard_stats($all, $includeOrphanPages = false) {

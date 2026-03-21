@@ -367,6 +367,29 @@ trait LM_Indexed_Datastore_Trait {
     return true;
   }
 
+  private function can_use_indexed_pages_link_paged_fastpath($filters) {
+    if (!$this->can_use_indexed_pages_link_summary_fastpath($filters)) {
+      return false;
+    }
+
+    if (trim((string)($filters['search'] ?? '')) !== '') return false;
+    if (trim((string)($filters['search_url'] ?? '')) !== '') return false;
+
+    if ((int)($filters['inbound_min'] ?? -1) >= 0) return false;
+    if ((int)($filters['inbound_max'] ?? -1) >= 0) return false;
+    if ((int)($filters['internal_outbound_min'] ?? -1) >= 0) return false;
+    if ((int)($filters['internal_outbound_max'] ?? -1) >= 0) return false;
+    if ((int)($filters['outbound_min'] ?? -1) >= 0) return false;
+    if ((int)($filters['outbound_max'] ?? -1) >= 0) return false;
+
+    if ((string)($filters['status'] ?? 'any') !== 'any') return false;
+    if ((string)($filters['internal_outbound_status'] ?? 'any') !== 'any') return false;
+    if ((string)($filters['external_outbound_status'] ?? 'any') !== 'any') return false;
+
+    $orderby = (string)($filters['orderby'] ?? 'date');
+    return in_array($orderby, ['post_id', 'date', 'modified', 'title'], true);
+  }
+
   private function can_use_indexed_editor_fastpath($filters) {
     if (!is_array($filters)) {
       return false;
@@ -374,6 +397,16 @@ trait LM_Indexed_Datastore_Trait {
 
     $textMode = $this->sanitize_text_match_mode((string)($filters['text_match_mode'] ?? 'contains'));
     if ($textMode === 'regex') return false;
+    $hasEditorTextSearch = false;
+    foreach (['source_contains', 'title_contains', 'author_contains', 'anchor_contains', 'rel_contains'] as $textKey) {
+      if (trim((string)($filters[$textKey] ?? '')) !== '') {
+        $hasEditorTextSearch = true;
+        break;
+      }
+    }
+    if ($hasEditorTextSearch && !in_array($textMode, ['exact', 'starts_with'], true)) {
+      return false;
+    }
 
     if ((string)($filters['group'] ?? '0') !== '0') return false;
     if (trim((string)($filters['alt_contains'] ?? '')) !== '') return false;
@@ -678,20 +711,20 @@ trait LM_Indexed_Datastore_Trait {
     $updatedDateFrom = trim((string)($filters['updated_date_from'] ?? ''));
     $updatedDateTo = trim((string)($filters['updated_date_to'] ?? ''));
     if ($publishDateFrom !== '') {
-      $whereParts[] = 'DATE(post_date) >= %s';
-      $params[] = $publishDateFrom;
+      $whereParts[] = 'post_date >= %s';
+      $params[] = $publishDateFrom . ' 00:00:00';
     }
     if ($publishDateTo !== '') {
-      $whereParts[] = 'DATE(post_date) <= %s';
-      $params[] = $publishDateTo;
+      $whereParts[] = 'post_date <= %s';
+      $params[] = $publishDateTo . ' 23:59:59';
     }
     if ($updatedDateFrom !== '') {
-      $whereParts[] = 'DATE(post_modified) >= %s';
-      $params[] = $updatedDateFrom;
+      $whereParts[] = 'post_modified >= %s';
+      $params[] = $updatedDateFrom . ' 00:00:00';
     }
     if ($updatedDateTo !== '') {
-      $whereParts[] = 'DATE(post_modified) <= %s';
-      $params[] = $updatedDateTo;
+      $whereParts[] = 'post_modified <= %s';
+      $params[] = $updatedDateTo . ' 23:59:59';
     }
 
     $postCategoryFilter = isset($filters['post_category']) ? (int)$filters['post_category'] : 0;
@@ -760,21 +793,62 @@ trait LM_Indexed_Datastore_Trait {
     }
 
     $limitSize = is_array($cursor) ? ($perPage + 1) : $perPage;
-    $dataSql = "SELECT
-      row_id, post_id, post_title, post_type, post_author, post_date, post_modified,
-      page_url, source, link_location, block_index, occurrence, link_type, link, anchor_text,
-      alt_text, snippet, rel_raw, relationship, rel_nofollow, rel_sponsored, rel_ugc, value_type
-      FROM $table
-      $dataWhereSql
-      ORDER BY $orderColumn $orderDir, post_id $orderDir, row_id $orderDir
-      LIMIT %d";
+    $rows = [];
+    if (is_array($cursor)) {
+      $dataSql = "SELECT
+        row_id, post_id, post_title, post_type, post_author, post_date, post_modified,
+        page_url, source, link_location, block_index, occurrence, link_type, link, anchor_text,
+        alt_text, snippet, rel_raw, relationship, rel_nofollow, rel_sponsored, rel_ugc, value_type
+        FROM $table
+        $dataWhereSql
+        ORDER BY $orderColumn $orderDir, post_id $orderDir, row_id $orderDir
+        LIMIT %d";
 
-    $dataParams[] = (int)$limitSize;
-    if (!is_array($cursor)) {
-      $dataSql .= ' OFFSET %d';
-      $dataParams[] = (int)$offset;
+      $dataParams[] = (int)$limitSize;
+      $rows = $wpdb->get_results($wpdb->prepare($dataSql, $dataParams), ARRAY_A);
+    } else {
+      $idSql = "SELECT row_id
+        FROM $table
+        $dataWhereSql
+        ORDER BY $orderColumn $orderDir, post_id $orderDir, row_id $orderDir
+        LIMIT %d OFFSET %d";
+      $idParams = $dataParams;
+      $idParams[] = (int)$limitSize;
+      $idParams[] = (int)$offset;
+      $rowIds = $wpdb->get_col($wpdb->prepare($idSql, $idParams));
+
+      if (!empty($rowIds)) {
+        $rowIds = array_values(array_filter(array_map('strval', $rowIds), static function($rowId) {
+          return $rowId !== '';
+        }));
+        if (!empty($rowIds)) {
+          $inPlaceholders = implode(',', array_fill(0, count($rowIds), '%s'));
+          $detailSql = "SELECT
+            row_id, post_id, post_title, post_type, post_author, post_date, post_modified,
+            page_url, source, link_location, block_index, occurrence, link_type, link, anchor_text,
+            alt_text, snippet, rel_raw, relationship, rel_nofollow, rel_sponsored, rel_ugc, value_type
+            FROM $table
+            WHERE wpml_lang = %s
+              AND row_id IN ($inPlaceholders)";
+          $detailParams = array_merge([(string)$wpmlLang], $rowIds);
+          $detailRows = $wpdb->get_results($wpdb->prepare($detailSql, $detailParams), ARRAY_A);
+          $detailMap = [];
+          foreach ((array)$detailRows as $detailRow) {
+            $detailRowId = (string)($detailRow['row_id'] ?? '');
+            if ($detailRowId === '') {
+              continue;
+            }
+            $detailMap[$detailRowId] = $detailRow;
+          }
+
+          foreach ($rowIds as $rowId) {
+            if (isset($detailMap[$rowId])) {
+              $rows[] = $detailMap[$rowId];
+            }
+          }
+        }
+      }
     }
-    $rows = $wpdb->get_results($wpdb->prepare($dataSql, $dataParams), ARRAY_A);
 
     $hasMore = false;
     if (is_array($cursor) && count((array)$rows) > $perPage) {
