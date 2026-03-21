@@ -1,0 +1,774 @@
+<?php
+/**
+ * Admin action and AJAX handlers for Links Manager.
+ */
+
+if (!defined('ABSPATH')) {
+  exit;
+}
+
+trait LM_Action_Handlers_Trait {
+  public function handle_update_link() {
+    if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
+
+    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
+
+    $filters = $this->get_filters_from_request();
+
+    $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
+    $old_link = isset($_POST['old_link']) ? sanitize_text_field((string)$_POST['old_link']) : '';
+    $new_link = isset($_POST['new_link']) ? esc_url_raw((string)$_POST['new_link']) : '';
+    $new_rel  = isset($_POST['new_rel']) ? sanitize_text_field((string)$_POST['new_rel']) : '';
+    $old_anchor = isset($_POST['old_anchor']) ? sanitize_text_field((string)$_POST['old_anchor']) : '';
+    $new_anchor_raw = array_key_exists('new_anchor', $_POST) ? (string)$_POST['new_anchor'] : null;
+    $new_anchor = $this->normalize_new_anchor_input($new_anchor_raw, $old_anchor);
+
+    if ($new_anchor !== null && $filters['anchor_contains'] !== '') {
+      $anchorFilter = $filters['anchor_contains'];
+      $textMode = isset($filters['text_match_mode']) ? $this->sanitize_text_match_mode($filters['text_match_mode']) : 'contains';
+      $matchesFilter = $this->text_matches((string)$new_anchor, $anchorFilter, $textMode);
+
+      if (!$matchesFilter) {
+        $filters['anchor_contains'] = $new_anchor;
+      }
+    }
+
+    $source = isset($_POST['source']) ? sanitize_text_field((string)$_POST['source']) : '';
+    $location = isset($_POST['link_location']) ? sanitize_text_field((string)$_POST['link_location']) : '';
+    $block_index = isset($_POST['block_index']) ? sanitize_text_field((string)$_POST['block_index']) : '';
+    $occurrence = isset($_POST['occurrence']) ? intval($_POST['occurrence']) : 0;
+
+    if (!$this->current_user_can_edit_link_target($post_id, $source)) {
+      wp_die($this->unauthorized_message());
+    }
+
+    $row_id = isset($_POST['row_id']) ? sanitize_text_field((string)$_POST['row_id']) : '';
+
+    $has_change = ($new_link !== '') || ($new_rel !== '') || ($new_anchor !== null);
+    $effective_new_link = $new_link !== '' ? $new_link : $old_link;
+
+    $isMenuSource = ($source === 'menu');
+
+    if ((!$isMenuSource && $post_id <= 0) || $old_link === '' || $effective_new_link === '' || $source === '' || $location === '' || $row_id === '' || !$has_change) {
+      $msg = __('Failed: incomplete input.', 'links-manager');
+      if (!$has_change) {
+        $msg = __('Failed: no changes provided.', 'links-manager');
+      }
+      if ($row_id === '' && $post_id > 0 && $old_link !== '') {
+        $msg .= ' ' . __('Cache needs rebuild. Check "Rebuild cache" and click "Apply Filters".', 'links-manager');
+      }
+      $this->safe_redirect_back($filters, ['lm_msg' => $msg]);
+    }
+
+    $rowIdPostId = $isMenuSource ? '' : (string)$post_id;
+    $expected = $this->row_id($rowIdPostId, $source, $location, $block_index, $occurrence, $this->normalize_for_compare($old_link));
+    if ($expected !== $row_id) {
+      $this->safe_redirect_back($filters, ['lm_msg' => __('Failed: Row ID mismatch (data changed). Rebuild & try again.', 'links-manager')]);
+    }
+
+    $res = $this->update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $effective_new_link, $new_rel, $new_anchor);
+
+    $this->clear_cache_all();
+    $filters['rebuild'] = true;
+
+    $old_rel = isset($_POST['old_rel']) ? sanitize_text_field((string)$_POST['old_rel']) : '';
+    $this->log_audit_trail(
+      'update_single',
+      $post_id,
+      $old_link,
+      $effective_new_link,
+      $old_rel,
+      $new_rel,
+      $res['ok'] ? 1 : 0,
+      $res['ok'] ? 'success' : 'failed',
+      $res['msg']
+    );
+
+    $msg = $res['ok']
+      ? sprintf(__('Success: %s', 'links-manager'), $res['msg'])
+      : sprintf(__('Failed: %s', 'links-manager'), $res['msg']);
+    $this->safe_redirect_back($filters, ['lm_msg' => $msg]);
+  }
+
+  public function handle_update_link_ajax() {
+    if (!$this->current_user_can_access_plugin()) {
+      wp_send_json_error(['msg' => $this->unauthorized_message()], 403);
+    }
+
+    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) {
+      wp_send_json_error(['msg' => $this->invalid_nonce_message()], 403);
+    }
+
+    $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
+    $old_link = isset($_POST['old_link']) ? sanitize_text_field((string)$_POST['old_link']) : '';
+    $new_link = isset($_POST['new_link']) ? esc_url_raw((string)$_POST['new_link']) : '';
+    $new_rel  = isset($_POST['new_rel']) ? sanitize_text_field((string)$_POST['new_rel']) : '';
+    $old_anchor = isset($_POST['old_anchor']) ? sanitize_text_field((string)$_POST['old_anchor']) : '';
+    $new_anchor_raw = array_key_exists('new_anchor', $_POST) ? (string)$_POST['new_anchor'] : null;
+    $new_anchor = $this->normalize_new_anchor_input($new_anchor_raw, $old_anchor);
+    $old_snippet = isset($_POST['old_snippet']) ? sanitize_text_field((string)$_POST['old_snippet']) : '';
+
+    $source = isset($_POST['source']) ? sanitize_text_field((string)$_POST['source']) : '';
+    $location = isset($_POST['link_location']) ? sanitize_text_field((string)$_POST['link_location']) : '';
+    $block_index = isset($_POST['block_index']) ? sanitize_text_field((string)$_POST['block_index']) : '';
+    $occurrence = isset($_POST['occurrence']) ? intval($_POST['occurrence']) : 0;
+    $row_id = isset($_POST['row_id']) ? sanitize_text_field((string)$_POST['row_id']) : '';
+
+    if (!$this->current_user_can_edit_link_target($post_id, $source)) {
+      wp_send_json_error(['msg' => $this->unauthorized_message()], 403);
+    }
+
+    $has_change = ($new_link !== '') || ($new_rel !== '') || ($new_anchor !== null);
+    $effective_new_link = $new_link !== '' ? $new_link : $old_link;
+    $isMenuSource = ($source === 'menu');
+
+    if ((!$isMenuSource && $post_id <= 0) || $old_link === '' || $effective_new_link === '' || $source === '' || $location === '' || $row_id === '' || !$has_change) {
+      $msg = __('Failed: incomplete input.', 'links-manager');
+      if (!$has_change) $msg = __('Failed: no changes provided.', 'links-manager');
+      wp_send_json_error(['msg' => $msg], 400);
+    }
+
+    $rowIdPostId = $isMenuSource ? '' : (string)$post_id;
+    $expected = $this->row_id($rowIdPostId, $source, $location, $block_index, $occurrence, $this->normalize_for_compare($old_link));
+    if ($expected !== $row_id) {
+      wp_send_json_error(['msg' => __('Failed: Row ID mismatch (data changed).', 'links-manager')], 409);
+    }
+
+    $res = $this->update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $effective_new_link, $new_rel, $new_anchor);
+    $this->clear_cache_all();
+
+    $old_rel = isset($_POST['old_rel']) ? sanitize_text_field((string)$_POST['old_rel']) : '';
+    $this->log_audit_trail(
+      'update_single',
+      $post_id,
+      $old_link,
+      $effective_new_link,
+      $old_rel,
+      $new_rel,
+      $res['ok'] ? 1 : 0,
+      $res['ok'] ? 'success' : 'failed',
+      $res['msg']
+    );
+
+    $effective_rel_raw = $new_rel !== '' ? $new_rel : $old_rel;
+    $effective_flags = $this->parse_rel_flags($effective_rel_raw);
+    $effective_rel_parts = [];
+    if ($effective_flags['nofollow']) $effective_rel_parts[] = 'nofollow';
+    if ($effective_flags['sponsored']) $effective_rel_parts[] = 'sponsored';
+    if ($effective_flags['ugc']) $effective_rel_parts[] = 'ugc';
+    $effective_rel_text = !empty($effective_rel_parts) ? implode(', ', $effective_rel_parts) : 'dofollow';
+
+    $anchor_quality = $this->get_anchor_quality_suggestion($new_anchor !== null ? $new_anchor : $old_anchor);
+    $anchor_quality_label = 'Good';
+    if ((string)($anchor_quality['quality'] ?? '') === 'poor') $anchor_quality_label = 'Poor';
+    if ((string)($anchor_quality['quality'] ?? '') === 'bad') $anchor_quality_label = 'Bad';
+
+    $effective_anchor = $new_anchor !== null ? $new_anchor : $old_anchor;
+    $updated_snippet_full = $old_snippet;
+    if ($updated_snippet_full !== '' && $old_anchor !== '' && $effective_anchor !== '' && $effective_anchor !== $old_anchor) {
+      $quoted_old_anchor = preg_quote($old_anchor, '/');
+      $updated_snippet_full = preg_replace_callback('/' . $quoted_old_anchor . '/iu', function() use ($effective_anchor) {
+        return $effective_anchor;
+      }, $updated_snippet_full, 1);
+    }
+    $updated_snippet_display = $this->text_snippet_with_anchor_offset($updated_snippet_full, $effective_anchor, 60, 4);
+
+    $response = [
+      'msg' => $res['msg'],
+      'updated_link' => $effective_new_link,
+      'updated_anchor' => $effective_anchor,
+      'updated_rel_raw' => $effective_rel_raw,
+      'updated_rel_text' => $effective_rel_text,
+      'updated_quality' => $anchor_quality_label,
+      'updated_snippet_full' => $updated_snippet_full,
+      'updated_snippet_display' => $updated_snippet_display,
+    ];
+
+    if ($res['ok']) {
+      wp_send_json_success($response);
+    }
+    wp_send_json_error($response, 400);
+  }
+
+  public function handle_bulk_update() {
+    if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
+
+    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
+
+    $filters = $this->get_filters_from_request();
+
+    if (empty($_FILES['lm_csv']) || !is_array($_FILES['lm_csv'])) {
+      $this->safe_redirect_back($filters, ['lm_msg' => __('Failed: CSV file not found.', 'links-manager')]);
+    }
+
+    $file = $_FILES['lm_csv'];
+    $uploadError = isset($file['error']) ? (int)$file['error'] : UPLOAD_ERR_NO_FILE;
+    if ($uploadError !== UPLOAD_ERR_OK) {
+      $this->safe_redirect_back($filters, ['lm_msg' => __('Failed: upload error.', 'links-manager')]);
+    }
+
+    $originalName = isset($file['name']) ? sanitize_file_name((string)$file['name']) : '';
+    $fileType = wp_check_filetype($originalName);
+    $ext = strtolower((string)($fileType['ext'] ?? ''));
+    if ($ext !== 'csv') {
+      $this->safe_redirect_back($filters, ['lm_msg' => __('Failed: file must be CSV (.csv).', 'links-manager')]);
+    }
+
+    $tmp = isset($file['tmp_name']) ? (string)$file['tmp_name'] : '';
+    if ($tmp === '' || !is_uploaded_file($tmp)) {
+      $this->safe_redirect_back($filters, ['lm_msg' => __('Failed: invalid upload temporary file.', 'links-manager')]);
+    }
+
+    $fh = fopen($tmp, 'r');
+    if (!$fh) $this->safe_redirect_back($filters, ['lm_msg' => __('Failed: cannot read CSV.', 'links-manager')]);
+
+    $delimiter = $this->detect_csv_delimiter($tmp);
+    $header = fgetcsv($fh, 0, $delimiter);
+    if (!$header) {
+      fclose($fh);
+      $this->safe_redirect_back($filters, ['lm_msg' => __('Failed: CSV is empty.', 'links-manager')]);
+    }
+
+    if (isset($header[0])) {
+      $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string)$header[0]);
+    }
+
+    $header = array_map(function($h) { return strtolower(trim((string)$h)); }, $header);
+    $idx = array_flip($header);
+
+    $required = ['post_id', 'old_link', 'row_id'];
+    foreach ($required as $req) {
+      if (!isset($idx[$req])) {
+        fclose($fh);
+        $this->safe_redirect_back($filters, ['lm_msg' => __('Failed: required header: post_id, old_link, row_id (optional: new_link, new_rel, new_anchor).', 'links-manager')]);
+      }
+    }
+
+    $hasSource = isset($idx['source']);
+    $hasLocation = isset($idx['link_location']);
+    $hasBlockIndex = isset($idx['block_index']);
+    $hasOccurrence = isset($idx['occurrence']);
+
+    $needsContextLookup = !($hasSource && $hasLocation && $hasBlockIndex && $hasOccurrence);
+    $parsedRows = [];
+    $lookupRowIds = [];
+    while (($rawRow = fgetcsv($fh, 0, $delimiter)) !== false) {
+      $entry = [
+        'post_id' => intval($rawRow[$idx['post_id']] ?? 0),
+        'old_link' => sanitize_text_field((string)($rawRow[$idx['old_link']] ?? '')),
+        'row_id' => sanitize_text_field((string)($rawRow[$idx['row_id']] ?? '')),
+        'new_link' => isset($idx['new_link']) ? esc_url_raw((string)($rawRow[$idx['new_link']] ?? '')) : '',
+        'new_rel' => isset($idx['new_rel']) ? sanitize_text_field((string)($rawRow[$idx['new_rel']] ?? '')) : '',
+        'new_anchor' => array_key_exists('new_anchor', $idx)
+          ? $this->normalize_new_anchor_input((string)($rawRow[$idx['new_anchor']] ?? ''), null)
+          : null,
+        'raw' => $rawRow,
+      ];
+      $parsedRows[] = $entry;
+      if ($needsContextLookup && $entry['row_id'] !== '') {
+        $lookupRowIds[$entry['row_id']] = true;
+      }
+    }
+    fclose($fh);
+
+    $rowMap = [];
+    if ($needsContextLookup && !empty($lookupRowIds)) {
+      $wpmlLang = isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all';
+      $rowMap = $this->get_indexed_fact_row_map_by_row_ids(array_keys($lookupRowIds), $wpmlLang, true);
+
+      if (count($rowMap) < count($lookupRowIds)) {
+        $cacheAny = $this->get_canonical_rows_for_scope('any', false, $wpmlLang);
+        foreach ($cacheAny as $r) {
+          $rid = isset($r['row_id']) ? (string)$r['row_id'] : '';
+          if ($rid === '' || isset($rowMap[$rid])) continue;
+          if (!isset($lookupRowIds[$rid])) continue;
+          $rowMap[$rid] = $r;
+        }
+      }
+    }
+
+    $totalRows = 0;
+    $ok = 0;
+    $fail = 0;
+
+    foreach ($parsedRows as $entry) {
+      $totalRows++;
+
+      $post_id = (int)$entry['post_id'];
+      $old_link = (string)$entry['old_link'];
+      $row_id = (string)$entry['row_id'];
+      $new_link = (string)$entry['new_link'];
+      $new_rel = (string)$entry['new_rel'];
+      $new_anchor = $entry['new_anchor'];
+
+      $has_change = ($new_link !== '') || ($new_rel !== '') || ($new_anchor !== null);
+      $effective_new_link = $new_link !== '' ? $new_link : $old_link;
+
+      if ($old_link === '' || $row_id === '' || $effective_new_link === '' || !$has_change) { $fail++; continue; }
+
+      $source = '';
+      $location = '';
+      $block_index = '';
+      $occurrence = 0;
+
+      if ($hasSource && $hasLocation && $hasBlockIndex && $hasOccurrence) {
+        $raw = (array)$entry['raw'];
+        $source = sanitize_text_field((string)($raw[$idx['source']] ?? ''));
+        $location = sanitize_text_field((string)($raw[$idx['link_location']] ?? ''));
+        $block_index = sanitize_text_field((string)($raw[$idx['block_index']] ?? ''));
+        $occurrence = intval($raw[$idx['occurrence']] ?? 0);
+      } else {
+        if (!isset($rowMap[$row_id])) { $fail++; continue; }
+        $found = $rowMap[$row_id];
+
+        $expectedPostId = ((string)$found['source'] === 'menu') ? '' : (string)$post_id;
+        if ((string)$found['post_id'] !== $expectedPostId) { $fail++; continue; }
+        if ($this->normalize_for_compare((string)$found['link']) !== $this->normalize_for_compare($old_link)) { $fail++; continue; }
+
+        $source = (string)$found['source'];
+        $location = (string)$found['link_location'];
+        $block_index = (string)$found['block_index'];
+        $occurrence = intval($found['occurrence'] ?? 0);
+      }
+
+      if ($source !== 'menu' && $post_id <= 0) { $fail++; continue; }
+
+      if (!$this->current_user_can_edit_link_target($post_id, $source)) { $fail++; continue; }
+
+      $rowIdPostId = ($source === 'menu') ? '' : (string)$post_id;
+      $expected = $this->row_id($rowIdPostId, $source, $location, $block_index, $occurrence, $this->normalize_for_compare($old_link));
+      if ($expected !== $row_id) { $fail++; continue; }
+
+      $res = $this->update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $effective_new_link, $new_rel, $new_anchor);
+
+      $this->log_audit_trail(
+        'update_bulk',
+        $post_id,
+        $old_link,
+        $effective_new_link,
+        '',
+        $new_rel,
+        $res['ok'] ? 1 : 0,
+        $res['ok'] ? 'success' : 'failed',
+        $res['msg']
+      );
+
+      if ($res['ok']) $ok++;
+      else $fail++;
+    }
+
+    $this->clear_cache_all();
+    $filters['rebuild'] = true;
+
+    $filters['post_type'] = 'any';
+    $filters['post_category'] = 0;
+    $filters['post_tag'] = 0;
+    $filters['location'] = 'any';
+    $filters['source_type'] = 'any';
+    $filters['link_type'] = 'any';
+    $filters['value_type'] = 'any';
+    $filters['quality'] = 'any';
+    $filters['seo_flag'] = 'any';
+    $filters['value_contains'] = '';
+    $filters['source_contains'] = '';
+    $filters['title_contains'] = '';
+    $filters['author_contains'] = '';
+    $filters['publish_date_from'] = '';
+    $filters['publish_date_to'] = '';
+    $filters['updated_date_from'] = '';
+    $filters['updated_date_to'] = '';
+    $filters['anchor_contains'] = '';
+    $filters['alt_contains'] = '';
+    $filters['rel_contains'] = '';
+    $filters['rel_nofollow'] = 'any';
+    $filters['rel_sponsored'] = 'any';
+    $filters['rel_ugc'] = 'any';
+    $filters['group'] = '0';
+    $filters['paged'] = 1;
+
+    $this->safe_redirect_back($filters, [
+      'lm_msg' => sprintf(
+        __('Bulk finished. Rows: %1$d | OK: %2$d | Failed: %3$d', 'links-manager'),
+        (int)$totalRows,
+        (int)$ok,
+        (int)$fail
+      )
+    ]);
+  }
+
+  public function handle_save_anchor_groups() {
+    if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
+    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
+
+    $name = sanitize_text_field((string)($_POST['lm_group_name'] ?? ''));
+    $anchorsRaw = (string)($_POST['lm_group_anchors'] ?? '');
+    $anchors = $this->normalize_anchor_list($anchorsRaw);
+    if ($name !== '') {
+      $groups = $this->get_anchor_groups();
+      $groups[] = ['name' => $name, 'anchors' => $anchors];
+      $this->save_anchor_groups($groups);
+    }
+
+    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Group saved.')));
+    exit;
+  }
+
+  public function handle_delete_anchor_group() {
+    if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
+    $nonce = isset($_GET[self::NONCE_NAME]) ? sanitize_text_field($_GET[self::NONCE_NAME]) : '';
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
+
+    $idx = isset($_GET['lm_group_idx']) ? intval($_GET['lm_group_idx']) : -1;
+    $groups = $this->get_anchor_groups();
+    if ($idx >= 0 && isset($groups[$idx])) {
+      array_splice($groups, $idx, 1);
+      $this->save_anchor_groups($groups);
+    }
+
+    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Group deleted.')));
+    exit;
+  }
+
+  public function handle_bulk_delete_anchor_groups() {
+    if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
+    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
+
+    $rawIndices = isset($_POST['lm_group_indices']) ? (array)$_POST['lm_group_indices'] : [];
+    $indices = array_values(array_unique(array_filter(array_map('intval', $rawIndices), function($idx) {
+      return $idx >= 0;
+    })));
+
+    if (empty($indices)) {
+      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('No group selected.')));
+      exit;
+    }
+
+    rsort($indices);
+    $groups = $this->get_anchor_groups();
+    $deleted = 0;
+    foreach ($indices as $idx) {
+      if (isset($groups[$idx])) {
+        array_splice($groups, $idx, 1);
+        $deleted++;
+      }
+    }
+
+    if ($deleted > 0) {
+      $this->save_anchor_groups($groups);
+      $msg = 'Deleted ' . $deleted . ' group(s).';
+    } else {
+      $msg = 'No groups were deleted.';
+    }
+
+    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode($msg)));
+    exit;
+  }
+
+  public function handle_update_anchor_group() {
+    if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
+    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
+
+    $idx = isset($_POST['lm_group_idx']) ? intval($_POST['lm_group_idx']) : -1;
+    $name = sanitize_text_field((string)($_POST['lm_group_name'] ?? ''));
+    $anchorsRaw = (string)($_POST['lm_group_anchors'] ?? '');
+    $anchors = $this->normalize_anchor_list($anchorsRaw);
+
+    $groups = $this->get_anchor_groups();
+    if ($idx < 0 || !isset($groups[$idx])) {
+      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Group not found.')));
+      exit;
+    }
+
+    if ($name === '') {
+      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Group name is required.')));
+      exit;
+    }
+
+    $groups[$idx] = ['name' => $name, 'anchors' => $anchors];
+    $this->save_anchor_groups($groups);
+
+    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Group updated.')));
+    exit;
+  }
+
+  public function handle_save_anchor_targets() {
+    if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
+    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
+
+    $mode = isset($_POST['lm_anchor_mode']) ? sanitize_text_field((string)$_POST['lm_anchor_mode']) : 'only';
+    if (!in_array($mode, ['only', 'tags'], true)) $mode = 'only';
+
+    $targetsRaw = (string)($_POST['lm_anchor_targets'] ?? '');
+    $targets = [];
+    $groups = $this->get_anchor_groups();
+    $existingTargets = $this->get_anchor_targets();
+
+    $lines = preg_split('/[\r\n]+/', $targetsRaw);
+    foreach ($lines as $line) {
+      $line = trim((string)$line);
+      if ($line === '') continue;
+
+      if ($mode === 'tags') {
+        $parts = array_map('trim', explode(',', $line, 2));
+        $anchor = $parts[0] ?? '';
+        $groupName = $parts[1] ?? '';
+        if ($anchor !== '') $targets[] = $anchor;
+        if ($anchor !== '' && $groupName !== '') {
+          $found = false;
+          foreach ($groups as &$g) {
+            if ((string)($g['name'] ?? '') === $groupName) {
+              $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
+              $anchors[] = $anchor;
+              $g['anchors'] = $this->normalize_anchor_list(implode("\n", $anchors));
+              $found = true;
+              break;
+            }
+          }
+          unset($g);
+          if (!$found) {
+            $groups[] = ['name' => $groupName, 'anchors' => [$anchor]];
+          }
+        }
+      } else {
+        $targets[] = $line;
+      }
+    }
+
+    $targets = $this->normalize_anchor_list(implode("\n", array_merge((array)$existingTargets, $targets)));
+    if (!empty($targets)) $this->save_anchor_targets($targets);
+    if (!empty($groups)) $this->save_anchor_groups($groups);
+
+    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Targets saved.')));
+    exit;
+  }
+
+  public function handle_update_anchor_target() {
+    if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
+    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
+
+    $idx = isset($_POST['lm_target_idx']) ? intval($_POST['lm_target_idx']) : -1;
+    $newVal = isset($_POST['lm_target_value']) ? sanitize_text_field((string)$_POST['lm_target_value']) : '';
+    $newVal = trim($newVal);
+
+    $targets = $this->get_anchor_targets();
+    if ($idx < 0 || !isset($targets[$idx])) {
+      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Target not found.')));
+      exit;
+    }
+
+    if ($newVal === '') {
+      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Target cannot be empty.')));
+      exit;
+    }
+
+    $targets[$idx] = $newVal;
+    $targets = $this->normalize_anchor_list(implode("\n", $targets));
+    $this->save_anchor_targets($targets);
+
+    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Target updated.')));
+    exit;
+  }
+
+  public function handle_update_anchor_target_group() {
+    if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
+    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
+
+    $anchor = isset($_POST['lm_anchor_value']) ? sanitize_text_field((string)$_POST['lm_anchor_value']) : '';
+    $anchor = trim($anchor);
+    $newGroup = isset($_POST['lm_anchor_group']) ? sanitize_text_field((string)$_POST['lm_anchor_group']) : '';
+    $newGroup = trim($newGroup);
+
+    if ($anchor === '') {
+      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Invalid anchor.')));
+      exit;
+    }
+
+    $groups = $this->get_anchor_groups();
+
+    foreach ($groups as &$g) {
+      $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
+      $anchors = array_values(array_filter($anchors, function($a) use ($anchor) {
+        return strtolower(trim((string)$a)) !== strtolower($anchor);
+      }));
+      $g['anchors'] = $anchors;
+    }
+    unset($g);
+
+    if ($newGroup !== '' && $newGroup !== 'no_group') {
+      $found = false;
+      foreach ($groups as &$g) {
+        $gname = isset($g['name']) ? (string)$g['name'] : '';
+        if ($gname === $newGroup) {
+          $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
+          $anchors[] = $anchor;
+          $g['anchors'] = $this->normalize_anchor_list(implode("\n", $anchors));
+          $found = true;
+          break;
+        }
+      }
+      unset($g);
+      if (!$found) {
+        wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Group not found.')));
+        exit;
+      }
+    }
+
+    $this->save_anchor_groups($groups);
+
+    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Group updated.')));
+    exit;
+  }
+
+  public function handle_update_anchor_target_group_ajax() {
+    if (!$this->current_user_can_access_plugin()) {
+      wp_send_json_error(['msg' => $this->unauthorized_message()], 403);
+    }
+
+    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) {
+      wp_send_json_error(['msg' => $this->invalid_nonce_message()], 403);
+    }
+
+    $anchor = isset($_POST['lm_anchor_value']) ? sanitize_text_field((string)$_POST['lm_anchor_value']) : '';
+    $anchor = trim($anchor);
+    $newGroup = isset($_POST['lm_anchor_group']) ? sanitize_text_field((string)$_POST['lm_anchor_group']) : '';
+    $newGroup = trim($newGroup);
+
+    if ($anchor === '') {
+      wp_send_json_error(['msg' => 'Invalid anchor.'], 400);
+    }
+
+    $groups = $this->get_anchor_groups();
+
+    foreach ($groups as &$g) {
+      $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
+      $anchors = array_values(array_filter($anchors, function($a) use ($anchor) {
+        return strtolower(trim((string)$a)) !== strtolower($anchor);
+      }));
+      $g['anchors'] = $anchors;
+    }
+    unset($g);
+
+    if ($newGroup !== '' && $newGroup !== 'no_group') {
+      $found = false;
+      foreach ($groups as &$g) {
+        $gname = isset($g['name']) ? (string)$g['name'] : '';
+        if ($gname === $newGroup) {
+          $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
+          $anchors[] = $anchor;
+          $g['anchors'] = $this->normalize_anchor_list(implode("\n", $anchors));
+          $found = true;
+          break;
+        }
+      }
+      unset($g);
+      if (!$found) {
+        wp_send_json_error(['msg' => 'Group not found.'], 404);
+      }
+    }
+
+    $this->save_anchor_groups($groups);
+
+    $response = [
+      'msg' => 'Group updated successfully.',
+      'updated_group' => $newGroup,
+    ];
+
+    wp_send_json_success($response);
+  }
+
+  public function handle_delete_anchor_target() {
+    if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
+    $nonce = isset($_GET[self::NONCE_NAME]) ? sanitize_text_field($_GET[self::NONCE_NAME]) : '';
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
+
+    $idx = isset($_GET['lm_target_idx']) ? intval($_GET['lm_target_idx']) : -1;
+    $targets = $this->get_anchor_targets();
+    $deletedAnchor = '';
+    if ($idx >= 0 && isset($targets[$idx])) {
+      $deletedAnchor = (string)$targets[$idx];
+      array_splice($targets, $idx, 1);
+      $this->save_anchor_targets($targets);
+    }
+
+    if ($deletedAnchor !== '') {
+      $groups = $this->get_anchor_groups();
+      foreach ($groups as &$g) {
+        $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
+        $anchors = array_values(array_filter($anchors, function($a) use ($deletedAnchor) {
+          return strtolower(trim((string)$a)) !== strtolower(trim($deletedAnchor));
+        }));
+        $g['anchors'] = $anchors;
+      }
+      unset($g);
+      $this->save_anchor_groups($groups);
+    }
+
+    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Target deleted.')));
+    exit;
+  }
+
+  public function handle_bulk_delete_anchor_targets() {
+    if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
+    $nonce = isset($_POST[self::NONCE_NAME]) ? sanitize_text_field($_POST[self::NONCE_NAME]) : '';
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
+
+    $rawIndices = isset($_POST['lm_target_indices']) ? (array)$_POST['lm_target_indices'] : [];
+    $indices = array_values(array_unique(array_filter(array_map('intval', $rawIndices), function($idx) {
+      return $idx >= 0;
+    })));
+
+    if (empty($indices)) {
+      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('No target selected.')));
+      exit;
+    }
+
+    rsort($indices);
+    $targets = $this->get_anchor_targets();
+    $deletedAnchors = [];
+
+    foreach ($indices as $idx) {
+      if (!isset($targets[$idx])) continue;
+      $deletedAnchors[] = (string)$targets[$idx];
+      array_splice($targets, $idx, 1);
+    }
+
+    $deletedAnchors = array_values(array_unique(array_filter(array_map('trim', $deletedAnchors))));
+    if (empty($deletedAnchors)) {
+      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('No targets were deleted.')));
+      exit;
+    }
+
+    $this->save_anchor_targets($targets);
+
+    $deletedMap = [];
+    foreach ($deletedAnchors as $anchor) {
+      $deletedMap[strtolower($anchor)] = true;
+    }
+
+    $groups = $this->get_anchor_groups();
+    foreach ($groups as &$g) {
+      $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
+      $anchors = array_values(array_filter($anchors, function($a) use ($deletedMap) {
+        $k = strtolower(trim((string)$a));
+        return $k !== '' && !isset($deletedMap[$k]);
+      }));
+      $g['anchors'] = $anchors;
+    }
+    unset($g);
+    $this->save_anchor_groups($groups);
+
+    $msg = 'Deleted ' . count($deletedAnchors) . ' target(s).';
+    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode($msg)));
+    exit;
+  }
+}

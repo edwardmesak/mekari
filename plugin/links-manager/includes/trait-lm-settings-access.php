@@ -1,0 +1,180 @@
+<?php
+/**
+ * Settings persistence and access control helpers.
+ */
+
+if (!defined('ABSPATH')) {
+  exit;
+}
+
+trait LM_Settings_Access_Trait {
+  private function get_settings() {
+    $availablePostTypes = $this->get_available_post_types();
+
+    $defaults = [
+      'debug_mode' => '0',
+      'performance_preset' => 'custom',
+      'scan_exclude_defaults_initialized' => '0',
+      'stats_snapshot_ttl_min' => (string)(int)(self::STATS_SNAPSHOT_TTL / MINUTE_IN_SECONDS),
+      'rest_response_cache_ttl_sec' => '90',
+      'cache_rebuild_mode' => 'incremental',
+      'crawl_post_batch' => (string)self::CRAWL_POST_BATCH,
+      'scan_post_types' => $this->get_default_scan_post_types($availablePostTypes),
+      'scan_source_types' => $this->get_default_scan_source_types(),
+      'scan_value_types' => $this->get_default_scan_value_types(),
+      'scan_wpml_langs' => $this->get_default_scan_wpml_langs(),
+      'scan_post_category_ids' => [],
+      'scan_post_tag_ids' => [],
+      'scan_author_ids' => [],
+      'scan_modified_within_days' => '0',
+      'scan_exclude_url_patterns' => implode("\n", $this->get_default_scan_exclude_url_patterns()),
+      'max_posts_per_rebuild' => '0',
+      'inbound_orphan_max' => '0',
+      'inbound_low_max' => '5',
+      'inbound_standard_max' => '10',
+      'internal_outbound_none_max' => '0',
+      'internal_outbound_low_max' => '5',
+      'internal_outbound_optimal_max' => '10',
+      'external_outbound_none_max' => '0',
+      'external_outbound_low_max' => '5',
+      'external_outbound_optimal_max' => '10',
+      'audit_retention_days' => (string)self::AUDIT_RETENTION_DAYS,
+      'weak_anchor_patterns' => implode("\n", $this->get_default_weak_anchor_patterns()),
+      'allowed_roles' => ['administrator'],
+    ];
+    $opt = get_option('lm_settings', []);
+    if (!is_array($opt)) $opt = [];
+
+    if (!isset($opt['allowed_roles']) || !is_array($opt['allowed_roles'])) {
+      $opt['allowed_roles'] = ['administrator'];
+    }
+
+    $opt['debug_mode'] = (isset($opt['debug_mode']) && (string)$opt['debug_mode'] === '1') ? '1' : '0';
+    $opt['scan_exclude_defaults_initialized'] = (isset($opt['scan_exclude_defaults_initialized']) && (string)$opt['scan_exclude_defaults_initialized'] === '1') ? '1' : '0';
+    $presetOptions = $this->get_performance_preset_options();
+    $preset = isset($opt['performance_preset']) ? sanitize_key((string)$opt['performance_preset']) : 'custom';
+    $opt['performance_preset'] = isset($presetOptions[$preset]) ? $preset : 'custom';
+    if (!isset($opt['scan_post_types']) || !is_array($opt['scan_post_types'])) {
+      $opt['scan_post_types'] = $this->get_default_scan_post_types($availablePostTypes);
+    }
+    $opt['scan_post_types'] = $this->sanitize_scan_post_types($opt['scan_post_types'], $availablePostTypes);
+
+    if (!isset($opt['scan_source_types']) || !is_array($opt['scan_source_types'])) {
+      $opt['scan_source_types'] = $this->get_default_scan_source_types();
+    }
+    $opt['scan_source_types'] = $this->sanitize_scan_source_types($opt['scan_source_types']);
+
+    if (!isset($opt['scan_value_types']) || !is_array($opt['scan_value_types'])) {
+      $opt['scan_value_types'] = $this->get_default_scan_value_types();
+    }
+    $opt['scan_value_types'] = $this->sanitize_scan_value_types($opt['scan_value_types']);
+
+    if (!isset($opt['scan_wpml_langs']) || !is_array($opt['scan_wpml_langs'])) {
+      $opt['scan_wpml_langs'] = $this->get_default_scan_wpml_langs();
+    }
+    $opt['scan_wpml_langs'] = $this->sanitize_scan_wpml_langs($opt['scan_wpml_langs']);
+
+    $opt['scan_post_category_ids'] = $this->sanitize_scan_term_ids(isset($opt['scan_post_category_ids']) ? $opt['scan_post_category_ids'] : [], 'category');
+    $opt['scan_post_tag_ids'] = $this->sanitize_scan_term_ids(isset($opt['scan_post_tag_ids']) ? $opt['scan_post_tag_ids'] : [], 'post_tag');
+    $opt['scan_author_ids'] = $this->sanitize_scan_author_ids(isset($opt['scan_author_ids']) ? $opt['scan_author_ids'] : []);
+
+    $scanModifiedWithinDays = isset($opt['scan_modified_within_days']) ? (int)$opt['scan_modified_within_days'] : 0;
+    if ($scanModifiedWithinDays < 0) $scanModifiedWithinDays = 0;
+    if ($scanModifiedWithinDays > 3650) $scanModifiedWithinDays = 3650;
+    $opt['scan_modified_within_days'] = (string)$scanModifiedWithinDays;
+
+    $scanExcludeSource = isset($opt['scan_exclude_url_patterns']) ? $opt['scan_exclude_url_patterns'] : implode("\n", $this->get_default_scan_exclude_url_patterns());
+    if ((string)$opt['scan_exclude_defaults_initialized'] !== '1' && trim((string)$scanExcludeSource) === '') {
+      $scanExcludeSource = implode("\n", $this->get_default_scan_exclude_url_patterns());
+    }
+    $opt['scan_exclude_url_patterns'] = implode("\n", $this->normalize_scan_exclude_url_patterns($scanExcludeSource));
+
+    $restResponseCacheTtlSec = isset($opt['rest_response_cache_ttl_sec']) ? (int)$opt['rest_response_cache_ttl_sec'] : 90;
+    if ($restResponseCacheTtlSec < 30) $restResponseCacheTtlSec = 30;
+    if ($restResponseCacheTtlSec > 600) $restResponseCacheTtlSec = 600;
+    $opt['rest_response_cache_ttl_sec'] = (string)$restResponseCacheTtlSec;
+
+    $maxPostsPerRebuild = isset($opt['max_posts_per_rebuild']) ? (int)$opt['max_posts_per_rebuild'] : 0;
+    if ($maxPostsPerRebuild < 0) $maxPostsPerRebuild = 0;
+    if ($maxPostsPerRebuild > 50000) $maxPostsPerRebuild = 50000;
+    $opt['max_posts_per_rebuild'] = (string)$maxPostsPerRebuild;
+
+    return array_merge($defaults, $opt);
+  }
+
+  private function get_all_roles_map() {
+    if (function_exists('get_editable_roles')) {
+      $editable = get_editable_roles();
+      if (is_array($editable) && !empty($editable)) {
+        $map = [];
+        foreach ($editable as $roleKey => $roleData) {
+          $map[(string)$roleKey] = isset($roleData['name']) ? (string)$roleData['name'] : (string)$roleKey;
+        }
+        return $map;
+      }
+    }
+
+    global $wp_roles;
+    if (!($wp_roles instanceof WP_Roles)) {
+      $wp_roles = wp_roles();
+    }
+
+    $map = [];
+    if ($wp_roles instanceof WP_Roles && is_array($wp_roles->roles)) {
+      foreach ($wp_roles->roles as $roleKey => $roleData) {
+        $map[(string)$roleKey] = isset($roleData['name']) ? (string)$roleData['name'] : (string)$roleKey;
+      }
+    }
+    return $map;
+  }
+
+  private function get_allowed_roles_from_settings() {
+    $settings = $this->get_settings();
+    $stored = isset($settings['allowed_roles']) && is_array($settings['allowed_roles']) ? $settings['allowed_roles'] : ['administrator'];
+    $validRoles = array_keys($this->get_all_roles_map());
+    $clean = [];
+    foreach ($stored as $role) {
+      $roleKey = sanitize_key((string)$role);
+      if ($roleKey !== '' && in_array($roleKey, $validRoles, true)) {
+        $clean[] = $roleKey;
+      }
+    }
+    if (!in_array('administrator', $clean, true)) {
+      $clean[] = 'administrator';
+    }
+    return array_values(array_unique($clean));
+  }
+
+  private function current_user_can_access_plugin() {
+    if (!is_user_logged_in()) return false;
+    if (current_user_can('manage_options')) return true;
+
+    $allowedRoles = $this->get_allowed_roles_from_settings();
+    $user = wp_get_current_user();
+    $userRoles = is_array($user->roles ?? null) ? $user->roles : [];
+
+    foreach ($userRoles as $role) {
+      if (in_array((string)$role, $allowedRoles, true)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private function current_user_can_edit_link_target($post_id, $source = '') {
+    $post_id = (int)$post_id;
+    if ($post_id > 0) {
+      return current_user_can('edit_post', $post_id);
+    }
+
+    if ((string)$source === 'menu') {
+      return current_user_can('edit_theme_options');
+    }
+
+    return false;
+  }
+
+  private function save_settings($settings) {
+    update_option('lm_settings', $settings);
+  }
+}

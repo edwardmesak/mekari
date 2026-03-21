@@ -13,11 +13,6 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
 
 global $wpdb;
 
-// Unschedule plugin cron hooks.
-wp_clear_scheduled_hook('lm_scheduled_cache_rebuild');
-wp_clear_scheduled_hook('lm_background_rebuild_cache');
-
-// Delete all plugin options from wp_options table
 $options_to_delete = [
   'lm_db_version',
   'lm_settings',
@@ -27,63 +22,65 @@ $options_to_delete = [
   'lm_maintenance_last_date',
   'lm_stats_snapshot_version',
   'lm_last_wpml_lang_context',
+  'lm_last_fatal_diagnostic',
+  'lm_last_runtime_profile',
 ];
 
-foreach ($options_to_delete as $option) {
-  delete_option($option);
-}
+/**
+ * Remove plugin data for the current blog context.
+ */
+$cleanup_blog = static function() use ($wpdb, $options_to_delete) {
+  wp_clear_scheduled_hook('lm_scheduled_cache_rebuild');
+  wp_clear_scheduled_hook('lm_background_rebuild_cache');
+  wp_clear_scheduled_hook('lm_prewarm_rest_list_cache');
 
-// Delete dynamic cache scan options (lm_cache_scan_*).
-$wpdb->query(
-  "DELETE FROM {$wpdb->options} WHERE option_name LIKE 'lm_cache_scan_%'"
-);
-
-// Delete all plugin transients (temporary cached data)
-// This clears entries like _transient_lm_cache_*, _transient_lm_url_*, etc.
-$transients = $wpdb->get_results(
-  "SELECT REPLACE(option_name, '_transient_', '') as transient_name
-   FROM $wpdb->options
-   WHERE option_name LIKE '_transient_lm_%'"
-);
-
-if ($transients) {
-  foreach ($transients as $transient) {
-    delete_transient($transient->transient_name);
+  foreach ($options_to_delete as $option) {
+    delete_option($option);
   }
-}
 
-// Delete custom database tables
-$audit_table = $wpdb->prefix . 'lm_audit_log';
-$stats_table = $wpdb->prefix . 'lm_stats_log';
-$audit_table_safe = preg_replace('/[^A-Za-z0-9_]/', '', $audit_table);
-$stats_table_safe = preg_replace('/[^A-Za-z0-9_]/', '', $stats_table);
+  $wpdb->query(
+    "DELETE FROM {$wpdb->options} WHERE option_name LIKE 'lm_cache_scan_%'"
+  );
 
-// Check if tables exist before dropping (avoid errors)
-if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $audit_table)) === $audit_table) {
-  $wpdb->query("DROP TABLE IF EXISTS `{$audit_table_safe}`");
-}
+  $transients = $wpdb->get_results(
+    "SELECT REPLACE(REPLACE(option_name, '_transient_timeout_', ''), '_transient_', '') AS transient_name
+     FROM {$wpdb->options}
+     WHERE option_name LIKE '_transient_lm_%'
+        OR option_name LIKE '_transient_timeout_lm_%'"
+  );
 
-if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $stats_table)) === $stats_table) {
-  $wpdb->query("DROP TABLE IF EXISTS `{$stats_table_safe}`");
-}
+  if ($transients) {
+    foreach ($transients as $transient) {
+      if (!empty($transient->transient_name)) {
+        delete_transient($transient->transient_name);
+      }
+    }
+  }
 
-// Additional cleanup for multisite: remove plugin options from all sites.
+  $tables = [
+    $wpdb->prefix . 'lm_audit_log',
+    $wpdb->prefix . 'lm_stats_log',
+    $wpdb->prefix . 'lm_link_fact',
+    $wpdb->prefix . 'lm_link_post_summary',
+  ];
+
+  foreach ($tables as $table) {
+    $table_safe = preg_replace('/[^A-Za-z0-9_]/', '', $table);
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table) {
+      $wpdb->query("DROP TABLE IF EXISTS `{$table_safe}`");
+    }
+  }
+};
+
 if (is_multisite()) {
   $sites = get_sites(['fields' => 'ids']);
   if (is_array($sites) && !empty($sites)) {
     foreach ($sites as $site_id) {
       switch_to_blog((int)$site_id);
-
-      foreach ($options_to_delete as $option) {
-        delete_option($option);
-      }
-
-      // Delete dynamic cache scan options per site table.
-      $wpdb->query(
-        "DELETE FROM {$wpdb->options} WHERE option_name LIKE 'lm_cache_scan_%'"
-      );
-
+      $cleanup_blog();
       restore_current_blog();
     }
   }
+} else {
+  $cleanup_blog();
 }
