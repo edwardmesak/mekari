@@ -50,6 +50,7 @@ trait LM_Cache_Index_Sync_Trait {
     $scope_post_type = sanitize_key((string)$scope_post_type);
     if ($scope_post_type === 'any') {
       $this->sync_indexed_datastore_from_rows($rows, $wpml_lang);
+      $this->warm_precomputed_stats_snapshot($rows, 'any', $wpml_lang, false);
     }
   }
 

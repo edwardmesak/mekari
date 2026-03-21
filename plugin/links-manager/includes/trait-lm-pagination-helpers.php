@@ -8,6 +8,29 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Pagination_Helpers_Trait {
+  private function get_rest_pagination_html($paged, $totalPages) {
+    $paged = max(1, (int)$paged);
+    $totalPages = max(1, (int)$totalPages);
+
+    if ($totalPages <= 1) {
+      return '';
+    }
+
+    $prev = max(1, $paged - 1);
+    $next = min($totalPages, $paged + 1);
+
+    ob_start();
+    echo '<div class="tablenav" style="margin:10px 0;">';
+    echo '<div class="tablenav-pages">';
+    echo '<span class="displaying-num">Page ' . esc_html((string)$paged) . ' of ' . esc_html((string)$totalPages) . '</span> ';
+    echo '<button type="button" class="button" data-lm-rest-page="1">&laquo; First</button> ';
+    echo '<button type="button" class="button" data-lm-rest-page="' . esc_attr((string)$prev) . '"' . disabled($paged <= 1, true, false) . '>&lsaquo; Previous</button> ';
+    echo '<button type="button" class="button" data-lm-rest-page="' . esc_attr((string)$next) . '"' . disabled($paged >= $totalPages, true, false) . '>Next &rsaquo;</button> ';
+    echo '<button type="button" class="button" data-lm-rest-page="' . esc_attr((string)$totalPages) . '"' . disabled($paged >= $totalPages, true, false) . '>Last &raquo;</button>';
+    echo '</div></div>';
+    return (string)ob_get_clean();
+  }
+
   private function render_pages_link_pagination($filters, $paged, $totalPages) {
     if ($totalPages <= 1) return;
 

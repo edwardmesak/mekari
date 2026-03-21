@@ -21,10 +21,12 @@ trait LM_Pages_Link_Admin_Trait {
     $postTagOptions = $this->get_post_term_options('post_tag');
     try {
       $pages = null;
-      if (!$filters['rebuild']
+      if (
+        !$filters['rebuild']
         && $this->is_indexed_datastore_ready()
         && $this->indexed_dataset_has_rows($filters['post_type'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all')
-        && $this->can_use_indexed_pages_link_summary_fastpath($filters)) {
+        && $this->can_use_indexed_pages_link_summary_fastpath($filters)
+      ) {
         $pages = $this->get_pages_with_inbound_counts_from_indexed_summary($filters);
         if (is_array($pages) && empty($pages)) {
           $pages = null;
@@ -422,7 +424,7 @@ trait LM_Pages_Link_Admin_Trait {
     echo $this->table_header_with_tooltip('lm-col-outbound', 'External Outbound', 'External links going out from this page.');
     echo $this->table_header_with_tooltip('lm-col-quality', 'External Outbound Status', 'Status label based on external outbound count and configured thresholds.');
     echo $this->table_header_with_tooltip('lm-col-edit', 'Edit', 'Open WordPress editor for this page.', 'right');
-    echo '</tr></thead><tbody data-lm-pages-link-rest-tbody>';
+    echo '</tr></thead><tbody>';
 
     if (empty($pageRows)) {
       echo '<tr><td colspan="14">No data.</td></tr>';

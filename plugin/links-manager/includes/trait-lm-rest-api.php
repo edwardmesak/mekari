@@ -634,7 +634,8 @@ trait LM_REST_API_Trait {
           && isset($cachedResponse['pagination'])
           && is_array($cachedResponse['items'])
           && is_array($cachedResponse['pagination'])) {
-          return $this->attach_rest_execution_meta($cachedResponse, 'pages_link_list', 'response_cache_hit', true);
+          $cachedResponse = $this->attach_rest_execution_meta($cachedResponse, 'pages_link_list', 'response_cache_hit', true);
+          return $this->enrich_pages_link_rest_response($cachedResponse, $filters);
         }
       }
 
@@ -686,10 +687,10 @@ trait LM_REST_API_Trait {
         }
       }
 
-      $total = count($pages);
       $perPage = max(10, (int)$filters['per_page']);
-      $paged = max(1, (int)$filters['paged']);
+      $requestedPage = max(1, (int)$filters['paged']);
       $cursor = $this->decode_pages_link_keyset_cursor((string)($filters['cursor'] ?? ''));
+      $total = count($pages);
       $totalPages = max(1, (int)ceil($total / $perPage));
 
       if (is_array($cursor)) {
@@ -715,15 +716,16 @@ trait LM_REST_API_Trait {
 
           return $isAsc ? ($cmp > 0) : ($cmp < 0);
         }));
-        $paged = 1;
-        $totalPages = max(1, (int)ceil(count($pages) / $perPage));
+        $paged = min($requestedPage, $totalPages);
+        $offset = 0;
       } else {
+        $paged = $requestedPage;
         if ($paged > $totalPages) {
           $paged = $totalPages;
         }
+        $offset = ($paged - 1) * $perPage;
       }
 
-      $offset = ($paged - 1) * $perPage;
       $pageRows = array_slice($pages, $offset, $perPage);
       $hasMore = ($offset + count($pageRows)) < count($pages);
       $nextCursor = '';
@@ -741,6 +743,7 @@ trait LM_REST_API_Trait {
 
       $response = [
         'items' => array_values($pageRows),
+        'summary_pages' => array_values($pages),
         'pagination' => [
           'total' => $total,
           'per_page' => $perPage,
@@ -755,7 +758,7 @@ trait LM_REST_API_Trait {
         $this->set_rest_response_cache($cacheKey, $response);
       }
 
-      return $response;
+      return $this->enrich_pages_link_rest_response($response, $filters);
     }));
   }
 
@@ -816,7 +819,8 @@ trait LM_REST_API_Trait {
           && isset($cachedResponse['pagination'])
           && is_array($cachedResponse['items'])
           && is_array($cachedResponse['pagination'])) {
-          return $this->attach_rest_execution_meta($cachedResponse, 'editor_list', 'response_cache_hit', true);
+          $cachedResponse = $this->attach_rest_execution_meta($cachedResponse, 'editor_list', 'response_cache_hit', true);
+          return $this->enrich_editor_rest_response($cachedResponse, $filters);
         }
       }
 
@@ -829,7 +833,7 @@ trait LM_REST_API_Trait {
           && is_array($indexedFastResponse['pagination'])) {
           $indexedFastResponse = $this->attach_rest_execution_meta($indexedFastResponse, 'editor_list', 'indexed_sql_fastpath', false);
           $this->set_rest_response_cache($cacheKey, $indexedFastResponse);
-          return $indexedFastResponse;
+          return $this->enrich_editor_rest_response($indexedFastResponse, $filters);
         }
       }
 
@@ -880,9 +884,11 @@ trait LM_REST_API_Trait {
         $executionMode = 'cache_scan';
       }
       $rows = $this->apply_filters_and_group($all, $filters);
+      $total = count($rows);
       $cursor = $this->decode_editor_keyset_cursor((string)($filters['cursor'] ?? ''));
       $orderby = isset($filters['orderby']) ? (string)$filters['orderby'] : 'date';
       $isAsc = ((string)($filters['order'] ?? 'DESC') === 'ASC');
+      $requestedPage = max(1, (int)$filters['paged']);
       if (is_array($cursor)) {
         $cursorValueRaw = (string)$cursor['order'];
         $cursorPostId = (int)$cursor['post_id'];
@@ -902,15 +908,18 @@ trait LM_REST_API_Trait {
         }));
       }
 
-      $total = count($rows);
       $perPage = max(10, (int)$filters['per_page']);
-      $paged = is_array($cursor) ? 1 : max(1, (int)$filters['paged']);
       $totalPages = max(1, (int)ceil($total / $perPage));
-      if ($paged > $totalPages) {
-        $paged = $totalPages;
+      if (is_array($cursor)) {
+        $paged = min($requestedPage, $totalPages);
+        $offset = 0;
+      } else {
+        $paged = $requestedPage;
+        if ($paged > $totalPages) {
+          $paged = $totalPages;
+        }
+        $offset = ($paged - 1) * $perPage;
       }
-
-      $offset = ($paged - 1) * $perPage;
       $pageRows = array_slice($rows, $offset, $perPage);
       $hasMore = ($offset + count($pageRows)) < $total;
       $nextCursor = '';
@@ -940,8 +949,53 @@ trait LM_REST_API_Trait {
         $this->set_rest_response_cache($cacheKey, $response);
       }
 
-      return $response;
+      return $this->enrich_editor_rest_response($response, $filters);
     }));
+  }
+
+  private function enrich_pages_link_rest_response($response, $filters) {
+    if (!is_array($response)) {
+      return $response;
+    }
+
+    $pagination = isset($response['pagination']) && is_array($response['pagination']) ? $response['pagination'] : [];
+    $items = isset($response['items']) && is_array($response['items']) ? array_values($response['items']) : [];
+    $summaryPages = isset($response['summary_pages']) && is_array($response['summary_pages']) ? array_values($response['summary_pages']) : [];
+    $paged = max(1, (int)($pagination['paged'] ?? 1));
+    $totalPages = max(1, (int)($pagination['total_pages'] ?? 1));
+    $total = max(0, (int)($pagination['total'] ?? count($items)));
+
+    $response['rendered'] = [
+      'tbody_html' => $this->get_pages_link_results_tbody_html($items),
+      'pagination_html' => $this->get_rest_pagination_html($paged, $totalPages),
+      'total_text' => (string)$total,
+      'summaries_html' => $this->get_pages_link_summaries_html($summaryPages, $filters),
+    ];
+    unset($response['summary_pages']);
+
+    return $response;
+  }
+
+  private function enrich_editor_rest_response($response, $filters) {
+    if (!is_array($response)) {
+      return $response;
+    }
+
+    $pagination = isset($response['pagination']) && is_array($response['pagination']) ? $response['pagination'] : [];
+    $items = isset($response['items']) && is_array($response['items']) ? array_values($response['items']) : [];
+    $paged = max(1, (int)($pagination['paged'] ?? 1));
+    $totalPages = max(1, (int)($pagination['total_pages'] ?? 1));
+    $perPage = max(10, (int)($pagination['per_page'] ?? ($filters['per_page'] ?? 50)));
+    $total = max(0, (int)($pagination['total'] ?? count($items)));
+    $hiddenFields = $this->get_editor_hidden_fields($filters, $perPage, $paged);
+
+    $response['rendered'] = [
+      'tbody_html' => $this->get_editor_results_tbody_html($items, $hiddenFields),
+      'pagination_html' => $this->get_rest_pagination_html($paged, $totalPages),
+      'results_count_text' => $this->get_editor_results_count_text($total),
+    ];
+
+    return $response;
   }
 
   private function build_self_test_result_row($name, $ok, $durationMs, $details) {

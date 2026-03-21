@@ -1006,8 +1006,7 @@ trait LM_Links_Target_Admin_Trait {
         }
       })();
     </script>';
-    echo '</div>';
-    echo '</div>';
-    echo '</div>';
+    echo '</div>'; // grid
+    echo '</div>'; // wrap
   }
 }

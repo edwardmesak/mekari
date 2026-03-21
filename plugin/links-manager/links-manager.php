@@ -250,16 +250,34 @@ class LM_Links_Manager {
   }
 
   public function enqueue_admin_assets($hook) {
+    $currentPage = isset($_GET['page']) ? sanitize_key((string)$_GET['page']) : '';
     $allowed = [
       'toplevel_page_' . self::PAGE_SLUG,
+      'toplevel_page_links-manager',
       'links-manager-editor_page_links-manager-stats',
       'links-manager-editor_page_links-manager-pages-link',
       'links-manager-editor_page_links-manager-target',
       'links-manager-editor_page_links-manager-cited-domains',
       'links-manager-editor_page_links-manager-all-anchor-text',
       'links-manager-editor_page_links-manager-settings',
+      'links-manager_page_links-manager-stats',
+      'links-manager_page_links-manager-pages-link',
+      'links-manager_page_links-manager-target',
+      'links-manager_page_links-manager-cited-domains',
+      'links-manager_page_links-manager-all-anchor-text',
+      'links-manager_page_links-manager-settings',
     ];
-    if (!in_array($hook, $allowed, true)) return;
+    $allowedPages = [
+      self::PAGE_SLUG,
+      'links-manager',
+      'links-manager-stats',
+      'links-manager-pages-link',
+      'links-manager-target',
+      'links-manager-cited-domains',
+      'links-manager-all-anchor-text',
+      'links-manager-settings',
+    ];
+    if (!in_array($hook, $allowed, true) && !in_array($currentPage, $allowedPages, true)) return;
 
     $css = "
     .lm-wrap{max-width:100%; padding-bottom:96px;}
@@ -427,12 +445,18 @@ class LM_Links_Manager {
     }
     
     .lm-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
-    body.links-manager-editor_page_links-manager-target .lm-grid{grid-auto-flow:row;}
-    body.links-manager-editor_page_links-manager-target .lm-card-grouping{order:1;}
-    body.links-manager-editor_page_links-manager-target .lm-card-target{order:2;}
-    body.links-manager-editor_page_links-manager-target .lm-card-summary{order:3;}
+    body.links-manager-editor_page_links-manager-target .lm-grid,
+    body.links-manager_page_links-manager-target .lm-grid{grid-auto-flow:row;}
+    body.links-manager-editor_page_links-manager-target .lm-card-grouping,
+    body.links-manager_page_links-manager-target .lm-card-grouping{order:1;}
+    body.links-manager-editor_page_links-manager-target .lm-card-target,
+    body.links-manager_page_links-manager-target .lm-card-target{order:2;}
+    body.links-manager-editor_page_links-manager-target .lm-card-summary,
+    body.links-manager_page_links-manager-target .lm-card-summary{order:3;}
     .lm-card{background:#fff; border:1px solid #c3c4c7; padding:12px; border-radius:6px; margin:12px 0; width:100%; box-sizing:border-box;}
     .lm-card-full{grid-column:1 / -1; width:100%;}
+    .lm-card .widefat{margin:0;}
+    .lm-card .tablenav{clear:both;}
     .lm-filter-select{min-width:140px; max-width:240px;}
     .lm-filter-grid{display:grid; grid-template-columns:repeat(5, minmax(170px, 1fr)); gap:10px 12px; align-items:start; margin-bottom:10px;}
     .lm-filter-field{min-width:0;}
@@ -586,30 +610,49 @@ class LM_Links_Manager {
       transform:none;
     }
     body.toplevel_page_links-manager-editor #wpfooter,
+    body.toplevel_page_links-manager #wpfooter,
     body.links-manager-editor_page_links-manager-stats #wpfooter,
+    body.links-manager_page_links-manager-stats #wpfooter,
     body.links-manager-editor_page_links-manager-pages-link #wpfooter,
+    body.links-manager_page_links-manager-pages-link #wpfooter,
     body.links-manager-editor_page_links-manager-target #wpfooter,
+    body.links-manager_page_links-manager-target #wpfooter,
     body.links-manager-editor_page_links-manager-cited-domains #wpfooter,
-    body.links-manager-editor_page_links-manager-all-anchor-text #wpfooter{
+    body.links-manager_page_links-manager-cited-domains #wpfooter,
+    body.links-manager-editor_page_links-manager-all-anchor-text #wpfooter,
+    body.links-manager_page_links-manager-all-anchor-text #wpfooter,
+    body.links-manager-editor_page_links-manager-settings #wpfooter{
       position:static;
     }
     body.toplevel_page_links-manager-editor #wpbody-content,
+    body.toplevel_page_links-manager #wpbody-content,
     body.links-manager-editor_page_links-manager-stats #wpbody-content,
+    body.links-manager_page_links-manager-stats #wpbody-content,
     body.links-manager-editor_page_links-manager-pages-link #wpbody-content,
+    body.links-manager_page_links-manager-pages-link #wpbody-content,
     body.links-manager-editor_page_links-manager-target #wpbody-content,
+    body.links-manager_page_links-manager-target #wpbody-content,
     body.links-manager-editor_page_links-manager-cited-domains #wpbody-content,
-    body.links-manager-editor_page_links-manager-all-anchor-text #wpbody-content{
+    body.links-manager_page_links-manager-cited-domains #wpbody-content,
+    body.links-manager-editor_page_links-manager-all-anchor-text #wpbody-content,
+    body.links-manager_page_links-manager-all-anchor-text #wpbody-content,
+    body.links-manager-editor_page_links-manager-settings #wpbody-content{
       padding-bottom:48px;
     }
-    body.links-manager-editor_page_links-manager-target #wpbody-content{
+    body.links-manager-editor_page_links-manager-target #wpbody-content,
+    body.links-manager_page_links-manager-target #wpbody-content{
       max-width:none;
     }
-    body.links-manager-editor_page_links-manager-target #wpbody-content .wrap{
+    body.links-manager-editor_page_links-manager-target #wpbody-content .wrap,
+    body.links-manager_page_links-manager-target #wpbody-content .wrap{
       max-width:none;
     }
-    body.links-manager-editor_page_links-manager-target .lm-card-grouping{order:1;}
-    body.links-manager-editor_page_links-manager-target .lm-card-target{order:2;}
-    body.links-manager-editor_page_links-manager-target .lm-card-summary{order:3;}
+    body.links-manager-editor_page_links-manager-target .lm-card-grouping,
+    body.links-manager_page_links-manager-target .lm-card-grouping{order:1;}
+    body.links-manager-editor_page_links-manager-target .lm-card-target,
+    body.links-manager_page_links-manager-target .lm-card-target{order:2;}
+    body.links-manager-editor_page_links-manager-target .lm-card-summary,
+    body.links-manager_page_links-manager-target .lm-card-summary{order:3;}
     @media (max-width: 1400px){
       .lm-filter-grid{grid-template-columns:repeat(4, minmax(160px, 1fr));}
       .lm-filter-table tbody{grid-template-columns:repeat(4, minmax(160px, 1fr));}
@@ -1111,78 +1154,6 @@ class LM_Links_Manager {
       }
 
       const restConfig = (window.LM_REBUILD_REST && typeof window.LM_REBUILD_REST === 'object') ? window.LM_REBUILD_REST : null;
-      const restFetch = (path, params) => {
-        if (!restConfig || !restConfig.base || !restConfig.nonce) {
-          return Promise.reject(new Error('REST config unavailable.'));
-        }
-        const query = new URLSearchParams(params || {});
-        const url = String(restConfig.base).replace(/\/$/, '') + path + (query.toString() ? ('?' + query.toString()) : '');
-        return fetch(url, {
-          method: 'GET',
-          headers: {
-            'X-WP-Nonce': String(restConfig.nonce),
-          },
-          credentials: 'same-origin',
-        }).then(r => {
-          if (!r.ok) {
-            return r.text().then(t => {
-              throw new Error(t || ('HTTP ' + r.status));
-            });
-          }
-          return r.json();
-        });
-      };
-
-      const readCurrentQueryParams = () => {
-        const out = {};
-        const sp = new URLSearchParams(window.location.search || '');
-        sp.forEach((value, key) => {
-          if (!key || key === 'page') return;
-          out[key] = value;
-        });
-        return out;
-      };
-
-      const fetchRestPageWithCursorChain = (path, rawParams, pagedKey, cursorKey) => {
-        const baseParams = Object.assign({}, rawParams || {});
-        const targetPageRaw = parseInt(baseParams[pagedKey] || '1', 10);
-        const targetPage = Number.isFinite(targetPageRaw) && targetPageRaw > 0 ? targetPageRaw : 1;
-
-        delete baseParams[cursorKey];
-        baseParams[pagedKey] = '1';
-
-        let currentPage = 1;
-        let cursor = '';
-        let lastPayload = null;
-
-        const step = () => {
-          const reqParams = Object.assign({}, baseParams);
-          if (cursor) {
-            reqParams[cursorKey] = cursor;
-          }
-
-          return restFetch(path, reqParams).then((data) => {
-            const payload = (data && typeof data === 'object') ? data : {};
-            lastPayload = payload;
-            if (currentPage >= targetPage) {
-              return payload;
-            }
-
-            const pagination = (payload.pagination && typeof payload.pagination === 'object') ? payload.pagination : {};
-            const nextCursor = String((pagination && pagination.next_cursor) ? pagination.next_cursor : '');
-            if (!nextCursor) {
-              return payload;
-            }
-
-            cursor = nextCursor;
-            currentPage += 1;
-            return step();
-          });
-        };
-
-        return step().then((payload) => payload || lastPayload || {});
-      };
-
       const escHtml = (val) => {
         return String(val == null ? '' : val)
           .replace(/&/g, '&amp;')

@@ -4,6 +4,29 @@
  */
 
 trait LM_Dashboard_Stats_Trait {
+  private function default_stats_snapshot_filters($scopePostType = 'any', $wpmlLang = 'all') {
+    return [
+      'post_type' => sanitize_key((string)$scopePostType) ?: 'any',
+      'wpml_lang' => $this->get_effective_scan_wpml_lang((string)$wpmlLang),
+    ];
+  }
+
+  private function get_precomputed_stats_snapshot_if_available($filters, $includeOrphanPages = false) {
+    $filters = is_array($filters) ? $filters : [];
+    $key = $this->stats_snapshot_key($filters, $includeOrphanPages);
+    $cached = get_transient($key);
+    return is_array($cached) ? $cached : null;
+  }
+
+  private function warm_precomputed_stats_snapshot($rows, $scopePostType = 'any', $wpmlLang = 'all', $includeOrphanPages = false) {
+    $rows = is_array($rows) ? $rows : [];
+    $filters = $this->default_stats_snapshot_filters($scopePostType, $wpmlLang);
+    $payload = $this->build_stats_snapshot_payload($rows, $includeOrphanPages);
+    set_transient($this->stats_snapshot_key($filters, $includeOrphanPages), $payload, $this->get_stats_snapshot_ttl());
+    update_option('lm_last_stats_snapshot_at', current_time('mysql'), false);
+    return $payload;
+  }
+
   private function get_dashboard_stats($all, $includeOrphanPages = false) {
     $stats = [
       'total_links' => count($all),
@@ -181,6 +204,7 @@ trait LM_Dashboard_Stats_Trait {
 
     $payload = $this->build_stats_snapshot_payload($all, $includeOrphanPages);
     set_transient($key, $payload, $this->get_stats_snapshot_ttl());
+    update_option('lm_last_stats_snapshot_at', current_time('mysql'), false);
     $this->profile_end('stats_snapshot_build', $profileStarted, [
       'all_rows' => count((array)$all),
     ]);

@@ -490,8 +490,6 @@ trait LM_Settings_Admin_Trait {
     echo '</tbody></table>';
     echo '</div>';
     echo '</div>';
-
-    echo '</div>';
     }
     if ($activeTab === 'data') {
       echo '<h2 style="margin-top:0;">' . esc_html__('Data Cleanup Settings', 'links-manager') . '</h2>';

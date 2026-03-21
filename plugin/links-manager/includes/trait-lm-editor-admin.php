@@ -21,64 +21,19 @@ trait LM_Editor_Admin_Trait {
     }
     $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
 
-    $all = null;
-    $rows = [];
-    $pageRows = [];
-    $total = 0;
     $perPage = $filters['per_page'];
     $paged = $filters['paged'];
-    $totalPages = 1;
-    $usedIndexedFastpath = false;
-
-    if (!$filters['rebuild']) {
-      $indexedFastResponse = $this->get_indexed_editor_list_fastpath_response($scopePostType, $scopeWpmlLang, $filters);
-      if (is_array($indexedFastResponse)
-        && isset($indexedFastResponse['items'])
-        && isset($indexedFastResponse['pagination'])
-        && is_array($indexedFastResponse['items'])
-        && is_array($indexedFastResponse['pagination'])) {
-        $usedIndexedFastpath = true;
-        $pageRows = array_values((array)$indexedFastResponse['items']);
-        $pagination = (array)$indexedFastResponse['pagination'];
-        $total = max(0, (int)($pagination['total'] ?? 0));
-        $perPage = max(10, (int)($pagination['per_page'] ?? $perPage));
-        $paged = max(1, (int)($pagination['paged'] ?? $paged));
-        $totalPages = max(1, (int)($pagination['total_pages'] ?? 1));
-      }
-    }
-
-    if (!$usedIndexedFastpath) {
-      if (!$filters['rebuild'] && $this->is_indexed_datastore_ready()) {
-        $all = $this->get_indexed_fact_rows($scopePostType, $scopeWpmlLang, $filters);
-        if (empty($all) && ($scopePostType !== 'any' || $scopeWpmlLang !== 'all')) {
-          $all = $this->get_indexed_fact_rows('any', 'all', $filters);
-        }
-        if (is_array($all) && empty($all)) {
-          $all = null;
-        }
-      }
-      if (!is_array($all)) {
-        $all = $this->get_canonical_rows_for_scope($scopePostType, $filters['rebuild'], $scopeWpmlLang, $filters);
-      }
-      $rows = $this->apply_filters_and_group($all, $filters);
-      $total = count($rows);
-      $perPage = $filters['per_page'];
-      $paged = $filters['paged'];
-      $totalPages = max(1, (int)ceil($total / $perPage));
-      if ($paged > $totalPages) {
-        $paged = $totalPages;
-      }
-      $offset = ($paged - 1) * $perPage;
-      $pageRows = array_slice($rows, $offset, $perPage);
-    }
-
     $locations = $this->get_indexed_editor_location_options($scopePostType, $scopeWpmlLang);
     if (!is_array($locations)) {
-      if (!is_array($all)) {
-        $all = $this->get_canonical_rows_for_scope($scopePostType, $filters['rebuild'], $scopeWpmlLang, $filters);
-      }
       $locations = ['any' => 'All'];
-      foreach ((array)$all as $r) {
+      $locationRows = null;
+      if (!$filters['rebuild']) {
+        $locationRows = $this->get_existing_cache_rows_for_rest($scopePostType, $scopeWpmlLang, true);
+        if (!is_array($locationRows) && ($scopePostType !== 'any' || $scopeWpmlLang !== 'all')) {
+          $locationRows = $this->get_existing_cache_rows_for_rest('any', 'all', true);
+        }
+      }
+      foreach ((array)$locationRows as $r) {
         $locationKey = isset($r['link_location']) ? (string)$r['link_location'] : '';
         if ($locationKey === '') {
           continue;
@@ -100,36 +55,13 @@ trait LM_Editor_Admin_Trait {
     $textModes = $this->get_text_match_modes();
     $exportUrl = $this->build_export_url($filters);
 
-    $editorHiddenFields = [
-      'lm_post_type' => $filters['post_type'],
-      'lm_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
-      'lm_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
-      'lm_location' => $filters['location'],
-      'lm_source_type' => $filters['source_type'],
-      'lm_link_type' => $filters['link_type'],
-      'lm_value_type' => $filters['value_type'],
-      'lm_value' => $filters['value_contains'],
-      'lm_source' => $filters['source_contains'],
-      'lm_title' => $filters['title_contains'],
-      'lm_author' => $filters['author_contains'],
-      'lm_publish_date_from' => isset($filters['publish_date_from']) ? (string)$filters['publish_date_from'] : '',
-      'lm_publish_date_to' => isset($filters['publish_date_to']) ? (string)$filters['publish_date_to'] : '',
-      'lm_updated_date_from' => isset($filters['updated_date_from']) ? (string)$filters['updated_date_from'] : '',
-      'lm_updated_date_to' => isset($filters['updated_date_to']) ? (string)$filters['updated_date_to'] : '',
-      'lm_anchor' => $filters['anchor_contains'],
-      'lm_quality' => $filters['quality'],
-      'lm_seo_flag' => $filters['seo_flag'],
-      'lm_alt' => $filters['alt_contains'],
-      'lm_rel' => $filters['rel_contains'],
-      'lm_text_mode' => $filters['text_match_mode'],
-      'lm_rel_nofollow' => $filters['rel_nofollow'],
-      'lm_rel_sponsored' => $filters['rel_sponsored'],
-      'lm_rel_ugc' => $filters['rel_ugc'],
-      'lm_orderby' => $filters['orderby'],
-      'lm_order' => $filters['order'],
-      'lm_per_page' => $perPage,
-      'lm_paged' => $paged,
-    ];
+    $editorHiddenFields = $this->get_editor_hidden_fields($filters, $perPage, $paged);
+    $editorData = $this->get_editor_page_data($filters);
+    $pageRows = isset($editorData['items']) && is_array($editorData['items']) ? $editorData['items'] : [];
+    $total = max(0, (int)($editorData['total'] ?? 0));
+    $paged = max(1, (int)($editorData['paged'] ?? $paged));
+    $totalPages = max(1, (int)($editorData['total_pages'] ?? 1));
+    $editorHiddenFields = $this->get_editor_hidden_fields($filters, $perPage, $paged);
 
     echo '<div class="wrap lm-wrap">';
     echo '<h1>' . esc_html__('Links Manager - Links Editor', 'links-manager') . '</h1>';
@@ -331,7 +263,8 @@ trait LM_Editor_Admin_Trait {
 
     echo '</div>';
 
-    echo '<h2>Results (' . esc_html((string)$total) . ' ' . ($total === 1 ? 'link' : 'links') . ')</h2>';
+    echo '<div>';
+    echo '<h2><span>' . esc_html($this->get_editor_results_count_text($total)) . '</span></h2>';
     echo '<div class="lm-small" style="margin:6px 0 10px;">';
     echo '<strong>Quality rule:</strong> ';
     echo esc_html($this->get_anchor_quality_status_help_text());
@@ -376,85 +309,7 @@ trait LM_Editor_Admin_Trait {
       echo '<th class="' . esc_attr($col['class']) . '">' . $label . '</th>';
     }
     echo '</tr></thead><tbody>';
-
-    if (empty($pageRows)) {
-      echo '<tr><td colspan="' . count($cols) . '">No links match the filter.</td></tr>';
-    } else {
-      foreach ($pageRows as $r) {
-        $typeLabel = ($r['link_type'] === 'exlink') ? 'External' : 'Internal';
-
-        echo '<tr>';
-        echo '<td class="lm-col-pageurl">' . ($r['page_url'] ? '<a href="' . esc_url($r['page_url']) . '" target="_blank" rel="noopener noreferrer"><span class="lm-trunc" title="' . esc_attr($r['page_url']) . '">' . esc_html($r['page_url']) . '</span></a>' : '') . '</td>';
-        echo '<td class="lm-col-title"><span class="lm-trunc" title="' . esc_attr((string)$r['post_title']) . '">' . esc_html((string)$r['post_title']) . '</span></td>';
-        echo '<td class="lm-col-author"><span class="lm-trunc" title="' . esc_attr((string)$r['post_author']) . '">' . esc_html((string)$r['post_author']) . '</span></td>';
-
-        $postDate = isset($r['post_date']) ? (string)$r['post_date'] : '';
-        echo '<td class="lm-col-date"><span class="lm-trunc" title="' . esc_attr($postDate) . '">' . esc_html($postDate !== '' ? $postDate : '—') . '</span></td>';
-
-        $postModified = isset($r['post_modified']) ? (string)$r['post_modified'] : '';
-        echo '<td class="lm-col-date"><span class="lm-trunc" title="' . esc_attr($postModified) . '">' . esc_html($postModified !== '' ? $postModified : '—') . '</span></td>';
-
-        echo '<td class="lm-col-type">' . esc_html((string)$r['post_type']) . '</td>';
-        echo '<td class="lm-col-link">' . ($r['link'] ? '<a href="' . esc_url($r['link']) . '" target="_blank" rel="noopener noreferrer"><span class="lm-trunc" title="' . esc_attr($r['link']) . '">' . esc_html($r['link']) . '</span></a>' : '') . '</td>';
-        echo '<td class="lm-col-source">' . esc_html((string)$r['source']) . '</td>';
-        echo '<td class="lm-col-source"><span class="lm-trunc" title="' . esc_attr((string)$r['link_location']) . '">' . esc_html((string)$r['link_location']) . '</span></td>';
-        echo '<td class="lm-col-anchor"><span class="lm-trunc" data-anchor title="' . esc_attr((string)$r['anchor_text']) . '">' . esc_html((string)$r['anchor_text']) . '</span></td>';
-
-        $quality = $this->get_anchor_quality_suggestion($r['anchor_text']);
-        $qualityLabel = 'Good';
-        if ((string)($quality['quality'] ?? '') === 'poor') $qualityLabel = 'Poor';
-        if ((string)($quality['quality'] ?? '') === 'bad') $qualityLabel = 'Bad';
-        echo '<td class="lm-col-quality" title="' . esc_attr((string)($quality['warning'] ?? '')) . '">' . esc_html($qualityLabel) . '</td>';
-
-        echo '<td class="lm-col-linktype">' . esc_html($typeLabel) . '</td>';
-
-        $seo_flags = [];
-        if ($r['rel_nofollow'] === '1') $seo_flags[] = 'nofollow';
-        if ($r['rel_sponsored'] === '1') $seo_flags[] = 'sponsored';
-        if ($r['rel_ugc'] === '1') $seo_flags[] = 'ugc';
-        $seo_flags_text = !empty($seo_flags) ? implode(', ', $seo_flags) : 'dofollow';
-        echo '<td class="lm-col-rel"><span class="lm-trunc" title="' . esc_attr($seo_flags_text) . '">' . esc_html($seo_flags_text) . '</span></td>';
-
-        echo '<td class="lm-col-alt"><span class="lm-trunc" title="' . esc_attr((string)$r['alt_text']) . '">' . esc_html((string)$r['alt_text']) . '</span></td>';
-
-        $snippetFull = isset($r['snippet']) ? (string)$r['snippet'] : '';
-        $snippetShort = $this->text_snippet_with_anchor_offset($snippetFull, isset($r['anchor_text']) ? (string)$r['anchor_text'] : '', 60, 4);
-        echo '<td class="lm-col-snippet"><span class="lm-trunc" title="' . esc_attr($snippetFull) . '">' . $this->highlight_snippet_anchor_html($snippetShort, isset($r['anchor_text']) ? (string)$r['anchor_text'] : '') . '</span></td>';
-
-        echo '<td class="lm-col-edit">';
-        if (!empty($r['post_id']) && $r['source'] !== 'menu') {
-          echo '<form class="lm-edit-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" onsubmit="return false;">';
-          echo '<input type="hidden" name="action" value="lm_update_link"/>';
-          echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
-
-          foreach ($editorHiddenFields as $k => $val) {
-            echo '<input type="hidden" name="' . esc_attr($k) . '" value="' . esc_attr($val) . '"/>';
-          }
-
-          echo '<input type="hidden" name="post_id" value="' . esc_attr((string)$r['post_id']) . '"/>';
-          echo '<input type="hidden" name="row_id" value="' . esc_attr((string)$r['row_id']) . '"/>';
-          echo '<input type="hidden" name="old_link" value="' . esc_attr((string)$r['link']) . '"/>';
-          echo '<input type="hidden" name="old_anchor" value="' . esc_attr((string)$r['anchor_text']) . '"/>';
-          echo '<input type="hidden" name="old_rel" value="' . esc_attr((string)($r['rel_raw'] ?? '')) . '"/>';
-          echo '<input type="hidden" name="old_snippet" value="' . esc_attr(isset($r['snippet']) ? (string)$r['snippet'] : '') . '"/>';
-          echo '<input type="hidden" name="source" value="' . esc_attr((string)$r['source']) . '"/>';
-          echo '<input type="hidden" name="link_location" value="' . esc_attr((string)$r['link_location']) . '"/>';
-          echo '<input type="hidden" name="block_index" value="' . esc_attr((string)$r['block_index']) . '"/>';
-          echo '<input type="hidden" name="occurrence" value="' . esc_attr((string)($r['occurrence'] ?? '0')) . '"/>';
-          echo '<input type="text" name="new_link" placeholder="New URL" />';
-          echo '<input type="text" name="new_anchor" placeholder="New anchor text" />';
-          echo '<input type="text" name="new_rel" placeholder="New rel (optional), e.g. nofollow sponsored" />';
-          echo '<div class="lm-form-msg"></div>';
-          echo '<button type="button" class="button button-secondary lm-edit-submit">Update</button>';
-          echo '</form>';
-        } else {
-          echo '<span class="lm-small">—</span>';
-        }
-        echo '</td>';
-
-        echo '</tr>';
-      }
-    }
+    echo $this->get_editor_results_tbody_html($pageRows, $editorHiddenFields);
 
     echo '</tbody></table></div>';
 
@@ -463,5 +318,209 @@ trait LM_Editor_Admin_Trait {
     echo '<p class="lm-small" style="margin-top:12px;">Note: Per-row edit & bulk update only modify 1 link occurrence per row_id/occurrence. If content changes, the update is cancelled (fail-safe).</p>';
 
     echo '</div>';
+    echo '</div>';
+  }
+
+  private function get_editor_hidden_fields($filters, $perPage, $paged) {
+    return [
+      'lm_post_type' => $filters['post_type'],
+      'lm_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
+      'lm_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
+      'lm_location' => $filters['location'],
+      'lm_source_type' => $filters['source_type'],
+      'lm_link_type' => $filters['link_type'],
+      'lm_value_type' => $filters['value_type'],
+      'lm_value' => $filters['value_contains'],
+      'lm_source' => $filters['source_contains'],
+      'lm_title' => $filters['title_contains'],
+      'lm_author' => $filters['author_contains'],
+      'lm_publish_date_from' => isset($filters['publish_date_from']) ? (string)$filters['publish_date_from'] : '',
+      'lm_publish_date_to' => isset($filters['publish_date_to']) ? (string)$filters['publish_date_to'] : '',
+      'lm_updated_date_from' => isset($filters['updated_date_from']) ? (string)$filters['updated_date_from'] : '',
+      'lm_updated_date_to' => isset($filters['updated_date_to']) ? (string)$filters['updated_date_to'] : '',
+      'lm_anchor' => $filters['anchor_contains'],
+      'lm_quality' => $filters['quality'],
+      'lm_seo_flag' => $filters['seo_flag'],
+      'lm_alt' => $filters['alt_contains'],
+      'lm_rel' => $filters['rel_contains'],
+      'lm_text_mode' => $filters['text_match_mode'],
+      'lm_rel_nofollow' => $filters['rel_nofollow'],
+      'lm_rel_sponsored' => $filters['rel_sponsored'],
+      'lm_rel_ugc' => $filters['rel_ugc'],
+      'lm_orderby' => $filters['orderby'],
+      'lm_order' => $filters['order'],
+      'lm_per_page' => $perPage,
+      'lm_paged' => $paged,
+    ];
+  }
+
+  private function get_editor_results_count_text($total) {
+    $total = max(0, (int)$total);
+    return sprintf('Results (%d %s)', $total, $total === 1 ? 'link' : 'links');
+  }
+
+  private function get_editor_page_data($filters) {
+    $filters = is_array($filters) ? $filters : [];
+    $scopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $rebuildRequested = !empty($filters['rebuild']);
+    $all = null;
+    $usedIndexedAuthority = false;
+    $usedExistingCache = false;
+    $indexedFastResponse = null;
+
+    if (!$rebuildRequested) {
+      $indexedFastResponse = $this->get_indexed_editor_list_fastpath_response($scopePostType, $scopeWpmlLang, $filters);
+      if (
+        is_array($indexedFastResponse)
+        && isset($indexedFastResponse['items'])
+        && isset($indexedFastResponse['pagination'])
+        && is_array($indexedFastResponse['items'])
+        && is_array($indexedFastResponse['pagination'])
+      ) {
+        $pagination = (array)$indexedFastResponse['pagination'];
+        return [
+          'items' => array_values((array)$indexedFastResponse['items']),
+          'total' => max(0, (int)($pagination['total'] ?? 0)),
+          'per_page' => max(10, (int)($pagination['per_page'] ?? ($filters['per_page'] ?? 50))),
+          'paged' => max(1, (int)($pagination['paged'] ?? ($filters['paged'] ?? 1))),
+          'total_pages' => max(1, (int)($pagination['total_pages'] ?? 1)),
+          'data_source' => 'indexed_fastpath',
+        ];
+      }
+    }
+
+    if (!$rebuildRequested && $this->is_indexed_datastore_ready()) {
+      $all = $this->get_indexed_fact_rows($scopePostType, $scopeWpmlLang, $filters);
+      if (is_array($all) && !empty($all)) {
+        $usedIndexedAuthority = true;
+      }
+      if (!$usedIndexedAuthority && ($scopePostType !== 'any' || $scopeWpmlLang !== 'all')) {
+        $all = $this->get_indexed_fact_rows('any', 'all', $filters);
+        if (is_array($all) && !empty($all)) {
+          $usedIndexedAuthority = true;
+        }
+      }
+    }
+
+    if (!is_array($all)) {
+      $all = null;
+    }
+    if (empty($all) && !$rebuildRequested && !$usedIndexedAuthority) {
+      $all = $this->get_existing_cache_rows_for_rest($scopePostType, $scopeWpmlLang, true);
+      if (is_array($all)) {
+        $usedExistingCache = true;
+      }
+    }
+    if (!is_array($all)) {
+      $all = $this->get_canonical_rows_for_scope($scopePostType, $rebuildRequested, $scopeWpmlLang, $filters);
+    }
+
+    $rows = $this->apply_filters_and_group($all, $filters);
+    $total = count($rows);
+    $perPage = max(10, (int)($filters['per_page'] ?? 50));
+    $requestedPage = max(1, (int)($filters['paged'] ?? 1));
+    $totalPages = max(1, (int)ceil($total / $perPage));
+    $paged = min($requestedPage, $totalPages);
+    $offset = ($paged - 1) * $perPage;
+    $pageRows = array_slice($rows, $offset, $perPage);
+
+    return [
+      'items' => array_values($pageRows),
+      'total' => $total,
+      'per_page' => $perPage,
+      'paged' => $paged,
+      'total_pages' => $totalPages,
+      'data_source' => $usedIndexedAuthority ? 'indexed' : ($usedExistingCache ? 'cache' : 'canonical'),
+    ];
+  }
+
+  private function get_editor_results_tbody_html($pageRows, $editorHiddenFields) {
+    $pageRows = is_array($pageRows) ? $pageRows : [];
+    ob_start();
+
+    if (empty($pageRows)) {
+      echo '<tr><td colspan="16">No links match the filter.</td></tr>';
+      return (string)ob_get_clean();
+    }
+
+    foreach ($pageRows as $r) {
+      $typeLabel = ($r['link_type'] === 'exlink') ? 'External' : 'Internal';
+
+      echo '<tr>';
+      echo '<td class="lm-col-pageurl">' . ($r['page_url'] ? '<a href="' . esc_url($r['page_url']) . '" target="_blank" rel="noopener noreferrer"><span class="lm-trunc" title="' . esc_attr($r['page_url']) . '">' . esc_html($r['page_url']) . '</span></a>' : '') . '</td>';
+      echo '<td class="lm-col-title"><span class="lm-trunc" title="' . esc_attr((string)$r['post_title']) . '">' . esc_html((string)$r['post_title']) . '</span></td>';
+      echo '<td class="lm-col-author"><span class="lm-trunc" title="' . esc_attr((string)$r['post_author']) . '">' . esc_html((string)$r['post_author']) . '</span></td>';
+
+      $postDate = isset($r['post_date']) ? (string)$r['post_date'] : '';
+      echo '<td class="lm-col-date"><span class="lm-trunc" title="' . esc_attr($postDate) . '">' . esc_html($postDate !== '' ? $postDate : '—') . '</span></td>';
+
+      $postModified = isset($r['post_modified']) ? (string)$r['post_modified'] : '';
+      echo '<td class="lm-col-date"><span class="lm-trunc" title="' . esc_attr($postModified) . '">' . esc_html($postModified !== '' ? $postModified : '—') . '</span></td>';
+
+      echo '<td class="lm-col-type">' . esc_html((string)$r['post_type']) . '</td>';
+      echo '<td class="lm-col-link">' . ($r['link'] ? '<a href="' . esc_url($r['link']) . '" target="_blank" rel="noopener noreferrer"><span class="lm-trunc" title="' . esc_attr($r['link']) . '">' . esc_html($r['link']) . '</span></a>' : '') . '</td>';
+      echo '<td class="lm-col-source">' . esc_html((string)$r['source']) . '</td>';
+      echo '<td class="lm-col-source"><span class="lm-trunc" title="' . esc_attr((string)$r['link_location']) . '">' . esc_html((string)$r['link_location']) . '</span></td>';
+      echo '<td class="lm-col-anchor"><span class="lm-trunc" data-anchor title="' . esc_attr((string)$r['anchor_text']) . '">' . esc_html((string)$r['anchor_text']) . '</span></td>';
+
+      $quality = $this->get_anchor_quality_suggestion($r['anchor_text']);
+      $qualityLabel = 'Good';
+      if ((string)($quality['quality'] ?? '') === 'poor') $qualityLabel = 'Poor';
+      if ((string)($quality['quality'] ?? '') === 'bad') $qualityLabel = 'Bad';
+      echo '<td class="lm-col-quality" title="' . esc_attr((string)($quality['warning'] ?? '')) . '">' . esc_html($qualityLabel) . '</td>';
+
+      echo '<td class="lm-col-linktype">' . esc_html($typeLabel) . '</td>';
+
+      $seoFlags = [];
+      if (($r['rel_nofollow'] ?? '') === '1') $seoFlags[] = 'nofollow';
+      if (($r['rel_sponsored'] ?? '') === '1') $seoFlags[] = 'sponsored';
+      if (($r['rel_ugc'] ?? '') === '1') $seoFlags[] = 'ugc';
+      $seoFlagsText = !empty($seoFlags) ? implode(', ', $seoFlags) : 'dofollow';
+      echo '<td class="lm-col-rel"><span class="lm-trunc" title="' . esc_attr($seoFlagsText) . '">' . esc_html($seoFlagsText) . '</span></td>';
+
+      echo '<td class="lm-col-alt"><span class="lm-trunc" title="' . esc_attr((string)$r['alt_text']) . '">' . esc_html((string)$r['alt_text']) . '</span></td>';
+
+      $snippetFull = isset($r['snippet']) ? (string)$r['snippet'] : '';
+      $snippetShort = $this->text_snippet_with_anchor_offset($snippetFull, isset($r['anchor_text']) ? (string)$r['anchor_text'] : '', 60, 4);
+      echo '<td class="lm-col-snippet"><span class="lm-trunc" title="' . esc_attr($snippetFull) . '">' . $this->highlight_snippet_anchor_html($snippetShort, isset($r['anchor_text']) ? (string)$r['anchor_text'] : '') . '</span></td>';
+
+      echo '<td class="lm-col-edit">';
+      if (!empty($r['post_id']) && $r['source'] !== 'menu') {
+        echo '<form class="lm-edit-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" onsubmit="return false;">';
+        echo '<input type="hidden" name="action" value="lm_update_link"/>';
+        echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
+
+        foreach ($editorHiddenFields as $k => $val) {
+          echo '<input type="hidden" name="' . esc_attr($k) . '" value="' . esc_attr($val) . '"/>';
+        }
+
+        echo '<input type="hidden" name="post_id" value="' . esc_attr((string)$r['post_id']) . '"/>';
+        echo '<input type="hidden" name="row_id" value="' . esc_attr((string)$r['row_id']) . '"/>';
+        echo '<input type="hidden" name="old_link" value="' . esc_attr((string)$r['link']) . '"/>';
+        echo '<input type="hidden" name="old_anchor" value="' . esc_attr((string)$r['anchor_text']) . '"/>';
+        echo '<input type="hidden" name="old_rel" value="' . esc_attr((string)($r['rel_raw'] ?? '')) . '"/>';
+        echo '<input type="hidden" name="old_snippet" value="' . esc_attr(isset($r['snippet']) ? (string)$r['snippet'] : '') . '"/>';
+        echo '<input type="hidden" name="source" value="' . esc_attr((string)$r['source']) . '"/>';
+        echo '<input type="hidden" name="link_location" value="' . esc_attr((string)$r['link_location']) . '"/>';
+        echo '<input type="hidden" name="block_index" value="' . esc_attr((string)$r['block_index']) . '"/>';
+        echo '<input type="hidden" name="occurrence" value="' . esc_attr((string)($r['occurrence'] ?? '0')) . '"/>';
+        echo '<input type="text" name="new_link" placeholder="New URL" />';
+        echo '<input type="text" name="new_anchor" placeholder="New anchor text" />';
+        echo '<input type="text" name="new_rel" placeholder="New rel (optional), e.g. nofollow sponsored" />';
+        echo '<div class="lm-form-msg"></div>';
+        echo '<button type="button" class="button button-secondary lm-edit-submit">Update</button>';
+        echo '</form>';
+      } else {
+        echo '<span class="lm-small">—</span>';
+      }
+      echo '</td>';
+      echo '</tr>';
+    }
+
+    return (string)ob_get_clean();
   }
 }

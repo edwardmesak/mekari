@@ -15,8 +15,6 @@ trait LM_Statistics_Admin_Trait {
     $msg = isset($_GET['lm_msg']) ? sanitize_text_field((string)$_GET['lm_msg']) : '';
     $msgClass = $this->notice_class_for_message($msg, 'info');
 
-    $all = $this->get_canonical_rows_for_scope($filters['post_type'], $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
-
     echo '<div class="wrap lm-wrap">';
     echo '<h1 class="lm-page-title">' . esc_html__('Links Manager - Statistics', 'links-manager') . '</h1>';
     echo '<div class="lm-subtle">Summary of link performance and quality in published content.</div>';
@@ -24,7 +22,23 @@ trait LM_Statistics_Admin_Trait {
     if ($msg !== '') echo '<div class="notice notice-' . esc_attr($msgClass) . '"><p>' . esc_html($msg) . '</p></div>';
 
     $includeOrphanPages = false;
-    $snapshot = $this->get_stats_snapshot_payload($all, $filters, $includeOrphanPages);
+    $snapshot = null;
+    $statsScopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
+    if ($statsScopePostType === '') {
+      $statsScopePostType = 'any';
+    }
+    $statsWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $isDefaultStatsScope = !$filters['rebuild'] && $statsScopePostType === 'any' && $statsWpmlLang === 'all';
+    if ($isDefaultStatsScope) {
+      $snapshot = $this->get_precomputed_stats_snapshot_if_available(
+        $this->default_stats_snapshot_filters('any', 'all'),
+        $includeOrphanPages
+      );
+    }
+    if (!is_array($snapshot)) {
+      $all = $this->get_canonical_rows_for_scope($filters['post_type'], $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
+      $snapshot = $this->get_stats_snapshot_payload($all, $filters, $includeOrphanPages);
+    }
     $stats = $snapshot['stats'];
     $tops = $snapshot['tops'];
     $postTypeBuckets = $snapshot['post_type_buckets'];
@@ -290,7 +304,6 @@ trait LM_Statistics_Admin_Trait {
       echo '</div>';
     }
     
-    echo '</div>'; // card
     echo '</div>';
   }
 }
