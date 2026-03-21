@@ -8,7 +8,21 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Pagination_Helpers_Trait {
-  private function get_rest_pagination_html($paged, $totalPages) {
+  private function get_pagination_range_text($paged, $perPage, $total) {
+    $paged = max(1, (int)$paged);
+    $perPage = max(1, (int)$perPage);
+    $total = max(0, (int)$total);
+
+    if ($total <= 0) {
+      return 'Showing 0-0 of 0';
+    }
+
+    $start = (($paged - 1) * $perPage) + 1;
+    $end = min($total, $paged * $perPage);
+    return sprintf('Showing %d-%d of %d', $start, $end, $total);
+  }
+
+  private function get_rest_pagination_html($paged, $totalPages, $total = null, $perPage = null) {
     $paged = max(1, (int)$paged);
     $totalPages = max(1, (int)$totalPages);
 
@@ -20,8 +34,11 @@ trait LM_Pagination_Helpers_Trait {
     $next = min($totalPages, $paged + 1);
 
     ob_start();
-    echo '<div class="tablenav" style="margin:10px 0;">';
+    echo '<div class="tablenav lm-pagination">';
     echo '<div class="tablenav-pages">';
+    if ($total !== null && $perPage !== null) {
+      echo '<span class="lm-pagination-summary">' . esc_html($this->get_pagination_range_text($paged, (int)$perPage, (int)$total)) . '</span> ';
+    }
     echo '<span class="displaying-num">Page ' . esc_html((string)$paged) . ' of ' . esc_html((string)$totalPages) . '</span> ';
     echo '<button type="button" class="button" data-lm-rest-page="1">&laquo; First</button> ';
     echo '<button type="button" class="button" data-lm-rest-page="' . esc_attr((string)$prev) . '"' . disabled($paged <= 1, true, false) . '>&lsaquo; Previous</button> ';
@@ -31,11 +48,14 @@ trait LM_Pagination_Helpers_Trait {
     return (string)ob_get_clean();
   }
 
-  private function render_pages_link_pagination($filters, $paged, $totalPages) {
+  private function render_pages_link_pagination($filters, $paged, $totalPages, $total = null, $perPage = null) {
     if ($totalPages <= 1) return;
 
-    echo '<div class="tablenav" style="margin:10px 0;">';
+    echo '<div class="tablenav lm-pagination">';
     echo '<div class="tablenav-pages">';
+    if ($total !== null && $perPage !== null) {
+      echo '<span class="lm-pagination-summary">' . esc_html($this->get_pagination_range_text($paged, (int)$perPage, (int)$total)) . '</span> ';
+    }
     echo '<span class="displaying-num">Page ' . esc_html((string)$paged) . ' of ' . esc_html((string)$totalPages) . '</span> ';
 
     $prev = max(1, $paged - 1);
@@ -49,11 +69,14 @@ trait LM_Pagination_Helpers_Trait {
     echo '</div></div>';
   }
 
-  private function render_pagination($filters, $paged, $totalPages) {
+  private function render_pagination($filters, $paged, $totalPages, $total = null, $perPage = null) {
     if ($totalPages <= 1) return;
 
-    echo '<div class="tablenav" style="margin:10px 0;">';
+    echo '<div class="tablenav lm-pagination">';
     echo '<div class="tablenav-pages">';
+    if ($total !== null && $perPage !== null) {
+      echo '<span class="lm-pagination-summary">' . esc_html($this->get_pagination_range_text($paged, (int)$perPage, (int)$total)) . '</span> ';
+    }
     echo '<span class="displaying-num">Page ' . esc_html((string)$paged) . ' of ' . esc_html((string)$totalPages) . '</span> ';
 
     $prev = max(1, $paged - 1);
@@ -67,11 +90,14 @@ trait LM_Pagination_Helpers_Trait {
     echo '</div></div>';
   }
 
-  private function render_target_pagination($paged, $totalPages, $queryParams = []) {
+  private function render_target_pagination($paged, $totalPages, $queryParams = [], $total = null, $perPage = null) {
     if ($totalPages <= 1) return;
 
-    echo '<div class="tablenav" style="margin:10px 0;">';
+    echo '<div class="tablenav lm-pagination">';
     echo '<div class="tablenav-pages">';
+    if ($total !== null && $perPage !== null) {
+      echo '<span class="lm-pagination-summary">' . esc_html($this->get_pagination_range_text($paged, (int)$perPage, (int)$total)) . '</span> ';
+    }
     echo '<span class="displaying-num">Page ' . esc_html((string)$paged) . ' of ' . esc_html((string)$totalPages) . '</span> ';
 
     $prev = max(1, $paged - 1);
@@ -92,11 +118,41 @@ trait LM_Pagination_Helpers_Trait {
     echo '</div></div>';
   }
 
-  private function render_cited_domains_pagination($filters, $paged, $totalPages) {
+  private function render_query_pagination($pageSlug, $pageParam, $paged, $totalPages, $queryParams = [], $total = null, $perPage = null) {
     if ($totalPages <= 1) return;
 
-    echo '<div class="tablenav" style="margin:10px 0;">';
+    $paged = max(1, (int)$paged);
+    $totalPages = max(1, (int)$totalPages);
+    $prev = max(1, $paged - 1);
+    $next = min($totalPages, $paged + 1);
+    $baseParams = array_merge(['page' => $pageSlug], $queryParams);
+
+    $firstUrl = add_query_arg(array_merge($baseParams, [$pageParam => 1]), admin_url('admin.php'));
+    $prevUrl = add_query_arg(array_merge($baseParams, [$pageParam => $prev]), admin_url('admin.php'));
+    $nextUrl = add_query_arg(array_merge($baseParams, [$pageParam => $next]), admin_url('admin.php'));
+    $lastUrl = add_query_arg(array_merge($baseParams, [$pageParam => $totalPages]), admin_url('admin.php'));
+
+    echo '<div class="tablenav lm-pagination">';
     echo '<div class="tablenav-pages">';
+    if ($total !== null && $perPage !== null) {
+      echo '<span class="lm-pagination-summary">' . esc_html($this->get_pagination_range_text($paged, (int)$perPage, (int)$total)) . '</span> ';
+    }
+    echo '<span class="displaying-num">Page ' . esc_html((string)$paged) . ' of ' . esc_html((string)$totalPages) . '</span> ';
+    echo '<a class="button" href="' . esc_url($firstUrl) . '">&laquo; First</a> ';
+    echo '<a class="button" href="' . esc_url($prevUrl) . '">&lsaquo; Previous</a> ';
+    echo '<a class="button" href="' . esc_url($nextUrl) . '">Next &rsaquo;</a> ';
+    echo '<a class="button" href="' . esc_url($lastUrl) . '">Last &raquo;</a>';
+    echo '</div></div>';
+  }
+
+  private function render_cited_domains_pagination($filters, $paged, $totalPages, $total = null, $perPage = null) {
+    if ($totalPages <= 1) return;
+
+    echo '<div class="tablenav lm-pagination">';
+    echo '<div class="tablenav-pages">';
+    if ($total !== null && $perPage !== null) {
+      echo '<span class="lm-pagination-summary">' . esc_html($this->get_pagination_range_text($paged, (int)$perPage, (int)$total)) . '</span> ';
+    }
     echo '<span class="displaying-num">Page ' . esc_html((string)$paged) . ' of ' . esc_html((string)$totalPages) . '</span> ';
 
     $prev = max(1, $paged - 1);
@@ -110,11 +166,14 @@ trait LM_Pagination_Helpers_Trait {
     echo '</div></div>';
   }
 
-  private function render_all_anchor_text_pagination($filters, $paged, $totalPages) {
+  private function render_all_anchor_text_pagination($filters, $paged, $totalPages, $total = null, $perPage = null) {
     if ($totalPages <= 1) return;
 
-    echo '<div class="tablenav" style="margin:10px 0;">';
+    echo '<div class="tablenav lm-pagination">';
     echo '<div class="tablenav-pages">';
+    if ($total !== null && $perPage !== null) {
+      echo '<span class="lm-pagination-summary">' . esc_html($this->get_pagination_range_text($paged, (int)$perPage, (int)$total)) . '</span> ';
+    }
     echo '<span class="displaying-num">Page ' . esc_html((string)$paged) . ' of ' . esc_html((string)$totalPages) . '</span> ';
 
     $prev = max(1, $paged - 1);

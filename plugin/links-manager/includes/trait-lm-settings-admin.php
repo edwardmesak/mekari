@@ -28,25 +28,33 @@ trait LM_Settings_Admin_Trait {
     $autoPerformance = $this->get_auto_managed_performance_settings();
 
     echo '<div class="wrap lm-wrap">';
-    echo '<h1 class="lm-page-title">' . esc_html__('Links Manager - Settings', 'links-manager') . '</h1>';
+    $this->render_admin_page_header(
+      __('Links Manager - Settings', 'links-manager'),
+      __('Configure access, performance, data quality, and troubleshooting in a cleaner settings experience that still follows WordPress conventions.', 'links-manager')
+    );
     if ($msg !== '') echo '<div class="notice notice-' . esc_attr($msgClass) . '"><p>' . esc_html($msg) . '</p></div>';
 
     echo '<div class="lm-card lm-card-full">';
-    echo '<h2 class="nav-tab-wrapper" style="margin:0 0 12px;">';
+    echo '<div class="lm-settings-tabs">';
+    echo '<h2 class="nav-tab-wrapper">';
     echo '<a href="' . esc_url(admin_url('admin.php?page=links-manager-settings&lm_tab=general')) . '" class="nav-tab ' . ($activeTab === 'general' ? 'nav-tab-active' : '') . '"' . ($activeTab === 'general' ? ' aria-current="page"' : '') . '>' . esc_html__('General', 'links-manager') . '</a>';
     echo '<a href="' . esc_url(admin_url('admin.php?page=links-manager-settings&lm_tab=performance')) . '" class="nav-tab ' . ($activeTab === 'performance' ? 'nav-tab-active' : '') . '"' . ($activeTab === 'performance' ? ' aria-current="page"' : '') . '>' . esc_html__('Performance', 'links-manager') . '</a>';
     echo '<a href="' . esc_url(admin_url('admin.php?page=links-manager-settings&lm_tab=status')) . '" class="nav-tab ' . ($activeTab === 'status' ? 'nav-tab-active' : '') . '"' . ($activeTab === 'status' ? ' aria-current="page"' : '') . '>' . esc_html__('Status', 'links-manager') . '</a>';
     echo '<a href="' . esc_url(admin_url('admin.php?page=links-manager-settings&lm_tab=data')) . '" class="nav-tab ' . ($activeTab === 'data' ? 'nav-tab-active' : '') . '"' . ($activeTab === 'data' ? ' aria-current="page"' : '') . '>' . esc_html__('Data & Quality', 'links-manager') . '</a>';
     echo '<a href="' . esc_url(admin_url('admin.php?page=links-manager-settings&lm_tab=debug')) . '" class="nav-tab ' . ($activeTab === 'debug' ? 'nav-tab-active' : '') . '"' . ($activeTab === 'debug' ? ' aria-current="page"' : '') . '>' . esc_html__('Troubleshooting', 'links-manager') . '</a>';
     echo '</h2>';
+    echo '<div class="lm-settings-tabs__divider" aria-hidden="true"></div>';
+    echo '</div>';
     echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-top:10px;">';
     echo '<input type="hidden" name="action" value="lm_save_settings"/>';
     echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
     echo '<input type="hidden" name="lm_active_tab" value="' . esc_attr($activeTab) . '"/>';
 
     if ($activeTab === 'general') {
-      echo '<h2 style="margin-top:0;">' . esc_html__('Access Control', 'links-manager') . '</h2>';
-      echo '<div class="lm-small">' . esc_html__('Choose which user roles can use this plugin. Administrator is always allowed.', 'links-manager') . '</div>';
+      $this->render_admin_section_intro(
+        __('Access Control', 'links-manager'),
+        __('Choose which user roles can use this plugin. Administrator access always remains enabled.', 'links-manager')
+      );
       echo '<div style="' . esc_attr($settingsCardStyle) . '">';
       echo '<div class="lm-settings-role-grid">';
       $rolesMap = $this->get_all_roles_map();
@@ -69,8 +77,10 @@ trait LM_Settings_Admin_Trait {
     }
 
     if ($activeTab === 'performance') {
-    echo '<h2 style="margin-top:0;">' . esc_html__('Performance & Reliability', 'links-manager') . '</h2>';
-    echo '<div class="lm-small">' . esc_html__('Adjust how often data updates and how your server handles large scans.', 'links-manager') . '</div>';
+    $this->render_admin_section_intro(
+      __('Performance & Reliability', 'links-manager'),
+      __('Adjust how often data updates and how your server handles large scans.', 'links-manager')
+    );
     echo '<div style="margin-top:8px;">';
     echo '<div style="margin:0 0 12px; padding:10px; border-left:4px solid #2271b1; background:#f6f7f7;">';
     echo '<div style="font-weight:600; margin-bottom:4px;">' . esc_html__('What to Scan', 'links-manager') . '</div>';
@@ -412,26 +422,26 @@ trait LM_Settings_Admin_Trait {
       echo '<h2 style="margin-top:0;">' . esc_html__('Link Status Thresholds', 'links-manager') . '</h2>';
       echo '<div class="lm-small">' . esc_html__('Define status ranges for inbound, internal outbound, and external outbound links.', 'links-manager') . '</div>';
       echo '<div class="lm-small" style="margin-top:6px;">' . esc_html__('Tip: keep values ascending from left to right so status labels stay consistent.', 'links-manager') . '</div>';
-      echo '<p style="margin:12px 0 8px; font-weight:600;">Inbound Link Thresholds</p>';
+      echo '<p style="margin:12px 0 8px; font-weight:600;">Internal Inbound Link Thresholds</p>';
       echo '<div class="lm-small">Used in Pages Link status: Orphaned, Low, Standard, and Excellent.</div>';
       echo '<div style="margin-top:8px;">';
       echo '<div style="' . esc_attr($settingsCardStyle) . '">';
-      echo '<div class="lm-small" style="margin:0 0 8px;">These values control the status label for inbound links per page.</div>';
+      echo '<div class="lm-small" style="margin:0 0 8px;">These values control the status label for internal inbound links per page.</div>';
       echo '<div class="lm-settings-two-col">';
       echo '<p style="margin:0 0 10px;">';
-      echo '<label class="lm-small" style="' . esc_attr($settingsLabelStyle) . '">Orphaned if inbound links <=</label>';
+      echo '<label class="lm-small" style="' . esc_attr($settingsLabelStyle) . '">Orphaned if internal inbound links <=</label>';
       echo '<input type="number" name="lm_inbound_orphan_max" min="0" max="1000000" value="' . esc_attr((string)($settings['inbound_orphan_max'] ?? '0')) . '" style="width:110px;" />';
       echo '<span class="lm-small" style="margin-left:8px;">Default 0.</span>';
       echo '</p>';
 
       echo '<p style="margin:0 0 10px;">';
-      echo '<label class="lm-small" style="' . esc_attr($settingsLabelStyle) . '">Low if inbound links <=</label>';
+      echo '<label class="lm-small" style="' . esc_attr($settingsLabelStyle) . '">Low if internal inbound links <=</label>';
       echo '<input type="number" name="lm_inbound_low_max" min="0" max="1000000" value="' . esc_attr((string)($settings['inbound_low_max'] ?? '5')) . '" style="width:110px;" />';
       echo '<span class="lm-small" style="margin-left:8px;">Default 5.</span>';
       echo '</p>';
 
       echo '<p style="margin:0 0 6px;">';
-      echo '<label class="lm-small" style="' . esc_attr($settingsLabelStyle) . '">Standard if inbound links <=</label>';
+      echo '<label class="lm-small" style="' . esc_attr($settingsLabelStyle) . '">Standard if internal inbound links <=</label>';
       echo '<input type="number" name="lm_inbound_standard_max" min="0" max="1000000" value="' . esc_attr((string)($settings['inbound_standard_max'] ?? '10')) . '" style="width:110px;" />';
       echo '<span class="lm-small" style="margin-left:8px;">Excellent starts above this value.</span>';
       echo '</p>';
@@ -709,8 +719,6 @@ trait LM_Settings_Admin_Trait {
       $totalElapsedMs += isset($entry['elapsed_ms']) ? (float)$entry['elapsed_ms'] : 0.0;
     }
 
-    $entries = array_slice($entries, 0, 50);
-
     $slowestEntries = $entries;
     usort($slowestEntries, function($a, $b) {
       $aMs = isset($a['elapsed_ms']) ? (float)$a['elapsed_ms'] : 0.0;
@@ -750,13 +758,27 @@ trait LM_Settings_Admin_Trait {
     echo '</tbody>';
     echo '</table>';
 
+    $profileEntriesPerPage = 25;
+    $profileEntriesPaged = max(1, $this->request_int('lm_profile_entries_paged', 1));
+    $profileEntriesTotal = count($entries);
+    $profileEntriesTotalPages = max(1, (int)ceil(max(1, $profileEntriesTotal) / $profileEntriesPerPage));
+    if ($profileEntriesPaged > $profileEntriesTotalPages) {
+      $profileEntriesPaged = $profileEntriesTotalPages;
+    }
+    $profileEntriesOffset = ($profileEntriesPaged - 1) * $profileEntriesPerPage;
+    $pagedEntries = array_slice($entries, $profileEntriesOffset, $profileEntriesPerPage);
+    $profilePaginationParams = [
+      'lm_tab' => 'debug',
+    ];
+
     echo '<details>';
     echo '<summary style="cursor:pointer; font-weight:600;">Show Full Profile Entries</summary>';
     echo '<div style="margin-top:8px;">';
+    $this->render_query_pagination('links-manager-settings', 'lm_profile_entries_paged', $profileEntriesPaged, $profileEntriesTotalPages, $profilePaginationParams, $profileEntriesTotal, $profileEntriesPerPage);
     echo '<table class="widefat striped">';
     echo '<thead><tr><th>Phase</th><th style="width:120px;">Elapsed</th><th>Meta</th></tr></thead>';
     echo '<tbody>';
-    foreach ($entries as $entry) {
+    foreach ($pagedEntries as $entry) {
       $phase = isset($entry['name']) ? (string)$entry['name'] : '';
       $elapsedMs = isset($entry['elapsed_ms']) ? (string)$entry['elapsed_ms'] : '0';
       $meta = $this->format_debug_meta_for_display(isset($entry['meta']) ? $entry['meta'] : []);
@@ -768,6 +790,7 @@ trait LM_Settings_Admin_Trait {
     }
     echo '</tbody>';
     echo '</table>';
+    $this->render_query_pagination('links-manager-settings', 'lm_profile_entries_paged', $profileEntriesPaged, $profileEntriesTotalPages, $profilePaginationParams, $profileEntriesTotal, $profileEntriesPerPage);
     echo '</div>';
     echo '</details>';
     echo '</div>';

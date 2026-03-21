@@ -16,8 +16,10 @@ trait LM_Statistics_Admin_Trait {
     $msgClass = $this->notice_class_for_message($msg, 'info');
 
     echo '<div class="wrap lm-wrap">';
-    echo '<h1 class="lm-page-title">' . esc_html__('Links Manager - Statistics', 'links-manager') . '</h1>';
-    echo '<div class="lm-subtle">Summary of link performance and quality in published content.</div>';
+    $this->render_admin_page_header(
+      __('Links Manager - Statistics', 'links-manager'),
+      __('Summary of link performance, distribution, and anchor quality across your published content.', 'links-manager')
+    );
 
     if ($msg !== '') echo '<div class="notice notice-' . esc_attr($msgClass) . '"><p>' . esc_html($msg) . '</p></div>';
 
@@ -284,9 +286,13 @@ trait LM_Statistics_Admin_Trait {
     // Recent Change Log
     $audit_logs = $this->get_audit_log(10);
     if (!empty($audit_logs)) {
-      echo '<div style="margin-top:15px;">';
-      echo '<h3 style="margin:10px 0 6px;">Recent Change Log</h3>';
-      echo '<table class="widefat striped lm-audit-table" style="font-size:12px;">';
+      echo '<div class="lm-card lm-card-full lm-stack-sm">';
+      $this->render_admin_section_intro(
+        __('Recent Change Log', 'links-manager'),
+        __('Review the latest link updates recorded from the editor and bulk update tools.', 'links-manager')
+      );
+      echo '<div class="lm-table-wrap">';
+      echo '<table class="widefat striped lm-table lm-audit-table" style="font-size:12px;">';
       echo '<thead><tr>';
       echo $this->table_header_with_tooltip('', '#', 'Row number in current table.', 'left');
       echo $this->table_header_with_tooltip('', 'Time', 'Timestamp when the action was logged.', 'left');
@@ -306,13 +312,14 @@ trait LM_Statistics_Admin_Trait {
         echo '<td>' . esc_html((string)$log->user_name) . '</td>';
         echo '<td><small>' . esc_html((string)$log->action) . '</small></td>';
         echo '<td>' . esc_html((string)$log->post_id) . '</td>';
-        echo '<td><small style="max-width:150px; display:block; overflow:hidden; text-overflow:ellipsis;">' . esc_html((string)$log->old_url) . '</small></td>';
-        echo '<td><small style="max-width:150px; display:block; overflow:hidden; text-overflow:ellipsis;">' . esc_html((string)$log->new_url) . '</small></td>';
+        echo '<td><span class="lm-trunc" title="' . esc_attr((string)$log->old_url) . '">' . esc_html((string)$log->old_url) . '</span></td>';
+        echo '<td><span class="lm-trunc" title="' . esc_attr((string)$log->new_url) . '">' . esc_html((string)$log->new_url) . '</span></td>';
         echo '<td><span style="color:' . esc_attr($status_color) . '; font-weight:bold;">' . esc_html((string)$log->status) . '</span></td>';
         echo '</tr>';
         $auditRowNo++;
       }
       echo '</tbody></table>';
+      echo '</div>';
       echo '</div>';
     }
     

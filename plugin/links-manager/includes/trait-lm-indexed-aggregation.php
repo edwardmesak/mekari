@@ -304,7 +304,7 @@ trait LM_Indexed_Aggregation_Trait {
       $total = 0;
     }
 
-    $perPage = max(10, (int)($filters['per_page'] ?? 50));
+    $perPage = max(10, (int)($filters['per_page'] ?? 25));
     $paged = max(1, (int)($filters['paged'] ?? 1));
     $totalPages = max(1, (int)ceil($total / max(1, $perPage)));
     if ($paged > $totalPages) {
@@ -651,7 +651,7 @@ trait LM_Indexed_Aggregation_Trait {
       $total = 0;
     }
 
-    $perPage = max(10, (int)($filters['per_page'] ?? 50));
+    $perPage = max(10, (int)($filters['per_page'] ?? 25));
     $paged = max(1, (int)($filters['paged'] ?? 1));
     $totalPages = max(1, (int)ceil($total / max(1, $perPage)));
     if ($paged > $totalPages) {

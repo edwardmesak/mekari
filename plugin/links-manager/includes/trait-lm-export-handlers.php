@@ -88,8 +88,8 @@ trait LM_Export_Handlers_Trait {
       'Published Date',
       'Updated Date',
       'Page URL',
-      'Inbound',
-      'Inbound Status',
+      'Internal Inbound',
+      'Internal Inbound Status',
       'Internal Outbound',
       'Internal Outbound Status',
       'External Outbound',
@@ -341,6 +341,52 @@ trait LM_Export_Handlers_Trait {
         $row['total_outbound_pct'],
       ]);
     }
+
+    fclose($out);
+    exit;
+  }
+
+  public function handle_download_bulk_update_template() {
+    if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
+
+    $nonce = $this->request_text(self::NONCE_NAME, '');
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
+
+    $filename = 'links-manager-bulk-update-template.csv';
+
+    nocache_headers();
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+
+    $out = fopen('php://output', 'w');
+    fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+    $this->csv_write_row($out, [
+      'post_id',
+      'old_link',
+      'row_id',
+      'new_link',
+      'new_rel',
+      'new_anchor',
+    ]);
+
+    $this->csv_write_row($out, [
+      '123',
+      'https://example.com/old-url',
+      'lm_example_row_id_123',
+      'https://example.com/new-url',
+      'nofollow',
+      'Updated anchor text',
+    ]);
+
+    $this->csv_write_row($out, [
+      '456',
+      'https://example.com/another-url',
+      'lm_example_row_id_456',
+      '',
+      '',
+      'Keep URL but update anchor',
+    ]);
 
     fclose($out);
     exit;

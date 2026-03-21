@@ -55,11 +55,16 @@ trait LM_Cited_Domains_Admin_Trait {
     $offset = ($filters['paged'] - 1) * $perPage;
 
     echo '<div class="wrap lm-wrap">';
-    echo '<h1 class="lm-page-title">' . esc_html__('Links Manager - Cited External Domains', 'links-manager') . '</h1>';
-    echo '<div class="lm-subtle">List external domains most frequently cited from your published content.</div>';
+    $this->render_admin_page_header(
+      __('Links Manager - Cited External Domains', 'links-manager'),
+      __('Review the domains most often referenced from your content and refine outbound linking with faster filters.', 'links-manager')
+    );
 
     echo '<div class="lm-card lm-card-full">';
-    echo '<h2 style="margin-top:0;">' . esc_html__('Filter', 'links-manager') . '</h2>';
+    $this->render_admin_section_intro(
+      __('Filter', 'links-manager'),
+      __('Narrow the report by post scope, source, SEO flags, and citation thresholds.', 'links-manager')
+    );
     echo '<form method="get" action="' . esc_url(admin_url('admin.php')) . '">';
     echo '<input type="hidden" name="page" value="links-manager-cited-domains"/>';
     echo '<input type="hidden" name="lm_cd_paged" value="1"/>';
@@ -128,17 +133,19 @@ trait LM_Cited_Domains_Admin_Trait {
     echo '<tr><th scope="row">' . esc_html__('Per Page', 'links-manager') . '</th><td><input type="number" name="lm_cd_per_page" min="10" max="500" value="' . esc_attr((string)$filters['per_page']) . '" style="width:90px;" /></td></tr>';
     echo '<tr><th scope="row">' . esc_html__('Export', 'links-manager') . '</th><td><a class="button button-secondary" href="' . esc_url($exportUrl) . '">' . esc_html__('Export CSV', 'links-manager') . '</a><div class="lm-small">' . esc_html__('Export includes all filtered results and keeps source page + anchor text.', 'links-manager') . '</div></td></tr>';
     echo '</tbody></table>';
+    echo '<div class="lm-filter-actions">';
     submit_button(__('Apply Filters', 'links-manager'), 'primary', 'submit', false);
-    echo ' <a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-cited-domains')) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';
+    echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-cited-domains')) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';
+    echo '</div>';
     echo '</form>';
     echo '</div>';
 
-    echo '<div class="lm-card lm-card-full">';
-    echo '<div style="font-weight:bold;">Total: ' . esc_html((string)$total) . ' domains</div>';
-    echo '<div class="lm-small" style="margin-top:6px;"><strong>Column guide:</strong> Cited Count = total external link mentions to the domain. Unique Source Pages = number of unique source page URLs that cite the domain.</div>';
-    echo '</div>';
-
-    $this->render_cited_domains_pagination($filters, $filters['paged'], $totalPages);
+    $this->render_admin_section_intro(
+      __('Cited External Domains', 'links-manager'),
+      __('Review which external domains are referenced most often across the current filtered content set.', 'links-manager')
+    );
+    echo '<div class="lm-small" style="margin:0 0 10px;"><strong>' . sprintf(esc_html__('Total: %s domains', 'links-manager'), number_format_i18n((int)$total)) . '</strong></div>';
+    $this->render_cited_domains_pagination($filters, $filters['paged'], $totalPages, $total, $perPage);
     echo '<div class="lm-table-wrap">';
     echo '<table class="widefat striped lm-table">';
     echo '<thead><tr>';
@@ -171,7 +178,7 @@ trait LM_Cited_Domains_Admin_Trait {
     }
 
     echo '</tbody></table></div>';
-    $this->render_cited_domains_pagination($filters, $filters['paged'], $totalPages);
+    $this->render_cited_domains_pagination($filters, $filters['paged'], $totalPages, $total, $perPage);
     echo '</div>';
   }
 }

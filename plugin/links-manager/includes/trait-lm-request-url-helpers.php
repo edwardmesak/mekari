@@ -842,7 +842,7 @@ trait LM_Request_URL_Helpers_Trait {
       'max_pages' => $this->request_int_or_default($paramMap['max_pages'], -1, -1),
       'orderby' => $this->request_text($paramMap['orderby'], 'cites'),
       'order' => strtoupper($this->request_text($paramMap['order'], 'DESC')),
-      'per_page' => $this->request_int($paramMap['per_page'], 50),
+      'per_page' => $this->request_int($paramMap['per_page'], 25),
       'paged' => $this->request_int($paramMap['paged'], 1),
       'rebuild' => $this->request_bool_flag($paramMap['rebuild']),
     ];
@@ -901,7 +901,7 @@ trait LM_Request_URL_Helpers_Trait {
       'max_destinations' => $this->request_int_or_default($paramMap['max_destinations'], -1, -1),
       'orderby' => $this->request_text($paramMap['orderby'], 'total'),
       'order' => strtoupper($this->request_text($paramMap['order'], 'DESC')),
-      'per_page' => $this->request_int($paramMap['per_page'], 50),
+      'per_page' => $this->request_int($paramMap['per_page'], 25),
       'paged' => $this->request_int($paramMap['paged'], 1),
       'rebuild' => $this->request_bool_flag($paramMap['rebuild']),
     ];

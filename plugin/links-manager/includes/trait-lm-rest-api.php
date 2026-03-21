@@ -887,7 +887,7 @@ trait LM_REST_API_Trait {
 
     $response['rendered'] = [
       'tbody_html' => $this->get_pages_link_results_tbody_html($items),
-      'pagination_html' => $this->get_rest_pagination_html($paged, $totalPages),
+      'pagination_html' => $this->get_rest_pagination_html($paged, $totalPages, $total, (int)($pagination['per_page'] ?? ($filters['per_page'] ?? 25))),
       'total_text' => (string)$total,
       'summaries_html' => $this->get_pages_link_summaries_html($summaryPages, $filters),
     ];
@@ -905,13 +905,13 @@ trait LM_REST_API_Trait {
     $items = isset($response['items']) && is_array($response['items']) ? array_values($response['items']) : [];
     $paged = max(1, (int)($pagination['paged'] ?? 1));
     $totalPages = max(1, (int)($pagination['total_pages'] ?? 1));
-    $perPage = max(10, (int)($pagination['per_page'] ?? ($filters['per_page'] ?? 50)));
+    $perPage = max(10, (int)($pagination['per_page'] ?? ($filters['per_page'] ?? 25)));
     $total = max(0, (int)($pagination['total'] ?? count($items)));
     $hiddenFields = $this->get_editor_hidden_fields($filters, $perPage, $paged);
 
     $response['rendered'] = [
       'tbody_html' => $this->get_editor_results_tbody_html($items, $hiddenFields),
-      'pagination_html' => $this->get_rest_pagination_html($paged, $totalPages),
+      'pagination_html' => $this->get_rest_pagination_html($paged, $totalPages, $total, $perPage),
       'results_count_text' => $this->get_editor_results_count_text($total),
     ];
 

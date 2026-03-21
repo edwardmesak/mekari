@@ -64,14 +64,20 @@ trait LM_Editor_Admin_Trait {
     $editorHiddenFields = $this->get_editor_hidden_fields($filters, $perPage, $paged);
 
     echo '<div class="wrap lm-wrap">';
-    echo '<h1>' . esc_html__('Links Manager - Links Editor', 'links-manager') . '</h1>';
+    $this->render_admin_page_header(
+      __('Links Manager - Links Editor', 'links-manager'),
+      __('Audit, search, and update links from one workspace with cleaner filters, clearer hierarchy, and better responsiveness.', 'links-manager')
+    );
 
     if ($msg !== '') echo '<div class="notice notice-' . esc_attr($msgClass) . '"><p>' . esc_html($msg) . '</p></div>';
 
     echo '<div class="lm-grid">';
 
     echo '<div class="lm-card lm-card-full lm-card-grouping">';
-    echo '<h2 style="margin-top:0;">' . esc_html__('Filter', 'links-manager') . '</h2>';
+    $this->render_admin_section_intro(
+      __('Filter', 'links-manager'),
+      __('Search by destination, source, metadata, and quality signals before editing or exporting results.', 'links-manager')
+    );
     echo '<form method="get" action="">';
     echo '<input type="hidden" name="page" value="' . esc_attr(self::PAGE_SLUG) . '"/>';
 
@@ -221,35 +227,24 @@ trait LM_Editor_Admin_Trait {
 
     echo '</tbody></table>';
 
+    echo '<div class="lm-filter-actions">';
     submit_button(__('Apply Filters', 'links-manager'), 'primary', 'submit', false);
-    echo ' <a class="button" href="' . esc_url(admin_url('admin.php?page=' . self::PAGE_SLUG)) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';
+    echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=' . self::PAGE_SLUG)) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';
+    echo '</div>';
     echo '</form>';
     echo '</div>';
 
+    $bulkTemplateUrl = admin_url('admin-post.php?action=lm_download_bulk_update_template&' . self::NONCE_NAME . '=' . wp_create_nonce(self::NONCE_ACTION));
+
     echo '<div class="lm-card lm-card-full">';
-    echo '<h2 style="margin-top:0;">' . esc_html__('Bulk Update via CSV (Specific 1 Link)', 'links-manager') . '</h2>';
+    $this->render_admin_section_intro(
+      __('Bulk Update via CSV', 'links-manager'),
+      __('Download the template, fill it with precise row data, then upload it to update one tracked link per row.', 'links-manager')
+    );
 
-    echo '<div class="lm-small" style="margin-bottom:12px;">';
-    echo '<strong>CSV Format Requirements:</strong><br>';
-    echo '• <strong>Required headers:</strong> <code>post_id</code>, <code>old_link</code>, <code>row_id</code><br>';
-    echo '• <strong>Optional headers:</strong> <code>new_link</code>, <code>new_rel</code>, <code>new_anchor</code><br>';
-    echo '• Delimiter can be comma (,) or semicolon (;)<br>';
-    echo '• First row must be the header row<br>';
-    echo '• Encoding: UTF-8<br><br>';
-
-    echo '<strong>Example CSV content:</strong><br>';
-    echo '<code style="display:block; background:#f5f5f5; padding:8px; margin:4px 0; border-radius:4px; font-size:11px;">';
-    echo 'post_id,old_link,row_id,new_link,new_rel,new_anchor<br>';
-    echo '123,https://example.com/old,lm_abc123def4567890,https://example.com/new,nofollow,New Link Text<br>';
-    echo '456,https://site.com/page,lm_xyz789abc1234567,https://newsite.com/page,,Updated Anchor';
-    echo '</code>';
-
-    echo '<strong>Notes:</strong><br>';
-    echo '• Leave <code>new_link</code> empty to only update anchor text or rel<br>';
-    echo '• Leave <code>new_anchor</code> empty to keep existing anchor text<br>';
-    echo '• Leave <code>new_rel</code> empty to keep existing rel attributes<br>';
-    echo '• Export the current table to get correct <code>row_id</code> values<br>';
-    echo '• If content changes and target link no longer matches, the row will fail (fail-safe)<br>';
+    echo '<div class="lm-filter-actions">';
+    echo '<a class="button button-secondary" href="' . esc_url($bulkTemplateUrl) . '">' . esc_html__('Download Excel Template', 'links-manager') . '</a>';
+    echo '<div class="lm-small">' . esc_html__('Tip: export the current table first if you need real row_id values from existing links.', 'links-manager') . '</div>';
     echo '</div>';
 
     echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" enctype="multipart/form-data" style="margin-top:10px;">';
@@ -260,20 +255,25 @@ trait LM_Editor_Admin_Trait {
       echo '<input type="hidden" name="' . esc_attr($k) . '" value="' . esc_attr($val) . '"/>';
     }
 
+    echo '<div class="lm-filter-actions">';
     echo '<input type="file" name="lm_csv" accept=".csv" required /> ';
     submit_button(__('Run Bulk Update', 'links-manager'), 'secondary', 'submit', false);
+    echo '</div>';
     echo '</form>';
     echo '</div>';
 
     echo '</div>';
 
     echo '<div>';
-    echo '<h2><span>' . esc_html($this->get_editor_results_count_text($total)) . '</span></h2>';
+    $this->render_admin_section_intro(
+      $this->get_editor_results_count_text($total),
+      __('Review matching link rows, then update URLs, anchors, and rel values with safer row-level edits.', 'links-manager')
+    );
     echo '<div class="lm-small" style="margin:6px 0 10px;">';
     echo '<strong>Quality rule:</strong> ';
     echo esc_html($this->get_anchor_quality_status_help_text());
     echo '</div>';
-    $this->render_pagination($filters, $paged, $totalPages);
+    $this->render_pagination($filters, $paged, $totalPages, $total, $perPage);
 
     echo '<div class="lm-table-wrap">';
     echo '<table class="widefat striped lm-table">';
@@ -318,7 +318,7 @@ trait LM_Editor_Admin_Trait {
 
     echo '</tbody></table></div>';
 
-    $this->render_pagination($filters, $paged, $totalPages);
+    $this->render_pagination($filters, $paged, $totalPages, $total, $perPage);
 
     echo '<p class="lm-small" style="margin-top:12px;">Note: Per-row edit & bulk update only modify 1 link occurrence per row_id/occurrence. If content changes, the update is cancelled (fail-safe).</p>';
 
@@ -366,7 +366,7 @@ trait LM_Editor_Admin_Trait {
         return [
           'items' => array_values((array)$indexedFastResponse['items']),
           'total' => max(0, (int)($pagination['total'] ?? 0)),
-          'per_page' => max(10, (int)($pagination['per_page'] ?? ($filters['per_page'] ?? 50))),
+          'per_page' => max(10, (int)($pagination['per_page'] ?? ($filters['per_page'] ?? 25))),
           'paged' => max(1, (int)($pagination['paged'] ?? ($filters['paged'] ?? 1))),
           'total_pages' => max(1, (int)($pagination['total_pages'] ?? 1)),
           'data_source' => 'indexed_fastpath',
@@ -402,7 +402,7 @@ trait LM_Editor_Admin_Trait {
 
     $rows = $this->apply_filters_and_group($all, $filters);
     $total = count($rows);
-    $perPage = max(10, (int)($filters['per_page'] ?? 50));
+    $perPage = max(10, (int)($filters['per_page'] ?? 25));
     $requestedPage = max(1, (int)($filters['paged'] ?? 1));
     $totalPages = max(1, (int)ceil($total / $perPage));
     $paged = min($requestedPage, $totalPages);

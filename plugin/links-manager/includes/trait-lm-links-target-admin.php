@@ -61,7 +61,7 @@ trait LM_Links_Target_Admin_Trait {
     $summaryOrder = strtoupper($this->request_text('lm_summary_order', 'ASC'));
     if (!in_array($summaryOrder, ['ASC', 'DESC'], true)) $summaryOrder = 'ASC';
 
-    $summaryPerPage = $this->request_int('lm_summary_per_page', 50);
+    $summaryPerPage = $this->request_int('lm_summary_per_page', 25);
     if ($summaryPerPage < 10) $summaryPerPage = 10;
     if ($summaryPerPage > 500) $summaryPerPage = 500;
     $summaryPaged = $this->request_int('lm_summary_paged', 1);
@@ -124,7 +124,7 @@ trait LM_Links_Target_Admin_Trait {
       'lm_summary_out_max' => isset($summaryState['summary_out_max']) ? $summaryState['summary_out_max'] : '',
       'lm_summary_orderby' => isset($summaryState['summary_orderby']) ? $summaryState['summary_orderby'] : 'anchor',
       'lm_summary_order' => isset($summaryState['summary_order']) ? $summaryState['summary_order'] : 'ASC',
-      'lm_summary_per_page' => isset($summaryState['summary_per_page']) ? $summaryState['summary_per_page'] : 50,
+      'lm_summary_per_page' => isset($summaryState['summary_per_page']) ? $summaryState['summary_per_page'] : 25,
     ];
     foreach ($override as $key => $value) {
       $args[$key] = $value;
@@ -719,12 +719,18 @@ trait LM_Links_Target_Admin_Trait {
     }
 
     echo '<div class="wrap lm-wrap">';
-    echo '<h1 class="lm-page-title">Links Manager - Links Target</h1>';
+    $this->render_admin_page_header(
+      __('Links Manager - Links Target', 'links-manager'),
+      __('Manage anchor groups, target phrases, and usage summaries in one responsive workspace.', 'links-manager')
+    );
     if ($msg !== '') echo '<div class="notice notice-' . esc_attr($msgClass) . '"><p>' . esc_html($msg) . '</p></div>';
 
     echo '<div class="lm-grid">';
     echo '<div class="lm-card lm-card-full">';
-    echo '<h2 style="margin-top:0;">Anchor Grouping</h2>';
+    $this->render_admin_section_intro(
+      __('Anchor Text Target Grouping', 'links-manager'),
+      __('Review grouped anchors, total usage, and internal versus outbound usage before editing or exporting groups.', 'links-manager')
+    );
     echo '<form method="get" action="" style="margin:0 0 8px;">';
     echo '<input type="hidden" name="page" value="links-manager-target"/>';
     echo '<div class="lm-filter-grid">';
@@ -767,9 +773,11 @@ trait LM_Links_Target_Admin_Trait {
     echo '</div>';
     echo '</div>';
     echo '<div class="lm-filter-field lm-filter-field-full">';
+    echo '<div class="lm-filter-actions">';
     submit_button('Apply', 'secondary', 'submit', false);
-    echo ' <a class="button button-secondary" href="' . esc_url($groupingExportUrl) . '">Export CSV</a>';
-    echo ' <a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-target')) . '">Reset Filter</a>';
+    echo '<a class="button button-secondary" href="' . esc_url($groupingExportUrl) . '">Export CSV</a>';
+    echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-target')) . '">Reset Filter</a>';
+    echo '</div>';
     echo '</div>';
     echo '</div>';
     echo '</form>';
@@ -785,25 +793,10 @@ trait LM_Links_Target_Admin_Trait {
     echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
     submit_button('Delete Selected Groups', 'delete', 'submit', false, ['onclick' => "return confirm('Delete selected groups?');"]);
     echo '</form>';
-    echo '<div class="lm-table-wrap lm-summary-table-wrap">';
-    echo '<table class="widefat striped lm-table">';
-    echo '<thead><tr>';
-    echo '<th class="lm-col-block"><input type="checkbox" id="lm-select-all-groups" /></th>';
-    echo $this->table_header_with_tooltip('lm-col-postid', '#', 'Row number in current result page.', 'left');
-    echo $this->table_header_with_tooltip('lm-col-group', 'Group', 'Anchor group name.', 'left');
-    echo $this->table_header_with_tooltip('lm-col-count', 'Total Anchors', 'Number of anchors inside this group.');
-    echo $this->table_header_with_tooltip('lm-col-total', 'Total Usage Across All Pages (All Link Types)', 'Combined uses of all anchors in this group.');
-    echo $this->table_header_with_tooltip('lm-col-count', '%', 'Share of total usage among groups.');
-    echo $this->table_header_with_tooltip('lm-col-inlink', 'Total Use as Inlinks', 'Usage count when links are internal.');
-    echo $this->table_header_with_tooltip('lm-col-count', '%', 'Share of inlink usage among groups.');
-    echo $this->table_header_with_tooltip('lm-col-outbound', 'Total Use as Outbound', 'Usage count when links are outbound.');
-    echo $this->table_header_with_tooltip('lm-col-count', '%', 'Share of outbound usage among groups.');
-    echo $this->table_header_with_tooltip('lm-col-action', 'Action', 'Edit or delete actions for group.', 'right');
-    echo '</tr></thead><tbody>';
-
-    if (empty($groups)) {
-      echo '<tr><td colspan="10">No groups yet.</td></tr>';
-    } else {
+    $entries = [];
+    $groupUsage = [];
+    $groupIndexByName = [];
+    if (!empty($groups)) {
       foreach ($groups as $g) {
         $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
         foreach ($anchors as $a) {
@@ -826,46 +819,81 @@ trait LM_Links_Target_Admin_Trait {
       $entries = is_array($groupingPack['entries'] ?? null) ? $groupingPack['entries'] : [];
       $groupUsage = is_array($groupingPack['group_usage'] ?? null) ? $groupingPack['group_usage'] : [];
       $groupIndexByName = is_array($groupingPack['group_index_by_name'] ?? null) ? $groupingPack['group_index_by_name'] : [];
+    }
 
-      if (empty($entries)) {
-        echo '<tr><td colspan="11">No groups yet.</td></tr>';
-      } else {
-        $groupRowNo = 1;
-        foreach ($entries as $e) {
-          $gidx = isset($groupIndexByName[$e['name']]) ? (int)$groupIndexByName[$e['name']] : -1;
-          $editGroupUrl = $gidx >= 0 ? admin_url('admin.php?page=links-manager-target&lm_edit_group=' . $gidx) : '';
-          $delGroupUrl = $gidx >= 0 ? admin_url('admin-post.php?action=lm_delete_anchor_group&' . self::NONCE_NAME . '=' . wp_create_nonce(self::NONCE_ACTION) . '&lm_group_idx=' . $gidx) : '';
-          $gUsage = isset($groupUsage[$e['name']]) ? $groupUsage[$e['name']] : ['total' => 0, 'inlink' => 0, 'outbound' => 0];
-          echo '<tr>';
-          if ($gidx >= 0) {
-            echo '<td class="lm-col-block" style="text-align:center;"><input type="checkbox" class="lm-group-check" name="lm_group_indices[]" value="' . esc_attr((string)$gidx) . '" form="lm-bulk-delete-groups-form" /></td>';
-          } else {
-            echo '<td class="lm-col-block" style="text-align:center;">—</td>';
-          }
-          echo '<td class="lm-col-postid">' . esc_html((string)$groupRowNo) . '</td>';
-          echo '<td class="lm-col-group"><span class="lm-trunc" title="' . esc_attr($e['name']) . '">' . esc_html($e['name']) . '</span></td>';
-          echo '<td class="lm-col-count" style="text-align:center;">' . esc_html((string)$e['count']) . '</td>';
-          echo '<td class="lm-col-total">' . esc_html((string)$gUsage['total']) . '</td>';
-          $pctLabel = number_format((float)$e['base'], 1);
-          echo '<td class="lm-col-count" style="text-align:center;">' . esc_html($pctLabel) . '%</td>';
-          echo '<td class="lm-col-inlink">' . esc_html((string)$gUsage['inlink']) . '</td>';
-          $pctInlinkLabel = number_format((float)$e['rawInlink'], 1);
-          echo '<td class="lm-col-count" style="text-align:center;">' . esc_html($pctInlinkLabel) . '%</td>';
-          echo '<td class="lm-col-outbound">' . esc_html((string)$gUsage['outbound']) . '</td>';
-          $pctOutboundLabel = number_format((float)$e['baseOutbound'], 1);
-          echo '<td class="lm-col-count" style="text-align:center;">' . esc_html($pctOutboundLabel) . '%</td>';
-          if ($gidx >= 0) {
-            echo '<td class="lm-col-action"><a class="button button-small" href="' . esc_url($editGroupUrl) . '">Edit</a> <a class="button button-small" href="' . esc_url($delGroupUrl) . '">Delete</a></td>';
-          } else {
-            echo '<td class="lm-col-action">—</td>';
-          }
-          echo '</tr>';
-          $groupRowNo++;
+    $groupPerPage = 25;
+    $groupPaged = max(1, $this->request_int('lm_group_paged', 1));
+    $groupTotal = count($entries);
+    $groupTotalPages = max(1, (int)ceil(max(1, $groupTotal) / $groupPerPage));
+    if ($groupPaged > $groupTotalPages) {
+      $groupPaged = $groupTotalPages;
+    }
+    $groupOffset = ($groupPaged - 1) * $groupPerPage;
+    $groupEntries = array_slice($entries, $groupOffset, $groupPerPage);
+    $groupPaginationParams = [
+      'lm_group_orderby' => $groupOrderby,
+      'lm_group_order' => $groupOrder,
+      'lm_group_search' => $groupSearch,
+      'lm_group_search_mode' => $groupSearchMode,
+      'lm_group_filter' => $groupFilterSelected,
+    ];
+
+    $this->render_query_pagination('links-manager-target', 'lm_group_paged', $groupPaged, $groupTotalPages, $groupPaginationParams, $groupTotal, $groupPerPage);
+    echo '<div class="lm-table-wrap lm-summary-table-wrap">';
+    echo '<table class="widefat striped lm-table">';
+    echo '<thead><tr>';
+    echo '<th class="lm-col-block"><input type="checkbox" id="lm-select-all-groups" /></th>';
+    echo $this->table_header_with_tooltip('lm-col-postid', '#', 'Row number in current result page.', 'left');
+    echo $this->table_header_with_tooltip('lm-col-group', 'Group', 'Anchor group name.', 'left');
+    echo $this->table_header_with_tooltip('lm-col-count', 'Total Anchors', 'Number of anchors inside this group.');
+    echo $this->table_header_with_tooltip('lm-col-total', 'Total Usage Across All Pages (All Link Types)', 'Combined uses of all anchors in this group.');
+    echo $this->table_header_with_tooltip('lm-col-count', '%', 'Share of total usage among groups.');
+    echo $this->table_header_with_tooltip('lm-col-inlink', 'Total Use as Inlinks', 'Usage count when links are internal.');
+    echo $this->table_header_with_tooltip('lm-col-count', '%', 'Share of inlink usage among groups.');
+    echo $this->table_header_with_tooltip('lm-col-outbound', 'Total Use as Outbound', 'Usage count when links are outbound.');
+    echo $this->table_header_with_tooltip('lm-col-count', '%', 'Share of outbound usage among groups.');
+    echo $this->table_header_with_tooltip('lm-col-action', 'Action', 'Edit or delete actions for group.', 'right');
+    echo '</tr></thead><tbody>';
+
+    if (empty($entries)) {
+      echo '<tr><td colspan="11">No groups yet.</td></tr>';
+    } else {
+      $groupRowNo = $groupOffset + 1;
+      foreach ($groupEntries as $e) {
+        $gidx = isset($groupIndexByName[$e['name']]) ? (int)$groupIndexByName[$e['name']] : -1;
+        $editGroupUrl = $gidx >= 0 ? admin_url('admin.php?page=links-manager-target&lm_edit_group=' . $gidx) : '';
+        $delGroupUrl = $gidx >= 0 ? admin_url('admin-post.php?action=lm_delete_anchor_group&' . self::NONCE_NAME . '=' . wp_create_nonce(self::NONCE_ACTION) . '&lm_group_idx=' . $gidx) : '';
+        $gUsage = isset($groupUsage[$e['name']]) ? $groupUsage[$e['name']] : ['total' => 0, 'inlink' => 0, 'outbound' => 0];
+        echo '<tr>';
+        if ($gidx >= 0) {
+          echo '<td class="lm-col-block" style="text-align:center;"><input type="checkbox" class="lm-group-check" name="lm_group_indices[]" value="' . esc_attr((string)$gidx) . '" form="lm-bulk-delete-groups-form" /></td>';
+        } else {
+          echo '<td class="lm-col-block" style="text-align:center;">—</td>';
         }
+        echo '<td class="lm-col-postid">' . esc_html((string)$groupRowNo) . '</td>';
+        echo '<td class="lm-col-group"><span class="lm-trunc" title="' . esc_attr($e['name']) . '">' . esc_html($e['name']) . '</span></td>';
+        echo '<td class="lm-col-count" style="text-align:center;">' . esc_html((string)$e['count']) . '</td>';
+        echo '<td class="lm-col-total">' . esc_html((string)$gUsage['total']) . '</td>';
+        $pctLabel = number_format((float)$e['base'], 1);
+        echo '<td class="lm-col-count" style="text-align:center;">' . esc_html($pctLabel) . '%</td>';
+        echo '<td class="lm-col-inlink">' . esc_html((string)$gUsage['inlink']) . '</td>';
+        $pctInlinkLabel = number_format((float)$e['rawInlink'], 1);
+        echo '<td class="lm-col-count" style="text-align:center;">' . esc_html($pctInlinkLabel) . '%</td>';
+        echo '<td class="lm-col-outbound">' . esc_html((string)$gUsage['outbound']) . '</td>';
+        $pctOutboundLabel = number_format((float)$e['baseOutbound'], 1);
+        echo '<td class="lm-col-count" style="text-align:center;">' . esc_html($pctOutboundLabel) . '%</td>';
+        if ($gidx >= 0) {
+          echo '<td class="lm-col-action"><a class="button button-small" href="' . esc_url($editGroupUrl) . '">Edit</a> <a class="button button-small" href="' . esc_url($delGroupUrl) . '">Delete</a></td>';
+        } else {
+          echo '<td class="lm-col-action">—</td>';
+        }
+        echo '</tr>';
+        $groupRowNo++;
       }
     }
 
     echo '</tbody></table></div>';
+    $this->render_query_pagination('links-manager-target', 'lm_group_paged', $groupPaged, $groupTotalPages, $groupPaginationParams, $groupTotal, $groupPerPage);
 
     $editGroupIdx = $this->request_int('lm_edit_group', -1);
     if ($editGroupIdx >= 0 && isset($groups[$editGroupIdx])) {
@@ -887,8 +915,10 @@ trait LM_Links_Target_Admin_Trait {
     echo '</div>';
 
     echo '<div class="lm-card lm-card-target">';
-    echo '<h2 style="margin-top:0;">' . esc_html__('Target Anchor Text', 'links-manager') . '</h2>';
-    echo '<div class="lm-small">Targets are checked across all public posts/pages.</div>';
+    $this->render_admin_section_intro(
+      __('Target Anchor Text', 'links-manager'),
+      __('Add anchor targets to monitor across public content, either as plain phrases or grouped entries.', 'links-manager')
+    );
     echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-top:8px;" enctype="multipart/form-data">';
     echo '<input type="hidden" name="action" value="lm_save_anchor_targets"/>';
     echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
@@ -923,7 +953,10 @@ trait LM_Links_Target_Admin_Trait {
 
     echo '</div>';
     echo '<div class="lm-card lm-card-summary lm-card-full">';
-    echo '<h2 style="margin-top:0;">' . esc_html__('Anchor Target Summary', 'links-manager') . '</h2>';
+    $this->render_admin_section_intro(
+      __('Anchor Text Target', 'links-manager'),
+      __('Review tracked targets, grouped coverage, and usage totals across the current filtered content set.', 'links-manager')
+    );
     echo '<form id="lm-bulk-delete-targets-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:0 0 8px;">';
     echo '<input type="hidden" name="action" value="lm_bulk_delete_anchor_targets"/>';
     echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
@@ -1297,7 +1330,7 @@ trait LM_Links_Target_Admin_Trait {
 
     $paginationParams = $this->get_links_target_summary_query_args($summaryState);
     unset($paginationParams['page']);
-    $this->render_target_pagination($summaryPaged, $totalPages, $paginationParams);
+    $this->render_target_pagination($summaryPaged, $totalPages, $paginationParams, $totalFiltered, $summaryPerPage);
 
     echo '</div>';
     echo '<script>

@@ -139,13 +139,19 @@ trait LM_Pages_Link_Admin_Trait {
     }
 
     echo '<div class="wrap lm-wrap">';
-    echo '<h1>' . esc_html__('Links Manager - Pages Link', 'links-manager') . '</h1>';
+    $this->render_admin_page_header(
+      __('Links Manager - Pages Link', 'links-manager'),
+      __('Track inbound and outbound link coverage per page with a friendlier layout and filters that remain fast to scan.', 'links-manager')
+    );
 
     if ($msg !== '') echo '<div class="notice notice-' . esc_attr($msgClass) . '"><p>' . esc_html($msg) . '</p></div>';
 
     echo '<div class="lm-grid">';
     echo '<div class="lm-card lm-card-full lm-card-grouping">';
-    echo '<h2 style="margin-top:0;">' . esc_html__('Filter', 'links-manager') . '</h2>';
+    $this->render_admin_section_intro(
+      __('Filter', 'links-manager'),
+      __('Filter by content type, author, dates, and link characteristics to focus on the pages that need attention.', 'links-manager')
+    );
     echo '<form method="get" action="">';
     echo '<input type="hidden" name="page" value="links-manager-pages-link"/>';
 
@@ -242,12 +248,12 @@ trait LM_Pages_Link_Admin_Trait {
     echo '<option value="post_type"' . selected($filters['orderby'], 'post_type', false) . '>Post Type</option>';
     echo '<option value="author"' . selected($filters['orderby'], 'author', false) . '>Author</option>';
     echo '<option value="page_url"' . selected($filters['orderby'], 'page_url', false) . '>Page URL</option>';
-    echo '<option value="inbound"' . selected($filters['orderby'], 'inbound', false) . '>Inbound</option>';
+    echo '<option value="inbound"' . selected($filters['orderby'], 'inbound', false) . '>Internal Inbound</option>';
     echo '<option value="internal_outbound"' . selected($filters['orderby'], 'internal_outbound', false) . '>Internal Outbound</option>';
     echo '<option value="internal_outbound_status"' . selected($filters['orderby'], 'internal_outbound_status', false) . '>Internal Outbound Status</option>';
     echo '<option value="outbound"' . selected($filters['orderby'], 'outbound', false) . '>External Outbound</option>';
     echo '<option value="external_outbound_status"' . selected($filters['orderby'], 'external_outbound_status', false) . '>External Outbound Status</option>';
-    echo '<option value="status"' . selected($filters['orderby'], 'status', false) . '>Inbound Status</option>';
+    echo '<option value="status"' . selected($filters['orderby'], 'status', false) . '>Internal Inbound Status</option>';
     echo '</select> ';
     echo '<select name="lm_pages_link_order">';
     echo '<option value="DESC"' . selected($filters['order'], 'DESC', false) . '>DESC</option>';
@@ -255,7 +261,7 @@ trait LM_Pages_Link_Admin_Trait {
     echo '</select>';
     echo '</td></tr>';
 
-    echo '<tr><th scope="row">Inbound Min/Max</th><td>';
+    echo '<tr><th scope="row">Internal Inbound Min/Max</th><td>';
     $inMin = $filters['inbound_min'] < 0 ? '' : (string)$filters['inbound_min'];
     $inMax = $filters['inbound_max'] < 0 ? '' : (string)$filters['inbound_max'];
     echo '<input type="number" name="lm_pages_link_inbound_min" value="' . esc_attr($inMin) . '" placeholder="min" style="width:90px;" /> ';
@@ -276,7 +282,7 @@ trait LM_Pages_Link_Admin_Trait {
     echo '<input type="number" name="lm_pages_link_outbound_max" value="' . esc_attr($outMax) . '" placeholder="max" style="width:90px;" />';
     echo '</td></tr>';
 
-    echo '<tr><th scope="row">Inbound Status</th><td>';
+    echo '<tr><th scope="row">Internal Inbound Status</th><td>';
     echo '<select name="lm_pages_link_status">';
     echo '<option value="any"' . selected($filters['status'], 'any', false) . '>All</option>';
     echo '<option value="orphan"' . selected($filters['status'], 'orphan', false) . '>Orphaned</option>';
@@ -320,17 +326,13 @@ trait LM_Pages_Link_Admin_Trait {
     echo '</td></tr>';
 
     echo '</tbody></table>';
+    echo '<div class="lm-filter-actions">';
     submit_button(__('Apply Filters', 'links-manager'), 'primary', 'submit', false);
-    echo ' <a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-pages-link')) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';
+    echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-pages-link')) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';
+    echo '</div>';
     echo '</form>';
     echo '</div>';
 
-    echo '<div class="lm-card lm-card-full">';
-    echo '<div class="lm-small">List of pages/posts with link counts from content, excerpt, and post meta fields.</div>';
-    echo '<div class="lm-small" style="margin-top:4px;">Inbound = number of internal links from other published pages/posts pointing to this page.</div>';
-    echo '<div class="lm-small" style="margin-top:2px;">Internal Outbound = number of internal links going out from this page.</div>';
-    echo '<div class="lm-small" style="margin-top:2px;">External Outbound = number of external links going out from this page.</div>';
-    echo '<div class="lm-small" style="margin-top:4px;">Excluded from counting: WordPress Navigation Menu links (Appearance -> Menus, including header/footer/secondary menu locations), self-links (a page linking to itself for inbound), links from non-published content, and internal links whose destination does not match a tracked published page URL.</div>';
     $statusThresholds = $this->get_inbound_status_thresholds();
     $orphanMax = (int)$statusThresholds['orphan_max'];
     $lowMax = (int)$statusThresholds['low_max'];
@@ -341,12 +343,13 @@ trait LM_Pages_Link_Admin_Trait {
     $orphanLabel = ($orphanMax === 0) ? '0' : ('0-' . $orphanMax);
     $lowLabel = ($lowMin <= $lowMax) ? ($lowMin . '-' . $lowMax) : (string)$lowMax;
     $standardLabel = ($standardMin <= $standardMax) ? ($standardMin . '-' . $standardMax) : (string)$standardMax;
-    echo '<div style="margin-top:8px; font-weight:bold;">Total: ' . esc_html((string)$total) . '</div>';
-    echo '</div>';
     echo '</div>'; // grid
 
     echo '<div class="lm-card lm-card-full">';
-    echo '<h2 style="margin-top:0;">' . esc_html__('Inbound Status Summary', 'links-manager') . '</h2>';
+    $this->render_admin_section_intro(
+      __('Internal Inbound Status Summary', 'links-manager'),
+      __('See how many published pages receive links from other internal published pages.', 'links-manager')
+    );
     echo '<div class="lm-small" style="margin-bottom:6px;">Status reference: Orphaned = ' . esc_html((string)$orphanLabel) . ', Low = ' . esc_html((string)$lowLabel) . ', Standard = ' . esc_html((string)$standardLabel) . ', Excellent = ' . esc_html((string)$excellentMin) . '+.</div>';
     echo '<div class="lm-table-wrap lm-summary-table-wrap">';
     echo '<table class="widefat striped lm-table">';
@@ -379,7 +382,10 @@ trait LM_Pages_Link_Admin_Trait {
     echo '</div>';
 
     echo '<div class="lm-card lm-card-full">';
-    echo '<h2 style="margin-top:0;">' . esc_html__('Internal Outbound Status Summary', 'links-manager') . '</h2>';
+    $this->render_admin_section_intro(
+      __('Internal Outbound Status Summary', 'links-manager'),
+      __('See how many published pages link to other internal published pages.', 'links-manager')
+    );
     echo '<div class="lm-small" style="margin-bottom:8px;">Status reference: None = ' . esc_html((string)$internalOutboundRanges['none']) . ', Low = ' . esc_html((string)$internalOutboundRanges['low']) . ', Optimal = ' . esc_html((string)$internalOutboundRanges['optimal']) . ', Excessive = ' . esc_html((string)$internalOutboundRanges['excessive']) . '.</div>';
     echo '<div class="lm-table-wrap lm-summary-table-wrap">';
     echo '<table class="widefat striped lm-table">';
@@ -413,7 +419,10 @@ trait LM_Pages_Link_Admin_Trait {
     echo '</div>';
 
     echo '<div class="lm-card lm-card-full">';
-    echo '<h2 style="margin-top:0;">' . esc_html__('External Outbound Status Summary', 'links-manager') . '</h2>';
+    $this->render_admin_section_intro(
+      __('External Outbound Status Summary', 'links-manager'),
+      __('See how many published pages link to pages on external websites.', 'links-manager')
+    );
     echo '<div class="lm-small" style="margin-bottom:8px;">Status reference: None = ' . esc_html((string)$externalOutboundRanges['none']) . ', Low = ' . esc_html((string)$externalOutboundRanges['low']) . ', Optimal = ' . esc_html((string)$externalOutboundRanges['optimal']) . ', Excessive = ' . esc_html((string)$externalOutboundRanges['excessive']) . '.</div>';
     echo '<div class="lm-table-wrap lm-summary-table-wrap">';
     echo '<table class="widefat striped lm-table">';
@@ -446,7 +455,12 @@ trait LM_Pages_Link_Admin_Trait {
     echo '</tbody></table></div>';
     echo '</div>';
 
-    $this->render_pages_link_pagination($filters, $paged, $totalPages);
+    $this->render_admin_section_intro(
+      __('Pages Link Results', 'links-manager'),
+      __('Review published pages and posts with internal inbound, internal outbound, and external outbound link totals.', 'links-manager')
+    );
+    echo '<div class="lm-small" style="margin:0 0 10px;">' . esc_html__('Excluded: WordPress menu links, self-links, non-published content links, and unmatched internal destinations.', 'links-manager') . ' <strong>' . esc_html__('Total:', 'links-manager') . '</strong> ' . esc_html((string)$total) . '</div>';
+    $this->render_pages_link_pagination($filters, $paged, $totalPages, $total, $perPage);
     echo '<div class="lm-table-wrap">';
     echo '<table class="widefat striped lm-table">';
     echo '<thead><tr>';
@@ -458,8 +472,8 @@ trait LM_Pages_Link_Admin_Trait {
     echo $this->table_header_with_tooltip('lm-col-date', 'Published Date', 'Original publish timestamp.');
     echo $this->table_header_with_tooltip('lm-col-date', 'Updated Date', 'Latest modified timestamp.');
     echo $this->table_header_with_tooltip('lm-col-pageurl', 'Page URL', 'URL of the source page.');
-    echo $this->table_header_with_tooltip('lm-col-count', 'Inbound', 'Internal links from other pages pointing to this page.');
-    echo $this->table_header_with_tooltip('lm-col-quality', 'Inbound Status', 'Inbound health label based on inbound count.');
+    echo $this->table_header_with_tooltip('lm-col-count', 'Internal Inbound', 'Internal links from other pages pointing to this page.');
+    echo $this->table_header_with_tooltip('lm-col-quality', 'Internal Inbound Status', 'Internal inbound health label based on inbound count.');
     echo $this->table_header_with_tooltip('lm-col-count', 'Internal Outbound', 'Internal links going out from this page.');
     echo $this->table_header_with_tooltip('lm-col-quality', 'Internal Outbound Status', 'Status label based on internal outbound count and configured thresholds.');
     echo $this->table_header_with_tooltip('lm-col-outbound', 'External Outbound', 'External links going out from this page.');
@@ -470,7 +484,7 @@ trait LM_Pages_Link_Admin_Trait {
     echo $this->get_pages_link_results_tbody_html($pageRows, (($paged - 1) * $perPage) + 1);
 
     echo '</tbody></table></div>';
-    $this->render_pages_link_pagination($filters, $paged, $totalPages);
+    $this->render_pages_link_pagination($filters, $paged, $totalPages, $total, $perPage);
     echo '</div>';
   }
 
@@ -606,7 +620,10 @@ trait LM_Pages_Link_Admin_Trait {
     ob_start();
 
     echo '<div class="lm-card lm-card-full">';
-    echo '<h2 style="margin-top:0;">' . esc_html__('Inbound Status Summary', 'links-manager') . '</h2>';
+    $this->render_admin_section_intro(
+      __('Internal Inbound Status Summary', 'links-manager'),
+      __('See how many published pages receive links from other internal published pages.', 'links-manager')
+    );
     echo '<div class="lm-small" style="margin-bottom:6px;">Status reference: Orphaned = ' . esc_html((string)$orphanLabel) . ', Low = ' . esc_html((string)$lowLabel) . ', Standard = ' . esc_html((string)$standardLabel) . ', Excellent = ' . esc_html((string)$excellentMin) . '+.</div>';
     echo '<div class="lm-table-wrap lm-summary-table-wrap"><table class="widefat striped lm-table"><thead><tr><th>#</th><th>Status</th><th>Total Page URLs</th><th>%</th></tr></thead><tbody>';
     $summaryRowNo = 1;
@@ -630,7 +647,10 @@ trait LM_Pages_Link_Admin_Trait {
     echo '</tbody></table></div></div>';
 
     echo '<div class="lm-card lm-card-full">';
-    echo '<h2 style="margin-top:0;">' . esc_html__('Internal Outbound Status Summary', 'links-manager') . '</h2>';
+    $this->render_admin_section_intro(
+      __('Internal Outbound Status Summary', 'links-manager'),
+      __('See how many published pages link to other internal published pages.', 'links-manager')
+    );
     echo '<div class="lm-small" style="margin-bottom:8px;">Status reference: None = ' . esc_html((string)$internalOutboundRanges['none']) . ', Low = ' . esc_html((string)$internalOutboundRanges['low']) . ', Optimal = ' . esc_html((string)$internalOutboundRanges['optimal']) . ', Excessive = ' . esc_html((string)$internalOutboundRanges['excessive']) . '.</div>';
     echo '<div class="lm-table-wrap lm-summary-table-wrap"><table class="widefat striped lm-table"><thead><tr><th>#</th><th>Status</th><th>Total Page URLs</th><th>%</th></tr></thead><tbody>';
     $internalSummaryRowNo = 1;
@@ -655,7 +675,10 @@ trait LM_Pages_Link_Admin_Trait {
     echo '</tbody></table></div></div>';
 
     echo '<div class="lm-card lm-card-full">';
-    echo '<h2 style="margin-top:0;">' . esc_html__('External Outbound Status Summary', 'links-manager') . '</h2>';
+    $this->render_admin_section_intro(
+      __('External Outbound Status Summary', 'links-manager'),
+      __('See how many published pages link to pages on external websites.', 'links-manager')
+    );
     echo '<div class="lm-small" style="margin-bottom:8px;">Status reference: None = ' . esc_html((string)$externalOutboundRanges['none']) . ', Low = ' . esc_html((string)$externalOutboundRanges['low']) . ', Optimal = ' . esc_html((string)$externalOutboundRanges['optimal']) . ', Excessive = ' . esc_html((string)$externalOutboundRanges['excessive']) . '.</div>';
     echo '<div class="lm-table-wrap lm-summary-table-wrap"><table class="widefat striped lm-table"><thead><tr><th>#</th><th>Status</th><th>Total Page URLs</th><th>%</th></tr></thead><tbody>';
     $externalSummaryRowNo = 1;

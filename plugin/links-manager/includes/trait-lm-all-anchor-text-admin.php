@@ -96,11 +96,16 @@ trait LM_All_Anchor_Text_Admin_Trait {
     }
 
     echo '<div class="wrap lm-wrap">';
-    echo '<h1 class="lm-page-title">' . esc_html__('Links Manager - All Anchor Text', 'links-manager') . '</h1>';
-    echo '<div class="lm-subtle">All anchor text usage across Inlink and Outbound categories.</div>';
+    $this->render_admin_page_header(
+      __('Links Manager - All Anchor Text', 'links-manager'),
+      __('Explore anchor text usage across internal and external links, then spot overused, weak, or missing patterns more quickly.', 'links-manager')
+    );
 
     echo '<div class="lm-card lm-card-full">';
-    echo '<h2 style="margin-top:0;">' . esc_html__('Filter', 'links-manager') . '</h2>';
+    $this->render_admin_section_intro(
+      __('Filter', 'links-manager'),
+      __('Filter by scope, quality, group, and usage type to focus on the anchor patterns that matter.', 'links-manager')
+    );
     echo '<form method="get" action="">';
     echo '<input type="hidden" name="page" value="links-manager-all-anchor-text"/>';
     echo '<table class="form-table lm-filter-table" role="presentation"><tbody>';
@@ -210,19 +215,18 @@ trait LM_All_Anchor_Text_Admin_Trait {
     echo '<tr><th scope="row">' . esc_html__('Per Page', 'links-manager') . '</th><td><input type="number" name="lm_at_per_page" min="10" max="500" value="' . esc_attr((string)$filters['per_page']) . '" style="width:90px;" /></td></tr>';
     echo '<tr><th scope="row">' . esc_html__('Export', 'links-manager') . '</th><td><a class="button button-secondary" href="' . esc_url($exportUrl) . '">' . esc_html__('Export CSV', 'links-manager') . '</a><div class="lm-small">' . esc_html__('Export includes all filtered results.', 'links-manager') . '</div></td></tr>';
     echo '</tbody></table>';
+    echo '<div class="lm-filter-actions">';
     submit_button(__('Apply Filters', 'links-manager'), 'primary', 'submit', false);
-    echo ' <a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-all-anchor-text')) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';
+    echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-all-anchor-text')) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';
+    echo '</div>';
     echo '</form>';
     echo '</div>';
 
-    echo '<div class="lm-card lm-card-full">';
+    echo '<div class="lm-card lm-card-full lm-stack-sm">';
     echo '<div style="font-weight:bold;">Total: ' . esc_html((string)$total) . ' anchor texts</div>';
-    echo '<div class="lm-small" style="margin-top:6px;">';
+    echo '<div class="lm-small">';
     echo '<strong>Quality rule:</strong> ';
     echo esc_html($this->get_anchor_quality_status_help_text());
-    echo '</div>';
-    echo '<div class="lm-small" style="margin-top:6px;">';
-    echo '<strong>Column guide:</strong> Unique Source Pages = number of unique source page URLs using the anchor text. Unique Destination URLs = number of unique target URLs linked by the anchor text.';
     echo '</div>';
     $quickFilters = [
       'any' => 'All',
@@ -230,19 +234,20 @@ trait LM_All_Anchor_Text_Admin_Trait {
       'inlink_only' => 'Inlink Only',
       'outbound_only' => 'Outbound Only',
     ];
-    echo '<div style="margin-top:8px;">';
+    echo '<div class="lm-quick-actions">';
     foreach ($quickFilters as $k => $label) {
       $btnClass = ((string)$filters['usage_type'] === (string)$k) ? 'button button-primary' : 'button button-secondary';
       $url = $this->all_anchor_text_admin_url($filters, ['lm_at_usage_type' => $k, 'lm_at_paged' => 1]);
-      echo '<a class="' . esc_attr($btnClass) . '" href="' . esc_url($url) . '" style="margin-right:6px; margin-top:4px;">' . esc_html($label) . '</a>';
+      echo '<a class="' . esc_attr($btnClass) . '" href="' . esc_url($url) . '">' . esc_html($label) . '</a>';
     }
     echo '</div>';
     echo '</div>';
 
-    echo '<div class="lm-card lm-card-full">';
-    echo '<h2 style="margin-top:0;">' . esc_html__('Anchor Text Summary', 'links-manager') . '</h2>';
-    echo '<div class="lm-small" style="margin-bottom:8px;">Based on current filtered results.</div>';
-    echo '<div class="lm-small" style="margin-bottom:8px;">Quality status: ' . esc_html($this->get_anchor_quality_status_help_text()) . '</div>';
+    echo '<div class="lm-card lm-card-full lm-stack-sm">';
+    $this->render_admin_section_intro(
+      __('Anchor Text Summary', 'links-manager'),
+      __('Compare anchor quality distribution across the current filtered anchor set.', 'links-manager')
+    );
     echo '<div class="lm-table-wrap lm-summary-table-wrap">';
     echo '<table class="widefat striped lm-table">';
     echo '<thead><tr>';
@@ -277,8 +282,11 @@ trait LM_All_Anchor_Text_Admin_Trait {
     echo '</tbody></table></div>';
     echo '</div>';
 
-    echo '<div class="lm-small" style="margin:0 0 8px;"><strong>Quality status:</strong> Good = descriptive anchor text (3-100 chars), Poor = weak/generic or length issue, Bad = empty anchor text.</div>';
-    $this->render_all_anchor_text_pagination($filters, $filters['paged'], $totalPages);
+    $this->render_admin_section_intro(
+      __('Anchor Text Results', 'links-manager'),
+      __('Review anchor usage totals, source coverage, destination variety, and quality for each phrase.', 'links-manager')
+    );
+    $this->render_all_anchor_text_pagination($filters, $filters['paged'], $totalPages, $total, $perPage);
     echo '<div class="lm-table-wrap">';
     echo '<table class="widefat striped lm-table">';
     echo '<thead><tr>';
@@ -324,7 +332,7 @@ trait LM_All_Anchor_Text_Admin_Trait {
     }
 
     echo '</tbody></table></div>';
-    $this->render_all_anchor_text_pagination($filters, $filters['paged'], $totalPages);
+    $this->render_all_anchor_text_pagination($filters, $filters['paged'], $totalPages, $total, $perPage);
     echo '</div>';
   }
 }

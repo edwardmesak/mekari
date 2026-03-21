@@ -754,7 +754,7 @@ trait LM_Indexed_Datastore_Trait {
     if (is_array($allowedPostIds)) {
       $allowedIds = array_values(array_map('intval', array_keys($allowedPostIds)));
       if (empty($allowedIds)) {
-        return ['items' => [], 'pagination' => ['total' => 0, 'per_page' => 10, 'paged' => 1, 'total_pages' => 1]];
+        return ['items' => [], 'pagination' => ['total' => 0, 'per_page' => 25, 'paged' => 1, 'total_pages' => 1]];
       }
       $inPlaceholders = implode(',', array_fill(0, count($allowedIds), '%d'));
       $whereParts[] = "post_id IN ($inPlaceholders)";
