@@ -108,6 +108,13 @@ trait LM_Diagnostics_Trait {
 
     $forceProfile = $this->request_bool_flag('lm_profile');
     $this->runtime_profile_enabled = $forceProfile || (defined('WP_DEBUG') && WP_DEBUG);
+    if ($this->runtime_profile_enabled && $this->runtime_profile_request_started_at === null) {
+      $requestStartedAt = isset($_SERVER['REQUEST_TIME_FLOAT']) ? (float)$_SERVER['REQUEST_TIME_FLOAT'] : microtime(true);
+      if ($requestStartedAt <= 0) {
+        $requestStartedAt = microtime(true);
+      }
+      $this->runtime_profile_request_started_at = $requestStartedAt;
+    }
     return (bool)$this->runtime_profile_enabled;
   }
 
@@ -220,7 +227,26 @@ trait LM_Diagnostics_Trait {
   }
 
   public function persist_runtime_profile() {
-    if (!$this->is_runtime_profile_enabled() || empty($this->runtime_profile_entries)) {
+    if (!$this->is_runtime_profile_enabled()) {
+      return;
+    }
+
+    if (empty($this->runtime_profile_entries)) {
+      $startedAt = ($this->runtime_profile_request_started_at !== null)
+        ? (float)$this->runtime_profile_request_started_at
+        : (isset($_SERVER['REQUEST_TIME_FLOAT']) ? (float)$_SERVER['REQUEST_TIME_FLOAT'] : microtime(true));
+      if ($startedAt > 0) {
+        $requestPage = $this->request_text('page', '');
+        $requestAction = $this->request_text('action', '');
+        $this->profile_end('request_total', $startedAt, [
+          'request_page' => $requestPage,
+          'request_action' => $requestAction,
+          'fallback' => '1',
+        ]);
+      }
+    }
+
+    if (empty($this->runtime_profile_entries)) {
       return;
     }
 

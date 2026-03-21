@@ -117,6 +117,7 @@ class LM_Links_Manager {
   private $crawl_runtime_stats = null;
   private $runtime_profile_entries = [];
   private $runtime_profile_enabled = null;
+  private $runtime_profile_request_started_at = null;
   private $rest_response_runtime_cache = [];
   private $rest_response_cache_hits = 0;
   private $rest_response_cache_misses = 0;
@@ -950,24 +951,23 @@ class LM_Links_Manager {
       const rebuildRoot = document.getElementById('lm-rest-rebuild-controls');
       if (rebuildRoot) {
         const runBtn = rebuildRoot.querySelector('[data-lm-rest-rebuild-run]');
-        const refreshBtn = rebuildRoot.querySelector('[data-lm-rest-rebuild-refresh]');
         const statusEl = rebuildRoot.querySelector('[data-lm-rest-rebuild-status]');
         const progressEl = rebuildRoot.querySelector('[data-lm-rest-rebuild-progress]');
         const metaEl = rebuildRoot.querySelector('[data-lm-rest-rebuild-meta]');
         const barEl = rebuildRoot.querySelector('[data-lm-rest-rebuild-bar]');
-        const batchInput = rebuildRoot.querySelector('[data-lm-rest-rebuild-batch]');
         const config = (window.LM_REBUILD_REST && typeof window.LM_REBUILD_REST === 'object') ? window.LM_REBUILD_REST : null;
 
         let loopTimer = null;
         let isLooping = false;
+        const scopePostType = (config && config.scope_post_type) ? String(config.scope_post_type) : 'any';
+        const scopeWpmlLang = (config && config.scope_wpml_lang) ? String(config.scope_wpml_lang) : 'all';
+        const scopeLabel = (config && config.scope_label) ? String(config.scope_label) : 'all scopes / all languages';
 
         const setRunningUi = (running) => {
           if (runBtn) {
             runBtn.disabled = !!running;
-            runBtn.textContent = running ? 'Rebuilding...' : 'Start / Continue REST Rebuild';
+            runBtn.textContent = running ? 'Refreshing...' : 'Refresh Data Now';
           }
-          if (refreshBtn) refreshBtn.disabled = !!running;
-          if (batchInput) batchInput.disabled = !!running;
         };
 
         const setStatusText = (text, isError) => {
@@ -989,14 +989,14 @@ class LM_Links_Manager {
             } else if (status === 'running' || status === 'done') {
               progressEl.textContent = processed.toLocaleString() + ' posts processed';
             } else {
-              progressEl.textContent = " . wp_json_encode(__('No active rebuild job.', 'links-manager')) . ";
+              progressEl.textContent = " . wp_json_encode(__('No active refresh job.', 'links-manager')) . ";
             }
           }
 
           if (metaEl) {
             const updatedAt = state && state.updated_at ? String(state.updated_at) : '-';
             const batch = Math.max(0, parseInt((state && state.batch_size) ? state.batch_size : 0, 10) || 0);
-            metaEl.textContent = 'Status: ' + status + ' | Rows: ' + rows.toLocaleString() + ' | Batch: ' + (batch > 0 ? batch.toLocaleString() : '-') + ' | Updated: ' + updatedAt;
+            metaEl.textContent = 'Scope: ' + scopeLabel + ' | Status: ' + status + ' | Rows: ' + rows.toLocaleString() + ' | Batch: ' + (batch > 0 ? batch.toLocaleString() : '-') + ' | Updated: ' + updatedAt;
           }
 
           if (barEl) {
@@ -1035,25 +1035,19 @@ class LM_Links_Manager {
             });
         };
 
-        const getRequestedBatch = () => {
-          if (!batchInput) return 0;
-          const val = parseInt(batchInput.value, 10);
-          return Number.isFinite(val) && val > 0 ? val : 0;
-        };
-
         const refreshStatus = () => {
           return apiCall('/rebuild/status', 'GET')
             .then(state => {
               updateProgress(state || {});
               const status = String((state && state.status) ? state.status : 'idle');
               if (status === 'running') {
-                setStatusText('Rebuild job is running. You can continue it now.', false);
+                setStatusText('Refresh is running for ' + scopeLabel + '. Progress updates will appear automatically.', false);
               } else if (status === 'done') {
-                setStatusText('Rebuild finished. Cache is updated.', false);
+                setStatusText('Refresh finished for ' + scopeLabel + '. Cached data is up to date.', false);
               } else if (status === 'error') {
-                setStatusText('Rebuild failed: ' + String((state && state.last_error) ? state.last_error : 'Unknown error'), true);
+                setStatusText('Refresh failed: ' + String((state && state.last_error) ? state.last_error : 'Unknown error'), true);
               } else {
-                setStatusText(" . wp_json_encode(__('No active rebuild job.', 'links-manager')) . ", false);
+                setStatusText(" . wp_json_encode(__('No active refresh job.', 'links-manager')) . ", false);
               }
               return state;
             });
@@ -1065,16 +1059,12 @@ class LM_Links_Manager {
           setRunningUi(true);
 
           const iterate = () => {
-            const payload = {};
-            const batch = getRequestedBatch();
-            if (batch > 0) payload.batch = batch;
-
-            apiCall('/rebuild/step', 'POST', payload)
+            apiCall('/rebuild/step', 'POST', {})
               .then(state => {
                 updateProgress(state || {});
                 const status = String((state && state.status) ? state.status : 'idle');
                 if (status === 'running') {
-                  setStatusText('Rebuild in progress...', false);
+                  setStatusText('Refresh in progress for ' + scopeLabel + '...', false);
                   const hinted = parseInt((state && state.poll_ms) ? state.poll_ms : 400, 10);
                   const delay = Number.isFinite(hinted) ? Math.max(200, Math.min(5000, hinted)) : 400;
                   loopTimer = window.setTimeout(iterate, delay);
@@ -1084,17 +1074,17 @@ class LM_Links_Manager {
                 isLooping = false;
                 setRunningUi(false);
                 if (status === 'done') {
-                  setStatusText('Rebuild finished. Cache is updated.', false);
+                  setStatusText('Refresh finished for ' + scopeLabel + '. Cached data is up to date.', false);
                 } else if (status === 'error') {
-                  setStatusText('Rebuild failed: ' + String((state && state.last_error) ? state.last_error : 'Unknown error'), true);
+                  setStatusText('Refresh failed: ' + String((state && state.last_error) ? state.last_error : 'Unknown error'), true);
                 } else {
-                  setStatusText(" . wp_json_encode(__('No active rebuild job. Press Start to create one.', 'links-manager')) . ", false);
+                  setStatusText(" . wp_json_encode(__('No active refresh job.', 'links-manager')) . ", false);
                 }
               })
               .catch(err => {
                 isLooping = false;
                 setRunningUi(false);
-                setStatusText('REST step error: ' + err.message, true);
+                setStatusText('Refresh error: ' + err.message, true);
               });
           };
 
@@ -1109,10 +1099,10 @@ class LM_Links_Manager {
               loopTimer = null;
             }
 
-            setStatusText('Starting rebuild job...', false);
+            setStatusText('Starting refresh for ' + scopeLabel + '...', false);
             const startPayload = {
-              post_type: 'any',
-              wpml_lang: 'all',
+              post_type: scopePostType,
+              wpml_lang: scopeWpmlLang,
             };
 
             apiCall('/rebuild/start', 'POST', startPayload)
@@ -1120,31 +1110,22 @@ class LM_Links_Manager {
                 updateProgress(state || {});
                 const status = String((state && state.status) ? state.status : 'idle');
                 if (status === 'done') {
-                  setStatusText('Rebuild finished immediately. Cache is updated.', false);
+                  setStatusText('Refresh finished immediately for ' + scopeLabel + '.', false);
                   setRunningUi(false);
                   return;
                 }
                 if (status === 'error') {
-                  setStatusText('Failed to start rebuild: ' + String((state && state.last_error) ? state.last_error : 'Unknown error'), true);
+                  setStatusText('Failed to start refresh: ' + String((state && state.last_error) ? state.last_error : 'Unknown error'), true);
                   setRunningUi(false);
                   return;
                 }
-                setStatusText('Rebuild started. Processing chunks...', false);
+                setStatusText('Refresh started for ' + scopeLabel + '. Processing chunks...', false);
                 runStepLoop();
               })
               .catch(err => {
                 setRunningUi(false);
-                setStatusText('REST start error: ' + err.message, true);
+                setStatusText('Refresh error: ' + err.message, true);
               });
-          });
-        }
-
-        if (refreshBtn) {
-          refreshBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            refreshStatus().catch(err => {
-              setStatusText('REST status error: ' + err.message, true);
-            });
           });
         }
 
@@ -1163,206 +1144,19 @@ class LM_Links_Manager {
           .replace(/'/g, '&#39;');
       };
 
-      const selfTestRoot = document.querySelector('[data-lm-rest-self-test-root]');
-      if (selfTestRoot) {
-        const selfTestRunBtn = selfTestRoot.querySelector('[data-lm-rest-self-test-run]');
-        const selfTestDeepRunBtn = selfTestRoot.querySelector('[data-lm-rest-self-test-deep-run]');
-        const selfTestDeepIterationsInput = selfTestRoot.querySelector('[data-lm-rest-self-test-deep-iterations]');
-        const selfTestDeepPerPageInput = selfTestRoot.querySelector('[data-lm-rest-self-test-deep-per-page]');
-        const selfTestStatus = selfTestRoot.querySelector('[data-lm-rest-self-test-status]');
-        const selfTestSummary = selfTestRoot.querySelector('[data-lm-rest-self-test-summary]');
-        const selfTestModes = selfTestRoot.querySelector('[data-lm-rest-self-test-modes]');
-        const selfTestResults = selfTestRoot.querySelector('[data-lm-rest-self-test-results]');
-
-        const readBoundedInt = (inputEl, fallbackValue, minValue, maxValue) => {
-          const raw = parseInt((inputEl && inputEl.value) ? inputEl.value : String(fallbackValue), 10);
-          const normalized = Number.isFinite(raw) ? raw : fallbackValue;
-          return Math.max(minValue, Math.min(maxValue, normalized));
-        };
-
-        const setSelfTestStatus = (msg, isError) => {
-          if (!selfTestStatus) return;
-          selfTestStatus.textContent = String(msg || '');
-          selfTestStatus.style.color = isError ? '#b32d2e' : '#1d2327';
-        };
-
-        const renderSelfTestRows = (rows) => {
-          if (!selfTestResults) return;
-          const list = Array.isArray(rows) ? rows : [];
-          if (!list.length) {
-            selfTestResults.innerHTML = '<tr><td colspan=\"4\">' + " . wp_json_encode(esc_html__('No results returned.', 'links-manager')) . " + '</td></tr>';
-            return;
-          }
-
-          selfTestResults.innerHTML = list.map((row) => {
-            const name = escHtml((row && row.name) ? row.name : 'Unnamed check');
-            const status = String((row && row.status) ? row.status : 'fail').toLowerCase();
-            const statusLabel = status === 'pass' ? 'PASS' : 'FAIL';
-            const statusColor = status === 'pass' ? '#00a32a' : '#b32d2e';
-            const durationMs = parseInt((row && row.duration_ms) ? row.duration_ms : 0, 10) || 0;
-            const details = escHtml((row && row.details) ? row.details : '');
-
-            return '<tr>'
-              + '<td>' + name + '</td>'
-              + '<td><strong style=\"color:' + statusColor + ';\">' + statusLabel + '</strong></td>'
-              + '<td>' + escHtml(String(durationMs)) + ' ms</td>'
-              + '<td>' + details + '</td>'
-              + '</tr>';
-          }).join('');
-        };
-
-        const renderSelfTestExecutionModes = (modeSummary) => {
-          if (!selfTestModes) return;
-
-          const summaryObj = (modeSummary && typeof modeSummary === 'object') ? modeSummary : {};
-          const endpointOrder = [
-            ['pages_link_list', 'Pages Link'],
-            ['editor_list', 'Editor'],
-          ];
-
-          const endpointBlocks = endpointOrder.map((entry) => {
-            const key = entry[0];
-            const label = entry[1];
-            const counts = (summaryObj[key] && typeof summaryObj[key] === 'object') ? summaryObj[key] : {};
-            const modeKeys = Object.keys(counts);
-            if (!modeKeys.length) {
-              return '<div style=\"margin:0 0 6px;\"><strong>' + escHtml(label) + ':</strong> <span class=\"lm-small\" style=\"color:#646970;\">n/a</span></div>';
-            }
-
-            modeKeys.sort();
-            const badges = modeKeys.map((modeKey) => {
-              const modeLabel = escHtml(String(modeKey || 'unknown'));
-              const count = parseInt(counts[modeKey], 10) || 0;
-              return '<span style=\"display:inline-block; margin:2px 6px 2px 0; padding:2px 8px; border:1px solid #c3c4c7; border-radius:999px; background:#f6f7f7; font-size:11px;\">'
-                + modeLabel + ': ' + escHtml(String(count))
-                + '</span>';
-            }).join('');
-
-            return '<div style=\"margin:0 0 6px;\"><strong>' + escHtml(label) + ':</strong> ' + badges + '</div>';
-          }).join('');
-
-          selfTestModes.innerHTML = endpointBlocks || '<span class=\"lm-small\" style=\"color:#646970;\">No execution mode stats available.</span>';
-        };
-
-        const runSelfTestMode = (mode) => {
-            const isDeep = mode === 'deep';
-            const activeBtn = isDeep ? selfTestDeepRunBtn : selfTestRunBtn;
-            const idleBtn = isDeep ? selfTestRunBtn : selfTestDeepRunBtn;
-            if (!activeBtn) return;
-
-            activeBtn.disabled = true;
-            if (idleBtn) idleBtn.disabled = true;
-            setSelfTestStatus(isDeep ? 'Running Deep Test...' : 'Running...', false);
-            if (selfTestSummary) {
-              selfTestSummary.textContent = isDeep
-                ? 'Executing deep endpoint probes...'
-                : 'Executing diagnostic checks...';
-            }
-            renderSelfTestExecutionModes({});
-            renderSelfTestRows([]);
-
-            const endpoint = restConfig && restConfig.base
-              ? String(restConfig.base).replace(/\/$/, '') + (isDeep ? '/self-test/deep' : '/self-test/run')
-              : '';
-            if (!endpoint) {
-              setSelfTestStatus('FAIL', true);
-              if (selfTestSummary) {
-                selfTestSummary.textContent = 'Self-test cannot start: REST config unavailable.';
-              }
-              activeBtn.disabled = false;
-              if (idleBtn) idleBtn.disabled = false;
-              return;
-            }
-
-            const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-            const timeoutMs = isDeep ? 60000 : 30000;
-            const timeoutId = window.setTimeout(function() {
-              if (controller) {
-                controller.abort();
-              }
-            }, timeoutMs);
-
-            fetch(endpoint, {
-              method: 'POST',
-              headers: {
-                'X-WP-Nonce': String(restConfig.nonce),
-                'Content-Type': 'application/json',
-              },
-              credentials: 'same-origin',
-              body: JSON.stringify(isDeep
-                ? {
-                    iterations: readBoundedInt(selfTestDeepIterationsInput, 3, 1, 5),
-                    per_page: readBoundedInt(selfTestDeepPerPageInput, 20, 5, 50),
-                  }
-                : { sample_size: 1 }),
-              signal: controller ? controller.signal : undefined,
-            })
-              .then(r => {
-                if (!r.ok) {
-                  return r.text().then(t => {
-                    throw new Error(t || ('HTTP ' + r.status));
-                  });
-                }
-                return r.json();
-              })
-              .then(data => {
-                const payload = (data && typeof data === 'object') ? data : {};
-                const summary = (payload.summary && typeof payload.summary === 'object') ? payload.summary : {};
-                const total = parseInt((summary && summary.total) ? summary.total : 0, 10) || 0;
-                const passed = parseInt((summary && summary.passed) ? summary.passed : 0, 10) || 0;
-                const failed = parseInt((summary && summary.failed) ? summary.failed : 0, 10) || 0;
-                const duration = parseInt((summary && summary.duration_ms) ? summary.duration_ms : 0, 10) || 0;
-                const status = String((payload && payload.status) ? payload.status : 'fail').toLowerCase();
-                const generatedAt = (payload && payload.generated_at) ? String(payload.generated_at) : '-';
-                const modeLabel = isDeep ? 'Deep Test' : 'Self-Test';
-
-                setSelfTestStatus(status === 'pass' ? 'PASS' : 'FAIL', status !== 'pass');
-                if (selfTestSummary) {
-                  selfTestSummary.textContent = modeLabel + ' result: ' + status.toUpperCase() + ' | Passed ' + passed + '/' + total + ' | Failed ' + failed + ' | Duration ' + duration + ' ms | Generated at ' + generatedAt;
-                }
-                const executionModes = (summary && summary.execution_modes && typeof summary.execution_modes === 'object') ? summary.execution_modes : {};
-                renderSelfTestExecutionModes(executionModes);
-                renderSelfTestRows(payload.results);
-              })
-              .catch(err => {
-                setSelfTestStatus('FAIL', true);
-                if (selfTestSummary) {
-                  const timedOut = err && (err.name === 'AbortError');
-                  selfTestSummary.textContent = timedOut
-                    ? ((isDeep ? 'Deep test' : 'Self-test') + ' timeout after ' + Math.round(timeoutMs / 1000) + 's.')
-                    : ((isDeep ? 'Deep test' : 'Self-test') + ' request failed: ' + err.message);
-                }
-                renderSelfTestExecutionModes({});
-                renderSelfTestRows([]);
-              })
-              .finally(() => {
-                window.clearTimeout(timeoutId);
-                activeBtn.disabled = false;
-                if (idleBtn) idleBtn.disabled = false;
-              });
-        };
-
-        if (selfTestRunBtn) {
-          selfTestRunBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            runSelfTestMode('light');
-          });
-        }
-
-        if (selfTestDeepRunBtn) {
-          selfTestDeepRunBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            runSelfTestMode('deep');
-          });
-        }
-      }
     });
     ";
     wp_register_script('lm-admin-js', false);
     wp_enqueue_script('lm-admin-js');
+    $rebuildScopeWpmlLang = 'all';
+    $rebuildScopePostType = 'any';
+    $rebuildScopeLabel = __('all scopes / all languages', 'links-manager');
     wp_add_inline_script('lm-admin-js', 'window.LM_REBUILD_REST = ' . wp_json_encode([
       'base' => esc_url_raw(rest_url('links-manager/v1')),
       'nonce' => wp_create_nonce('wp_rest'),
+      'scope_post_type' => $rebuildScopePostType,
+      'scope_wpml_lang' => $rebuildScopeWpmlLang,
+      'scope_label' => $rebuildScopeLabel,
     ]) . ';', 'before');
     wp_add_inline_script('lm-admin-js', $js);
   }

@@ -8,6 +8,10 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Cache_Rebuild_Trait {
+  private function count_cache_post_ids($post_types, $wpml_lang = 'all', $modified_after_gmt = '') {
+    return count($this->query_cache_post_ids($post_types, $wpml_lang, $modified_after_gmt));
+  }
+
   private function query_cache_post_ids($post_types, $wpml_lang = 'all', $modified_after_gmt = '') {
     $post_types = array_values(array_unique(array_map('sanitize_key', (array)$post_types)));
     $scanAuthorIds = $this->get_enabled_scan_author_ids();
@@ -339,47 +343,6 @@ trait LM_Cache_Rebuild_Trait {
     return $batch;
   }
 
-  private function get_recommended_performance_settings() {
-    $recommendedBatch = min(self::CRAWL_POST_BATCH, $this->get_runtime_max_crawl_batch());
-    return [
-      'stats_snapshot_ttl_min' => '360',
-      'rest_response_cache_ttl_sec' => '120',
-      'cache_rebuild_mode' => 'incremental',
-      'crawl_post_batch' => (string)$recommendedBatch,
-      'scan_source_types' => ['content', 'excerpt', 'menu'],
-      'scan_value_types' => $this->get_default_scan_value_types(),
-      'scan_wpml_langs' => ['all'],
-      'scan_post_category_ids' => [],
-      'scan_post_tag_ids' => [],
-      'scan_author_ids' => [],
-      'scan_modified_within_days' => '0',
-      'scan_exclude_url_patterns' => implode("\n", $this->get_default_scan_exclude_url_patterns()),
-      'max_posts_per_rebuild' => '0',
-    ];
-  }
-
-  private function get_low_memory_performance_settings() {
-    $safeBatch = min(20, $this->get_runtime_max_crawl_batch());
-    if ($safeBatch < 20) $safeBatch = $this->get_runtime_max_crawl_batch();
-    if ($safeBatch < 1) $safeBatch = 1;
-
-    return [
-      'stats_snapshot_ttl_min' => '1440',
-      'rest_response_cache_ttl_sec' => '300',
-      'cache_rebuild_mode' => 'incremental',
-      'crawl_post_batch' => (string)$safeBatch,
-      'scan_source_types' => ['content'],
-      'scan_value_types' => $this->get_default_scan_value_types(),
-      'scan_wpml_langs' => ['all'],
-      'scan_post_category_ids' => [],
-      'scan_post_tag_ids' => [],
-      'scan_author_ids' => [],
-      'scan_modified_within_days' => '0',
-      'scan_exclude_url_patterns' => implode("\n", $this->get_default_scan_exclude_url_patterns()),
-      'max_posts_per_rebuild' => '500',
-    ];
-  }
-
   private function get_default_scan_exclude_url_patterns() {
     return [
       '/blog/category/',
@@ -388,26 +351,6 @@ trait LM_Cache_Rebuild_Trait {
       '/careers/',
       '/reviewer/',
     ];
-  }
-
-  private function get_performance_preset_options() {
-    return [
-      'custom' => 'Custom',
-      'speed' => 'Optimize for Speed',
-      'low_memory' => 'Low Memory Mode',
-    ];
-  }
-
-  private function get_performance_preset_description($presetKey) {
-    switch ((string)$presetKey) {
-      case 'speed':
-        return __('Higher throughput with larger batches and a shorter refresh cadence.', 'links-manager');
-      case 'low_memory':
-        return __('Safer defaults for small hosting plans with tighter memory limits.', 'links-manager');
-      case 'custom':
-      default:
-        return __('Uses the values you set manually below.', 'links-manager');
-    }
   }
 
   private function four_level_status_label($key) {

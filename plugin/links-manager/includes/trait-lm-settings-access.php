@@ -13,7 +13,7 @@ trait LM_Settings_Access_Trait {
 
     $defaults = [
       'debug_mode' => '0',
-      'performance_preset' => 'custom',
+      'performance_preset' => 'auto',
       'scan_exclude_defaults_initialized' => '0',
       'stats_snapshot_ttl_min' => (string)(int)(self::STATS_SNAPSHOT_TTL / MINUTE_IN_SECONDS),
       'rest_response_cache_ttl_sec' => '90',
@@ -51,9 +51,7 @@ trait LM_Settings_Access_Trait {
 
     $opt['debug_mode'] = (isset($opt['debug_mode']) && (string)$opt['debug_mode'] === '1') ? '1' : '0';
     $opt['scan_exclude_defaults_initialized'] = (isset($opt['scan_exclude_defaults_initialized']) && (string)$opt['scan_exclude_defaults_initialized'] === '1') ? '1' : '0';
-    $presetOptions = $this->get_performance_preset_options();
-    $preset = isset($opt['performance_preset']) ? sanitize_key((string)$opt['performance_preset']) : 'custom';
-    $opt['performance_preset'] = isset($presetOptions[$preset]) ? $preset : 'custom';
+    $opt['performance_preset'] = 'auto';
     if (!isset($opt['scan_post_types']) || !is_array($opt['scan_post_types'])) {
       $opt['scan_post_types'] = $this->get_default_scan_post_types($availablePostTypes);
     }
