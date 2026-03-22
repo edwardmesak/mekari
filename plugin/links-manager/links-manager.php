@@ -282,7 +282,7 @@ class LM_Links_Manager {
     if (!in_array($hook, $allowed, true) && !in_array($currentPage, $allowedPages, true)) return;
 
     $css = "
-    .lm-wrap{max-width:100%; padding:8px 12px 96px 0;}
+    .lm-wrap{max-width:100%; padding:8px 12px 96px 0; --lm-table-sticky-top:32px;}
     .lm-page-hero{
       display:flex;
       align-items:flex-start;
@@ -306,8 +306,9 @@ class LM_Links_Manager {
     .lm-section-title{margin:0; font-size:18px; line-height:1.3; font-weight:650; color:#0f172a;}
     .lm-section-description{margin:0; color:#5b6776; font-size:13px; line-height:1.55;}
     .lm-table-wrap{
-      overflow-x:auto;
-      overflow-y:visible;
+      position:relative;
+      overflow:auto;
+      max-height:calc(100vh - 180px);
       width:100%;
       border:1px solid #d9e1e8;
       background:#fff;
@@ -317,6 +318,7 @@ class LM_Links_Manager {
     .lm-summary-table-wrap{
       width:100%;
       max-width:none;
+      max-height:none;
       display:block;
       box-sizing:border-box;
     }
@@ -328,20 +330,28 @@ class LM_Links_Manager {
       width:100%;
       min-width:max-content;
       table-layout:auto;
-      border-collapse:collapse;
+      border-collapse:separate;
+      border-spacing:0;
       font-size:12px;
     }
+    .lm-wrap .widefat thead th,
     .lm-table th{
       position:sticky;
-      top:0;
+      top:var(--lm-table-sticky-top);
       z-index:5;
       background:#f8fafc;
+      background-clip:padding-box;
       padding:10px 12px;
       text-align:left;
       border:1px solid #e6edf3;
       font-weight:600;
       white-space:normal;
       word-break:break-word;
+      box-shadow:inset 0 -1px 0 #e6edf3;
+    }
+    .lm-table-wrap .widefat thead th,
+    .lm-table-wrap .lm-table th{
+      top:0;
     }
     .lm-table td{
       padding:10px 12px;
@@ -870,8 +880,12 @@ class LM_Links_Manager {
       .lm-filter-table tbody{grid-template-columns:repeat(2, minmax(160px, 1fr));}
       .lm-settings-two-col{grid-template-columns:1fr;}
     }
+    @media (max-width: 782px){
+      .lm-wrap{--lm-table-sticky-top:46px;}
+    }
     @media (max-width: 640px){
       .lm-wrap{padding-right:0;}
+      .lm-table-wrap{max-height:calc(100vh - 140px);}
       .lm-page-hero{padding:16px; border-radius:16px;}
       .lm-page-title{font-size:24px;}
       .lm-page-subtitle{font-size:12px;}
