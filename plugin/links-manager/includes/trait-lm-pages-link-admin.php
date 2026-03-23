@@ -154,6 +154,9 @@ trait LM_Pages_Link_Admin_Trait {
     );
     echo '<form method="get" action="">';
     echo '<input type="hidden" name="page" value="links-manager-pages-link"/>';
+    foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
+      echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
+    }
 
     echo '<table class="form-table lm-filter-table" role="presentation"><tbody>';
 
@@ -328,7 +331,7 @@ trait LM_Pages_Link_Admin_Trait {
     echo '</tbody></table>';
     echo '<div class="lm-filter-actions">';
     submit_button(__('Apply Filters', 'links-manager'), 'primary', 'submit', false);
-    echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-pages-link')) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';
+    echo '<a class="button" href="' . esc_url($this->admin_page_url('links-manager-pages-link')) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';
     echo '</div>';
     echo '</form>';
     echo '</div>';

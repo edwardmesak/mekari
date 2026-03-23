@@ -410,7 +410,7 @@ trait LM_Action_Handlers_Trait {
       $this->save_anchor_groups($groups);
     }
 
-    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Group saved.')));
+    wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Group saved.']));
     exit;
   }
 
@@ -426,7 +426,7 @@ trait LM_Action_Handlers_Trait {
       $this->save_anchor_groups($groups);
     }
 
-    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Group deleted.')));
+    wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Group deleted.']));
     exit;
   }
 
@@ -441,7 +441,7 @@ trait LM_Action_Handlers_Trait {
     })));
 
     if (empty($indices)) {
-      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('No group selected.')));
+      wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'No group selected.']));
       exit;
     }
 
@@ -462,7 +462,7 @@ trait LM_Action_Handlers_Trait {
       $msg = 'No groups were deleted.';
     }
 
-    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode($msg)));
+    wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => $msg]));
     exit;
   }
 
@@ -478,19 +478,19 @@ trait LM_Action_Handlers_Trait {
 
     $groups = $this->get_anchor_groups();
     if ($idx < 0 || !isset($groups[$idx])) {
-      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Group not found.')));
+      wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Group not found.']));
       exit;
     }
 
     if ($name === '') {
-      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Group name is required.')));
+      wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Group name is required.']));
       exit;
     }
 
     $groups[$idx] = ['name' => $name, 'anchors' => $anchors];
     $this->save_anchor_groups($groups);
 
-    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Group updated.')));
+    wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Group updated.']));
     exit;
   }
 
@@ -542,7 +542,7 @@ trait LM_Action_Handlers_Trait {
     if (!empty($targets)) $this->save_anchor_targets($targets);
     if (!empty($groups)) $this->save_anchor_groups($groups);
 
-    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Targets saved.')));
+    wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Targets saved.']));
     exit;
   }
 
@@ -557,12 +557,12 @@ trait LM_Action_Handlers_Trait {
 
     $targets = $this->get_anchor_targets();
     if ($idx < 0 || !isset($targets[$idx])) {
-      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Target not found.')));
+      wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Target not found.']));
       exit;
     }
 
     if ($newVal === '') {
-      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Target cannot be empty.')));
+      wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Target cannot be empty.']));
       exit;
     }
 
@@ -570,7 +570,7 @@ trait LM_Action_Handlers_Trait {
     $targets = $this->normalize_anchor_list(implode("\n", $targets));
     $this->save_anchor_targets($targets);
 
-    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Target updated.')));
+    wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Target updated.']));
     exit;
   }
 
@@ -585,7 +585,7 @@ trait LM_Action_Handlers_Trait {
     $newGroup = trim($newGroup);
 
     if ($anchor === '') {
-      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Invalid anchor.')));
+      wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Invalid anchor.']));
       exit;
     }
 
@@ -614,14 +614,14 @@ trait LM_Action_Handlers_Trait {
       }
       unset($g);
       if (!$found) {
-        wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Group not found.')));
+        wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Group not found.']));
         exit;
       }
     }
 
     $this->save_anchor_groups($groups);
 
-    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Group updated.')));
+    wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Group updated.']));
     exit;
   }
 
@@ -710,7 +710,7 @@ trait LM_Action_Handlers_Trait {
       $this->save_anchor_groups($groups);
     }
 
-    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('Target deleted.')));
+    wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Target deleted.']));
     exit;
   }
 
@@ -725,7 +725,7 @@ trait LM_Action_Handlers_Trait {
     })));
 
     if (empty($indices)) {
-      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('No target selected.')));
+      wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'No target selected.']));
       exit;
     }
 
@@ -741,7 +741,7 @@ trait LM_Action_Handlers_Trait {
 
     $deletedAnchors = array_values(array_unique(array_filter(array_map('trim', $deletedAnchors))));
     if (empty($deletedAnchors)) {
-      wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode('No targets were deleted.')));
+      wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'No targets were deleted.']));
       exit;
     }
 
@@ -765,7 +765,7 @@ trait LM_Action_Handlers_Trait {
     $this->save_anchor_groups($groups);
 
     $msg = 'Deleted ' . count($deletedAnchors) . ' target(s).';
-    wp_safe_redirect(admin_url('admin.php?page=links-manager-target&lm_msg=' . rawurlencode($msg)));
+    wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => $msg]));
     exit;
   }
 }

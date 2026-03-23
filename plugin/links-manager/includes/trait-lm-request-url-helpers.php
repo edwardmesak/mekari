@@ -10,6 +10,41 @@ if (!defined('ABSPATH')) {
 trait LM_Request_URL_Helpers_Trait {
   private $request_override_data = null;
 
+  private function get_wpml_admin_lang_url_args() {
+    if (!$this->is_wpml_active()) {
+      return [];
+    }
+
+    $requestLang = $this->sanitize_wpml_lang_filter($this->request_text('lang', ''));
+    if ($requestLang !== '' && $requestLang !== 'all') {
+      return ['lang' => $requestLang];
+    }
+
+    $currentLang = $this->sanitize_wpml_lang_filter($this->get_wpml_current_language());
+    if ($currentLang !== '' && $currentLang !== 'all') {
+      return ['lang' => $currentLang];
+    }
+
+    return [];
+  }
+
+  private function admin_page_url($pageSlug, $args = []) {
+    $queryArgs = array_merge(
+      ['page' => (string)$pageSlug],
+      $this->get_wpml_admin_lang_url_args(),
+      is_array($args) ? $args : []
+    );
+    return admin_url('admin.php?' . http_build_query($queryArgs));
+  }
+
+  private function admin_post_url_with_args($args = []) {
+    $queryArgs = array_merge(
+      $this->get_wpml_admin_lang_url_args(),
+      is_array($args) ? $args : []
+    );
+    return admin_url('admin-post.php?' . http_build_query($queryArgs));
+  }
+
   private function get_active_request_input() {
     if (is_array($this->request_override_data)) {
       return $this->request_override_data;
@@ -93,6 +128,7 @@ trait LM_Request_URL_Helpers_Trait {
   private function get_editor_filter_query_args($filters, $override = []) {
     $args = [
       'page' => self::PAGE_SLUG,
+      'lang' => (string)($this->get_wpml_admin_lang_url_args()['lang'] ?? ''),
       'lm_post_type' => $filters['post_type'],
       'lm_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
       'lm_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
@@ -202,6 +238,7 @@ trait LM_Request_URL_Helpers_Trait {
   private function get_pages_link_filter_query_args($filters, $override = []) {
     $args = [
       'page' => 'links-manager-pages-link',
+      'lang' => (string)($this->get_wpml_admin_lang_url_args()['lang'] ?? ''),
       'lm_pages_link_post_type' => $filters['post_type'],
       'lm_pages_link_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
       'lm_pages_link_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
@@ -270,6 +307,7 @@ trait LM_Request_URL_Helpers_Trait {
   private function get_cited_domains_filter_query_args($filters, $override = []) {
     $args = [
       'page' => 'links-manager-cited-domains',
+      'lang' => (string)($this->get_wpml_admin_lang_url_args()['lang'] ?? ''),
       'lm_cd_post_type' => $filters['post_type'],
       'lm_cd_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
       'lm_cd_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
@@ -338,6 +376,7 @@ trait LM_Request_URL_Helpers_Trait {
   private function get_all_anchor_text_filter_query_args($filters, $override = []) {
     $args = [
       'page' => 'links-manager-all-anchor-text',
+      'lang' => (string)($this->get_wpml_admin_lang_url_args()['lang'] ?? ''),
       'lm_at_post_type' => $filters['post_type'],
       'lm_at_post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
       'lm_at_post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
@@ -581,6 +620,7 @@ trait LM_Request_URL_Helpers_Trait {
     $postTagParam = $paramMap['post_tag'];
     $postCategory = $this->request_has($postCategoryParam) ? $this->sanitize_post_term_filter($this->request_raw($postCategoryParam, 0), 'category') : 0;
     $postTag = $this->request_has($postTagParam) ? $this->sanitize_post_term_filter($this->request_raw($postTagParam, 0), 'post_tag') : 0;
+    $wpmlLang = $this->sanitize_wpml_lang_filter($this->get_wpml_current_language());
     if ($postType !== 'any' && $postType !== 'post') {
       $postCategory = 0;
       $postTag = 0;
@@ -590,7 +630,7 @@ trait LM_Request_URL_Helpers_Trait {
       'post_type' => $postType,
       'post_category' => $postCategory,
       'post_tag' => $postTag,
-      'wpml_lang' => $this->sanitize_wpml_lang_filter($this->get_wpml_current_language()),
+      'wpml_lang' => $wpmlLang,
       'location' => $this->request_text($paramMap['location'], 'any'),
       'source_type' => $this->request_source_type($paramMap['source_type'], 'any'),
       'link_type' => $this->request_text($paramMap['link_type'], 'any'),
@@ -657,6 +697,7 @@ trait LM_Request_URL_Helpers_Trait {
 
     $postCategory = $this->request_has($paramMap['post_category']) ? $this->sanitize_post_term_filter($this->request_raw($paramMap['post_category'], 0), 'category') : 0;
     $postTag = $this->request_has($paramMap['post_tag']) ? $this->sanitize_post_term_filter($this->request_raw($paramMap['post_tag'], 0), 'post_tag') : 0;
+    $wpmlLang = $this->sanitize_wpml_lang_filter($this->get_wpml_current_language());
 
     if ($postType !== 'any' && $postType !== 'post') {
       $postCategory = 0;
@@ -730,8 +771,6 @@ trait LM_Request_URL_Helpers_Trait {
     );
 
     $rebuild = $this->request_bool_flag($paramMap['rebuild']);
-
-    $wpmlLang = $this->sanitize_wpml_lang_filter($this->get_wpml_current_language());
 
     return [
       'post_type' => $postType,
@@ -816,6 +855,7 @@ trait LM_Request_URL_Helpers_Trait {
 
     $postCategory = $this->request_has($paramMap['post_category']) ? $this->sanitize_post_term_filter($this->request_raw($paramMap['post_category'], 0), 'category') : 0;
     $postTag = $this->request_has($paramMap['post_tag']) ? $this->sanitize_post_term_filter($this->request_raw($paramMap['post_tag'], 0), 'post_tag') : 0;
+    $wpmlLang = $this->sanitize_wpml_lang_filter($this->get_wpml_current_language());
     if ($postType !== 'any' && $postType !== 'post') {
       $postCategory = 0;
       $postTag = 0;
@@ -825,7 +865,7 @@ trait LM_Request_URL_Helpers_Trait {
       'post_type' => $postType,
       'post_category' => $postCategory,
       'post_tag' => $postTag,
-      'wpml_lang' => $this->sanitize_wpml_lang_filter($this->get_wpml_current_language()),
+      'wpml_lang' => $wpmlLang,
       'search' => $this->request_text($paramMap['search'], ''),
       'search_mode' => $this->request_text_mode($paramMap['search_mode'], 'contains'),
       'location' => $this->request_text($paramMap['location'], 'any'),
@@ -866,6 +906,7 @@ trait LM_Request_URL_Helpers_Trait {
 
     $postCategory = $this->request_has($paramMap['post_category']) ? $this->sanitize_post_term_filter($this->request_raw($paramMap['post_category'], 0), 'category') : 0;
     $postTag = $this->request_has($paramMap['post_tag']) ? $this->sanitize_post_term_filter($this->request_raw($paramMap['post_tag'], 0), 'post_tag') : 0;
+    $wpmlLang = $this->sanitize_wpml_lang_filter($this->get_wpml_current_language());
     if ($postType !== 'any' && $postType !== 'post') {
       $postCategory = 0;
       $postTag = 0;
@@ -875,7 +916,7 @@ trait LM_Request_URL_Helpers_Trait {
       'post_type' => $postType,
       'post_category' => $postCategory,
       'post_tag' => $postTag,
-      'wpml_lang' => $this->sanitize_wpml_lang_filter($this->get_wpml_current_language()),
+      'wpml_lang' => $wpmlLang,
       'search' => $this->request_text($paramMap['search'], ''),
       'search_mode' => $this->request_text_mode($paramMap['search_mode'], 'contains'),
       'location' => $this->request_text($paramMap['location'], 'any'),

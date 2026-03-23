@@ -100,6 +100,7 @@ trait LM_Links_Target_Admin_Trait {
   private function get_links_target_summary_query_args($summaryState, $override = []) {
     $args = [
       'page' => 'links-manager-target',
+      'lang' => (string)($this->get_wpml_admin_lang_url_args()['lang'] ?? ''),
       'lm_summary_groups' => isset($summaryState['summary_groups']) ? (array)$summaryState['summary_groups'] : [],
       'lm_summary_group_search' => isset($summaryState['summary_group_search']) ? $summaryState['summary_group_search'] : '',
       'lm_summary_post_type' => isset($summaryState['summary_post_type']) ? $summaryState['summary_post_type'] : 'any',
@@ -707,7 +708,7 @@ trait LM_Links_Target_Admin_Trait {
       'lm_group_search' => $groupSearch,
       'lm_group_search_mode' => $groupSearchMode,
       'lm_group_filter' => $groupFilterSelected,
-    ], admin_url('admin-post.php'));
+    ], $this->admin_post_url_with_args());
     $targets = $this->sync_targets_with_groups($this->get_anchor_targets(), $groups);
     $targetsMap = [];
     $groupAnchorsMap = [];
@@ -733,6 +734,9 @@ trait LM_Links_Target_Admin_Trait {
     );
     echo '<form method="get" action="" style="margin:0 0 8px;">';
     echo '<input type="hidden" name="page" value="links-manager-target"/>';
+    foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
+      echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
+    }
     echo '<div class="lm-filter-grid">';
     echo '<div class="lm-filter-field">';
     echo '<div class="lm-small" style="margin-bottom:6px;">Order By</div>';
@@ -776,7 +780,7 @@ trait LM_Links_Target_Admin_Trait {
     echo '<div class="lm-filter-actions">';
     submit_button('Apply', 'secondary', 'submit', false);
     echo '<a class="button button-secondary" href="' . esc_url($groupingExportUrl) . '">Export CSV</a>';
-    echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-target')) . '">Reset Filter</a>';
+    echo '<a class="button" href="' . esc_url($this->admin_page_url('links-manager-target')) . '">Reset Filter</a>';
     echo '</div>';
     echo '</div>';
     echo '</div>';
@@ -784,6 +788,9 @@ trait LM_Links_Target_Admin_Trait {
     echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:0 0 8px; padding:10px; border:1px solid #e5e7eb; border-radius:6px; background:#f9fafb;">';
     echo '<input type="hidden" name="action" value="lm_save_anchor_groups"/>';
     echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
+    foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
+      echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
+    }
     echo '<label class="lm-small" style="display:block; margin-bottom:6px;">Add new group:</label>';
     echo '<input type="text" name="lm_group_name" class="regular-text" placeholder="Group name" required />';
     submit_button('Save Group', 'secondary', 'submit', false);
@@ -791,6 +798,9 @@ trait LM_Links_Target_Admin_Trait {
     echo '<form id="lm-bulk-delete-groups-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:0 0 8px;">';
     echo '<input type="hidden" name="action" value="lm_bulk_delete_anchor_groups"/>';
     echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
+    foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
+      echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
+    }
     submit_button('Delete Selected Groups', 'delete', 'submit', false, ['onclick' => "return confirm('Delete selected groups?');"]);
     echo '</form>';
     $entries = [];
@@ -831,6 +841,7 @@ trait LM_Links_Target_Admin_Trait {
     $groupOffset = ($groupPaged - 1) * $groupPerPage;
     $groupEntries = array_slice($entries, $groupOffset, $groupPerPage);
     $groupPaginationParams = [
+      'lang' => (string)($this->get_wpml_admin_lang_url_args()['lang'] ?? ''),
       'lm_group_orderby' => $groupOrderby,
       'lm_group_order' => $groupOrder,
       'lm_group_search' => $groupSearch,
@@ -861,8 +872,12 @@ trait LM_Links_Target_Admin_Trait {
       $groupRowNo = $groupOffset + 1;
       foreach ($groupEntries as $e) {
         $gidx = isset($groupIndexByName[$e['name']]) ? (int)$groupIndexByName[$e['name']] : -1;
-        $editGroupUrl = $gidx >= 0 ? admin_url('admin.php?page=links-manager-target&lm_edit_group=' . $gidx) : '';
-        $delGroupUrl = $gidx >= 0 ? admin_url('admin-post.php?action=lm_delete_anchor_group&' . self::NONCE_NAME . '=' . wp_create_nonce(self::NONCE_ACTION) . '&lm_group_idx=' . $gidx) : '';
+        $editGroupUrl = $gidx >= 0 ? $this->admin_page_url('links-manager-target', ['lm_edit_group' => $gidx]) : '';
+        $delGroupUrl = $gidx >= 0 ? $this->admin_post_url_with_args([
+          'action' => 'lm_delete_anchor_group',
+          self::NONCE_NAME => wp_create_nonce(self::NONCE_ACTION),
+          'lm_group_idx' => $gidx,
+        ]) : '';
         $gUsage = isset($groupUsage[$e['name']]) ? $groupUsage[$e['name']] : ['total' => 0, 'inlink' => 0, 'outbound' => 0];
         echo '<tr>';
         if ($gidx >= 0) {
@@ -903,12 +918,15 @@ trait LM_Links_Target_Admin_Trait {
       echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:10px 0 0; padding:10px; border:1px solid #e5e7eb; border-radius:6px; background:#f9fafb;">';
       echo '<input type="hidden" name="action" value="lm_update_anchor_group"/>';
       echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
+      foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
+        echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
+      }
       echo '<input type="hidden" name="lm_group_idx" value="' . esc_attr((string)$editGroupIdx) . '"/>';
       echo '<label class="lm-small" style="display:block; margin-bottom:6px;">Edit group:</label>';
       echo '<input type="text" name="lm_group_name" value="' . esc_attr($gname) . '" class="regular-text" placeholder="Group name" />';
       echo '<textarea name="lm_group_anchors" class="large-text" rows="4" style="margin-top:6px;" placeholder="One anchor per line or comma">' . esc_textarea(implode("\n", $ganchors)) . '</textarea>';
       submit_button('Save Changes', 'primary', 'submit', false);
-      echo ' <a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-target')) . '">Cancel</a>';
+      echo ' <a class="button" href="' . esc_url($this->admin_page_url('links-manager-target')) . '">Cancel</a>';
       echo '</form>';
     }
 
@@ -922,6 +940,9 @@ trait LM_Links_Target_Admin_Trait {
     echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-top:8px;" enctype="multipart/form-data">';
     echo '<input type="hidden" name="action" value="lm_save_anchor_targets"/>';
     echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
+    foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
+      echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
+    }
     echo '<div class="lm-tabs" role="tablist" aria-label="Target Anchor Mode">';
     echo '<button type="button" class="lm-tab is-active" data-lm-tab="only" aria-selected="true">Only anchor</button>';
     echo '<button type="button" class="lm-tab" data-lm-tab="tags" aria-selected="false">Anchor with groups</button>';
@@ -943,11 +964,14 @@ trait LM_Links_Target_Admin_Trait {
       echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-top:10px; padding:10px; border:1px solid #e5e7eb; border-radius:6px; background:#f9fafb;">';
       echo '<input type="hidden" name="action" value="lm_update_anchor_target"/>';
       echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
+      foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
+        echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
+      }
       echo '<input type="hidden" name="lm_target_idx" value="' . esc_attr((string)$editIdx) . '"/>';
       echo '<label class="lm-small" style="display:block; margin-bottom:6px;">Edit target:</label>';
       echo '<input type="text" name="lm_target_value" value="' . esc_attr((string)$targets[$editIdx]) . '" class="regular-text" />';
       submit_button(__('Save Changes', 'links-manager'), 'primary', 'submit', false);
-      echo ' <a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-target')) . '">Cancel</a>';
+      echo ' <a class="button" href="' . esc_url($this->admin_page_url('links-manager-target')) . '">Cancel</a>';
       echo '</form>';
     }
 
@@ -960,6 +984,9 @@ trait LM_Links_Target_Admin_Trait {
     echo '<form id="lm-bulk-delete-targets-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:0 0 8px;">';
     echo '<input type="hidden" name="action" value="lm_bulk_delete_anchor_targets"/>';
     echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
+    foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
+      echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
+    }
     submit_button(__('Delete Selected Targets', 'links-manager'), 'delete', 'submit', false, ['onclick' => "return confirm('" . esc_js(__('Delete selected targets?', 'links-manager')) . "');"]);
     echo '</form>';
     $summaryPostTypeOptions = $this->get_filterable_post_types();
@@ -1001,9 +1028,12 @@ trait LM_Links_Target_Admin_Trait {
     $summaryExportUrl = add_query_arg(array_merge([
       'action' => 'lm_export_links_target_csv',
       self::NONCE_NAME => wp_create_nonce(self::NONCE_ACTION),
-    ], $this->get_links_target_summary_query_args($summaryState)), admin_url('admin-post.php'));
+    ], $this->get_links_target_summary_query_args($summaryState)), $this->admin_post_url_with_args());
     echo '<form method="get" action="" style="margin:8px 0 10px;">';
     echo '<input type="hidden" name="page" value="links-manager-target"/>';
+    foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
+      echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
+    }
     echo '<div class="lm-filter-grid">';
     echo '<div class="lm-filter-field lm-filter-field-wide">';
     echo '<div class="lm-small" style="margin-bottom:6px;">Group (checklist)</div>';
@@ -1177,7 +1207,7 @@ trait LM_Links_Target_Admin_Trait {
     echo '<div class="lm-small" style="margin:0 0 6px;">Applies to Search Group Name, Search Destination URL, Search Source URL, Search Title, Search Author, and Search Anchor Text.</div>';
     submit_button(__('Apply Filters', 'links-manager'), 'secondary', 'submit', false);
     echo ' <a class="button button-secondary" href="' . esc_url($summaryExportUrl) . '">' . esc_html__('Export CSV', 'links-manager') . '</a>';
-    echo ' <a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-target')) . '">' . esc_html__('Reset', 'links-manager') . '</a>';
+    echo ' <a class="button" href="' . esc_url($this->admin_page_url('links-manager-target')) . '">' . esc_html__('Reset', 'links-manager') . '</a>';
     echo '</div>';
     echo '</div>';
     echo '</form>';
@@ -1285,8 +1315,12 @@ trait LM_Links_Target_Admin_Trait {
         $glist = $row['glist'];
         $currentGroup = $row['currentGroup'];
         $idx = $row['idx'];
-        $editUrl = $idx >= 0 ? admin_url('admin.php?page=links-manager-target&lm_edit_target=' . $idx) : '';
-        $del = $idx >= 0 ? admin_url('admin-post.php?action=lm_delete_anchor_target&' . self::NONCE_NAME . '=' . wp_create_nonce(self::NONCE_ACTION) . '&lm_target_idx=' . $idx) : '';
+        $editUrl = $idx >= 0 ? $this->admin_page_url('links-manager-target', ['lm_edit_target' => $idx]) : '';
+        $del = $idx >= 0 ? $this->admin_post_url_with_args([
+          'action' => 'lm_delete_anchor_target',
+          self::NONCE_NAME => wp_create_nonce(self::NONCE_ACTION),
+          'lm_target_idx' => $idx,
+        ]) : '';
 
         echo '<tr>';
         if ($idx >= 0) {

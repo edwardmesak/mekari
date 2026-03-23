@@ -19,7 +19,7 @@ trait LM_Editor_Admin_Trait {
     if ($scopePostType === '') {
       $scopePostType = 'any';
     }
-    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
 
     $perPage = $filters['per_page'];
     $paged = $filters['paged'];
@@ -28,10 +28,7 @@ trait LM_Editor_Admin_Trait {
       $locations = ['any' => 'All'];
       $locationRows = null;
       if (!$filters['rebuild']) {
-        $locationRows = $this->get_existing_cache_rows_for_rest($scopePostType, $scopeWpmlLang, true);
-        if (!is_array($locationRows) && ($scopePostType !== 'any' || $scopeWpmlLang !== 'all')) {
-          $locationRows = $this->get_existing_cache_rows_for_rest('any', 'all', true);
-        }
+        $locationRows = $this->get_existing_cache_rows_for_rest($scopePostType, $scopeWpmlLang, false);
       }
       foreach ((array)$locationRows as $r) {
         $locationKey = isset($r['link_location']) ? (string)$r['link_location'] : '';
@@ -80,6 +77,9 @@ trait LM_Editor_Admin_Trait {
     );
     echo '<form method="get" action="">';
     echo '<input type="hidden" name="page" value="' . esc_attr(self::PAGE_SLUG) . '"/>';
+    foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
+      echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
+    }
 
     echo '<table class="form-table lm-filter-table" role="presentation"><tbody>';
 
@@ -229,7 +229,7 @@ trait LM_Editor_Admin_Trait {
 
     echo '<div class="lm-filter-actions">';
     submit_button(__('Apply Filters', 'links-manager'), 'primary', 'submit', false);
-    echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=' . self::PAGE_SLUG)) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';
+    echo '<a class="button" href="' . esc_url($this->admin_page_url(self::PAGE_SLUG)) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';
     echo '</div>';
     echo '</form>';
     echo '</div>';
@@ -346,7 +346,7 @@ trait LM_Editor_Admin_Trait {
     if ($scopePostType === '') {
       $scopePostType = 'any';
     }
-    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
     $rebuildRequested = !empty($filters['rebuild']);
     $all = null;
     $usedIndexedAuthority = false;
@@ -379,25 +379,19 @@ trait LM_Editor_Admin_Trait {
       if (is_array($all) && !empty($all)) {
         $usedIndexedAuthority = true;
       }
-      if (!$usedIndexedAuthority && ($scopePostType !== 'any' || $scopeWpmlLang !== 'all')) {
-        $all = $this->get_indexed_fact_rows('any', 'all', $filters);
-        if (is_array($all) && !empty($all)) {
-          $usedIndexedAuthority = true;
-        }
-      }
     }
 
     if (!is_array($all)) {
       $all = null;
     }
     if (empty($all) && !$rebuildRequested && !$usedIndexedAuthority) {
-      $all = $this->get_existing_cache_rows_for_rest($scopePostType, $scopeWpmlLang, true);
+      $all = $this->get_existing_cache_rows_for_rest($scopePostType, $scopeWpmlLang, false);
       if (is_array($all)) {
         $usedExistingCache = true;
       }
     }
     if (!is_array($all)) {
-      $all = $this->get_canonical_rows_for_scope($scopePostType, $rebuildRequested, $scopeWpmlLang, $filters);
+      $all = $this->get_canonical_rows_for_scope($scopePostType, $rebuildRequested, $scopeWpmlLang, $filters, false);
     }
 
     $rows = $this->apply_filters_and_group($all, $filters);

@@ -55,7 +55,7 @@ trait LM_Indexed_Datastore_Trait {
       return false;
     }
 
-    $wpmlLang = $this->get_effective_scan_wpml_lang((string)$wpmlLang);
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
     $langsToTry = [$wpmlLang];
     if ($wpmlLang !== 'all') {
       $langsToTry[] = 'all';
@@ -100,7 +100,7 @@ trait LM_Indexed_Datastore_Trait {
     return false;
   }
 
-  private function resolve_indexed_datastore_scope($scopePostType = 'any', $wpmlLang = 'all') {
+  private function resolve_indexed_datastore_scope($scopePostType = 'any', $wpmlLang = 'all', $allowAnyAllFallback = true) {
     if (!$this->is_indexed_datastore_ready()) {
       return null;
     }
@@ -109,7 +109,7 @@ trait LM_Indexed_Datastore_Trait {
     if ($scopePostType === '') {
       $scopePostType = 'any';
     }
-    $wpmlLang = $this->get_effective_scan_wpml_lang((string)$wpmlLang);
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
 
     $this->maybe_self_heal_indexed_datastore($wpmlLang);
 
@@ -120,7 +120,7 @@ trait LM_Indexed_Datastore_Trait {
       ];
     }
 
-    if (($scopePostType !== 'any' || $wpmlLang !== 'all') && $this->get_indexed_fact_count('any', 'all') > 0) {
+    if ($allowAnyAllFallback && ($scopePostType !== 'any' || $wpmlLang !== 'all') && $this->get_indexed_fact_count('any', 'all') > 0) {
       return [
         'scope_post_type' => 'any',
         'wpml_lang' => 'all',
@@ -175,7 +175,7 @@ trait LM_Indexed_Datastore_Trait {
     if ($scopePostType === '') {
       $scopePostType = 'any';
     }
-    $wpmlLang = $this->get_effective_scan_wpml_lang((string)$wpmlLang);
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
 
     if (!$this->is_indexed_datastore_ready()) {
       return [];
@@ -318,7 +318,7 @@ trait LM_Indexed_Datastore_Trait {
     if ($scopePostType === '') {
       $scopePostType = 'any';
     }
-    $wpmlLang = $this->get_effective_scan_wpml_lang((string)$wpmlLang);
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
 
     $whereParts = ['wpml_lang = %s'];
     $params = [$wpmlLang];
@@ -361,7 +361,7 @@ trait LM_Indexed_Datastore_Trait {
     if ($scopePostType === '') {
       $scopePostType = 'any';
     }
-    $wpmlLang = $this->get_effective_scan_wpml_lang((string)$wpmlLang);
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
 
     $whereParts = ['wpml_lang = %s'];
     $params = [$wpmlLang];
@@ -940,17 +940,9 @@ trait LM_Indexed_Datastore_Trait {
     if ($scopePostType === '') {
       $scopePostType = 'any';
     }
-    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)$scopeWpmlLang);
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)$scopeWpmlLang);
 
     $response = $this->query_indexed_editor_fastpath_once($scopePostType, $scopeWpmlLang, $filters);
-    if (($response['pagination']['total'] ?? 0) > 0) {
-      return $response;
-    }
-
-    if ($scopePostType !== 'any' || $scopeWpmlLang !== 'all') {
-      return $this->query_indexed_editor_fastpath_once('any', 'all', $filters);
-    }
-
     return $response;
   }
 
@@ -966,9 +958,9 @@ trait LM_Indexed_Datastore_Trait {
     if ($scopePostType === '') {
       $scopePostType = 'any';
     }
-    $wpmlLang = $this->get_effective_scan_wpml_lang((string)$wpmlLang);
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
 
-    $resolvedScope = $this->resolve_indexed_datastore_scope($scopePostType, $wpmlLang);
+    $resolvedScope = $this->resolve_indexed_datastore_scope($scopePostType, $wpmlLang, false);
     if (is_array($resolvedScope)) {
       $scopePostType = (string)$resolvedScope['scope_post_type'];
       $wpmlLang = (string)$resolvedScope['wpml_lang'];
@@ -1005,7 +997,7 @@ trait LM_Indexed_Datastore_Trait {
     if ($scopePostType === '') {
       $scopePostType = 'any';
     }
-    $wpmlLang = $this->get_effective_scan_wpml_lang((string)$wpmlLang);
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
 
     if ($this->is_indexed_datastore_ready()) {
       $indexedRows = $this->get_indexed_fact_rows($scopePostType, $wpmlLang);
@@ -1045,19 +1037,19 @@ trait LM_Indexed_Datastore_Trait {
     return null;
   }
 
-  private function get_canonical_rows_for_scope($scopePostType = 'any', $forceRebuild = false, $wpmlLang = 'all', $filters = null) {
+  private function get_canonical_rows_for_scope($scopePostType = 'any', $forceRebuild = false, $wpmlLang = 'all', $filters = null, $allowAnyAllFallback = true) {
     $scopePostType = sanitize_key((string)$scopePostType);
     if ($scopePostType === '') {
       $scopePostType = 'any';
     }
-    $wpmlLang = $this->get_effective_scan_wpml_lang((string)$wpmlLang);
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
 
     if (!$forceRebuild && $this->is_indexed_datastore_ready() && $this->indexed_dataset_has_rows($scopePostType, $wpmlLang)) {
       $indexedRows = $this->get_indexed_fact_rows($scopePostType, $wpmlLang, is_array($filters) ? $filters : null);
       if (!empty($indexedRows)) {
         return $indexedRows;
       }
-      if ($scopePostType !== 'any' || $wpmlLang !== 'all') {
+      if ($allowAnyAllFallback && ($scopePostType !== 'any' || $wpmlLang !== 'all')) {
         $indexedRowsAnyAll = $this->get_indexed_fact_rows('any', 'all', is_array($filters) ? $filters : null);
         if (is_array($indexedRowsAnyAll) && !empty($indexedRowsAnyAll)) {
           return $indexedRowsAnyAll;
@@ -1077,7 +1069,7 @@ trait LM_Indexed_Datastore_Trait {
     if ($scopePostType === '') {
       $scopePostType = 'any';
     }
-    $wpmlLang = $this->get_effective_scan_wpml_lang((string)$wpmlLang);
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
 
     $this->maybe_self_heal_indexed_datastore($wpmlLang);
 

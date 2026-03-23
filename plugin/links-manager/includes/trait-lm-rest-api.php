@@ -406,7 +406,7 @@ trait LM_REST_API_Trait {
       $scopePostType = 'any';
     }
 
-    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
     $rebuildRequested = !empty($filters['rebuild']);
     $cacheStamp = (string)get_option($this->cache_scan_option_key($scopePostType, $scopeWpmlLang), '');
 
@@ -593,19 +593,13 @@ trait LM_REST_API_Trait {
       if (is_array($all) && !empty($all)) {
         $usedIndexedAuthority = true;
       }
-      if (!$usedIndexedAuthority && ($context['scope_post_type'] !== 'any' || $context['scope_wpml_lang'] !== 'all')) {
-        $all = $this->get_indexed_fact_rows('any', 'all', $filters);
-        if (is_array($all) && !empty($all)) {
-          $usedIndexedAuthority = true;
-        }
-      }
     }
 
     if (!is_array($all)) {
       $all = null;
     }
     if (empty($all) && !$rebuildRequested && !$usedIndexedAuthority) {
-      $all = $this->get_existing_cache_rows_for_rest($context['scope_post_type'], $context['scope_wpml_lang'], true);
+      $all = $this->get_existing_cache_rows_for_rest($context['scope_post_type'], $context['scope_wpml_lang'], false);
       if (is_array($all)) {
         $usedExistingCache = true;
       }
@@ -615,7 +609,8 @@ trait LM_REST_API_Trait {
         $context['scope_post_type'],
         $rebuildRequested,
         $context['scope_wpml_lang'],
-        $filters
+        $filters,
+        false
       );
       $usedRebuild = $rebuildRequested;
     }

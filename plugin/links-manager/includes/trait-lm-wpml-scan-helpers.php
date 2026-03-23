@@ -135,6 +135,16 @@ trait LM_WPML_Scan_Helpers_Trait {
     return isset($enabled[0]) ? (string)$enabled[0] : 'all';
   }
 
+  private function get_requested_view_wpml_lang($requestedLang) {
+    $requestedLang = $this->sanitize_wpml_lang_filter($requestedLang);
+
+    if ($requestedLang !== '') {
+      return $requestedLang;
+    }
+
+    return 'all';
+  }
+
   private function safe_wpml_apply_filters($tag, $default = null, $args = null) {
     try {
       if ($args === null) {

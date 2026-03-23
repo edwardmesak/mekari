@@ -108,6 +108,9 @@ trait LM_All_Anchor_Text_Admin_Trait {
     );
     echo '<form method="get" action="">';
     echo '<input type="hidden" name="page" value="links-manager-all-anchor-text"/>';
+    foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
+      echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
+    }
     echo '<table class="form-table lm-filter-table" role="presentation"><tbody>';
     echo '<tr><th scope="row">Post Type</th><td><select name="lm_at_post_type">';
     echo '<option value="any"' . selected($filters['post_type'], 'any', false) . '>All</option>';
@@ -217,7 +220,7 @@ trait LM_All_Anchor_Text_Admin_Trait {
     echo '</tbody></table>';
     echo '<div class="lm-filter-actions">';
     submit_button(__('Apply Filters', 'links-manager'), 'primary', 'submit', false);
-    echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=links-manager-all-anchor-text')) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';
+    echo '<a class="button" href="' . esc_url($this->admin_page_url('links-manager-all-anchor-text')) . '">' . esc_html__('Reset Filter', 'links-manager') . '</a>';
     echo '</div>';
     echo '</form>';
     echo '</div>';
