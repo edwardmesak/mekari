@@ -20,33 +20,13 @@ trait LM_Pages_Link_Admin_Trait {
     $postCategoryOptions = $this->get_post_term_options('category');
     $postTagOptions = $this->get_post_term_options('post_tag');
     try {
-      $pages = null;
       $pagedResult = null;
-      if (
-        !$filters['rebuild']
-        && $this->is_indexed_datastore_ready()
-        && $this->indexed_dataset_has_rows($filters['post_type'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all')
-        && $this->can_use_indexed_pages_link_summary_fastpath($filters)
-      ) {
-        if ($this->can_use_indexed_pages_link_paged_fastpath($filters)) {
-          $pagedResult = $this->get_pages_link_paged_result_from_indexed_summary($filters);
-          if (is_array($pagedResult)) {
-            $pages = isset($pagedResult['pages']) && is_array($pagedResult['pages']) ? $pagedResult['pages'] : [];
-          }
-        }
-        if (!is_array($pagedResult)) {
-          $pages = $this->get_pages_with_inbound_counts_from_indexed_summary($filters);
-          if (is_array($pages) && empty($pages)) {
-            $pages = null;
-          }
-        }
-      }
-      if (!is_array($pages)) {
-        // Pages Link counts inbound links from all source content types into the selected candidate posts.
-        $all = $this->get_canonical_rows_for_scope('any', $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
-        $this->compact_rows_for_pages_link($all);
-        $pages = $this->get_pages_with_inbound_counts($all, $filters, false);
-      }
+      // Pages Link counts inbound links from all source content types into the selected candidate posts.
+      // We intentionally use row-based counting here because the indexed summary fast path can undercount
+      // inbound links when the landing page has no own crawled rows or the target URL uses a variant form.
+      $all = $this->get_canonical_rows_for_scope('any', $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
+      $this->compact_rows_for_pages_link($all);
+      $pages = $this->get_pages_with_inbound_counts($all, $filters, false);
     } catch (Throwable $e) {
       $pagedResult = null;
       $pages = [];

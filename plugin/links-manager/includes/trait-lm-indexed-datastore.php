@@ -445,7 +445,7 @@ trait LM_Indexed_Datastore_Trait {
     $payload = [
       'order' => (string)$orderValue,
       'post_id' => (int)$postId,
-      'row_id' => (int)$rowId,
+      'row_id' => (string)$rowId,
     ];
     return base64_encode(wp_json_encode($payload));
   }
@@ -470,7 +470,7 @@ trait LM_Indexed_Datastore_Trait {
     return [
       'order' => (string)$payload['order'],
       'post_id' => (int)$payload['post_id'],
-      'row_id' => (int)$payload['row_id'],
+      'row_id' => (string)$payload['row_id'],
     ];
   }
 
@@ -785,15 +785,15 @@ trait LM_Indexed_Datastore_Trait {
     $dataParams = $params;
     if (is_array($cursor)) {
       if ($orderDir === 'ASC') {
-        $dataWhereParts[] = "($orderColumn > %s OR ($orderColumn = %s AND (post_id > %d OR (post_id = %d AND row_id > %d))))";
+        $dataWhereParts[] = "($orderColumn > %s OR ($orderColumn = %s AND (post_id > %d OR (post_id = %d AND row_id > %s))))";
       } else {
-        $dataWhereParts[] = "($orderColumn < %s OR ($orderColumn = %s AND (post_id < %d OR (post_id = %d AND row_id < %d))))";
+        $dataWhereParts[] = "($orderColumn < %s OR ($orderColumn = %s AND (post_id < %d OR (post_id = %d AND row_id < %s))))";
       }
       $dataParams[] = (string)$cursor['order'];
       $dataParams[] = (string)$cursor['order'];
       $dataParams[] = (int)$cursor['post_id'];
       $dataParams[] = (int)$cursor['post_id'];
-      $dataParams[] = (int)$cursor['row_id'];
+      $dataParams[] = (string)$cursor['row_id'];
     }
     $dataWhereSql = 'WHERE ' . implode(' AND ', $dataWhereParts);
 
@@ -801,8 +801,11 @@ trait LM_Indexed_Datastore_Trait {
     $paged = max(1, (int)($filters['paged'] ?? 1));
     $offset = ($paged - 1) * $perPage;
 
-    $countSql = "SELECT COUNT(*) FROM $table $whereSql";
-    $total = (int)$wpdb->get_var($wpdb->prepare($countSql, $params));
+    $countSql = is_array($cursor)
+      ? "SELECT COUNT(*) FROM $table $dataWhereSql"
+      : "SELECT COUNT(*) FROM $table $whereSql";
+    $countParams = is_array($cursor) ? $dataParams : $params;
+    $total = (int)$wpdb->get_var($wpdb->prepare($countSql, $countParams));
     if ($total < 0) {
       $total = 0;
     }
@@ -912,7 +915,7 @@ trait LM_Indexed_Datastore_Trait {
       $nextCursor = $this->encode_editor_keyset_cursor(
         (string)($last[$orderColumn] ?? ''),
         (int)($last['post_id'] ?? 0),
-        (int)($last['row_id'] ?? 0)
+        (string)($last['row_id'] ?? '')
       );
     }
 

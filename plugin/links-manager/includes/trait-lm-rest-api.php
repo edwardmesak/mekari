@@ -438,60 +438,44 @@ trait LM_REST_API_Trait {
 
   private function load_pages_link_rest_summary_rows($filters, $context) {
     $rebuildRequested = !empty($context['rebuild_requested']);
-    $executionMode = 'cache_scan';
-    $pages = null;
+    $all = null;
+    $usedExistingCache = false;
+    $usedIndexedAuthority = false;
+    $usedRebuild = false;
 
-    if (!$rebuildRequested && $this->is_indexed_datastore_ready() && $this->can_use_indexed_pages_link_summary_fastpath($filters)) {
-      $pages = $this->get_pages_with_inbound_counts_from_indexed_summary($filters);
-      if (is_array($pages) && !empty($pages)) {
-        return [
-          'pages' => $pages,
-          'execution_mode' => 'indexed_summary_fastpath',
-        ];
-      }
-      $pages = null;
-    }
-
-    if (!is_array($pages)) {
-      $all = null;
-      $usedExistingCache = false;
-      $usedIndexedAuthority = false;
-      $usedRebuild = false;
-
-      if (!$rebuildRequested) {
-        // Pages Link summaries need all source rows so inbound counts still include links from other post types.
-        $all = $this->get_existing_cache_rows_for_rest('any', $context['scope_wpml_lang'], true);
-        if (is_array($all)) {
-          if ($this->is_indexed_datastore_ready()) {
-            $usedIndexedAuthority = true;
-          } else {
-            $usedExistingCache = true;
-          }
+    if (!$rebuildRequested) {
+      // Pages Link summaries need all source rows so inbound counts still include links from other post types.
+      $all = $this->get_existing_cache_rows_for_rest('any', $context['scope_wpml_lang'], true);
+      if (is_array($all)) {
+        if ($this->is_indexed_datastore_ready()) {
+          $usedIndexedAuthority = true;
+        } else {
+          $usedExistingCache = true;
         }
       }
+    }
 
-      if (!is_array($all)) {
-        $all = $this->get_canonical_rows_for_scope(
-          'any',
-          $rebuildRequested,
-          $context['scope_wpml_lang'],
-          $filters
-        );
-        $usedRebuild = $rebuildRequested;
-      }
+    if (!is_array($all)) {
+      $all = $this->get_canonical_rows_for_scope(
+        'any',
+        $rebuildRequested,
+        $context['scope_wpml_lang'],
+        $filters
+      );
+      $usedRebuild = $rebuildRequested;
+    }
 
-      $this->compact_rows_for_pages_link($all);
-      $pages = $this->get_pages_with_inbound_counts($all, $filters, false);
+    $this->compact_rows_for_pages_link($all);
+    $pages = $this->get_pages_with_inbound_counts($all, $filters, false);
 
-      if ($usedRebuild) {
-        $executionMode = 'rebuild_cache_scan';
-      } elseif ($usedIndexedAuthority) {
-        $executionMode = 'indexed_prefilter_php';
-      } elseif ($usedExistingCache) {
-        $executionMode = 'cache_scan';
-      } else {
-        $executionMode = 'cache_scan_fallback';
-      }
+    if ($usedRebuild) {
+      $executionMode = 'rebuild_cache_scan';
+    } elseif ($usedIndexedAuthority) {
+      $executionMode = 'indexed_prefilter_php';
+    } elseif ($usedExistingCache) {
+      $executionMode = 'cache_scan';
+    } else {
+      $executionMode = 'cache_scan_fallback';
     }
 
     return [
@@ -504,8 +488,6 @@ trait LM_REST_API_Trait {
     $perPage = max(10, (int)$filters['per_page']);
     $requestedPage = max(1, (int)$filters['paged']);
     $cursor = $this->decode_pages_link_keyset_cursor((string)($filters['cursor'] ?? ''));
-    $total = count($pages);
-    $totalPages = max(1, (int)ceil($total / $perPage));
 
     if (is_array($cursor)) {
       $orderby = isset($filters['orderby']) ? (string)$filters['orderby'] : 'date';
@@ -530,10 +512,14 @@ trait LM_REST_API_Trait {
 
         return $isAsc ? ($cmp > 0) : ($cmp < 0);
       }));
-      $paged = min($requestedPage, $totalPages);
-      $offset = 0;
     } else {
-      $paged = min($requestedPage, $totalPages);
+      $offset = 0;
+    }
+
+    $total = count($pages);
+    $totalPages = max(1, (int)ceil($total / $perPage));
+    $paged = min($requestedPage, $totalPages);
+    if (!is_array($cursor)) {
       $offset = ($paged - 1) * $perPage;
     }
 
@@ -631,7 +617,6 @@ trait LM_REST_API_Trait {
   }
 
   private function paginate_editor_rest_response($rows, $filters) {
-    $total = count($rows);
     $cursor = $this->decode_editor_keyset_cursor((string)($filters['cursor'] ?? ''));
     $orderby = isset($filters['orderby']) ? (string)$filters['orderby'] : 'date';
     $isAsc = ((string)($filters['order'] ?? 'DESC') === 'ASC');
@@ -640,7 +625,7 @@ trait LM_REST_API_Trait {
     if (is_array($cursor)) {
       $cursorValueRaw = (string)$cursor['order'];
       $cursorPostId = (int)$cursor['post_id'];
-      $cursorRowId = (int)$cursor['row_id'];
+      $cursorRowId = (string)$cursor['row_id'];
       $rows = array_values(array_filter($rows, function($row) use ($orderby, $isAsc, $cursorValueRaw, $cursorPostId, $cursorRowId) {
         $meta = $this->get_editor_sort_meta_for_cursor((array)$row, $orderby);
         $rowValue = $meta['numeric'] ? (int)$meta['value'] : (string)$meta['value'];
@@ -650,13 +635,14 @@ trait LM_REST_API_Trait {
           $cmp = ((int)($row['post_id'] ?? 0) <=> $cursorPostId);
         }
         if ($cmp === 0) {
-          $cmp = ((int)($row['row_id'] ?? 0) <=> $cursorRowId);
+          $cmp = strcmp((string)($row['row_id'] ?? ''), $cursorRowId);
         }
         return $isAsc ? ($cmp > 0) : ($cmp < 0);
       }));
     }
 
     $perPage = max(10, (int)$filters['per_page']);
+    $total = count($rows);
     $totalPages = max(1, (int)ceil($total / $perPage));
     if (is_array($cursor)) {
       $paged = min($requestedPage, $totalPages);

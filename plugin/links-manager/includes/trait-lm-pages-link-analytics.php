@@ -885,20 +885,32 @@ trait LM_Pages_Link_Analytics_Trait {
     }
 
     if (!empty($candidatePostIds)) {
-      if ($forceAllPageUrls) {
-        $warmupLimit = min(140, max(40, (int)ceil(count($candidatePostIds) * 0.06)));
-      } else {
-        $warmupLimit = min(80, max(20, (int)ceil(count($candidatePostIds) * 0.03)));
+      // Build a complete target map from all candidate landing pages in scope so inbound counts
+      // do not depend on whether the landing page happened to have its own crawled link rows.
+      $postDataMap = $this->get_pages_link_post_data_map($candidatePostIds, $post_types, true, $candidatePageUrlMap);
+      foreach ($candidatePostIds as $pid) {
+        $pidKey = (string)$pid;
+        $pageUrl = '';
+        if (isset($postDataMap[$pidKey]) && is_array($postDataMap[$pidKey])) {
+          $pageUrl = (string)($postDataMap[$pidKey]['page_url'] ?? '');
+        }
+        if ($pageUrl === '') {
+          continue;
+        }
+        $candidatePageUrlMap[$pidKey] = $pageUrl;
+        $targetVariants = $this->build_pages_link_target_variants($pageUrl);
+        foreach ($targetVariants as $variant) {
+          if (!isset($allowedTargetMap[$variant])) {
+            $allowedTargetMap[$variant] = $pidKey;
+          }
+        }
       }
-    } else {
-      $warmupLimit = 0;
     }
-    $warmedTargetUrls = $this->warm_pages_link_target_map_for_missing_posts($candidatePostIds, $candidatePageUrlMap, $allowedTargetMap, $warmupLimit);
 
     $this->profile_end('pages_link_prefetch_target_map', $prefetchTargetsStarted, [
       'candidate_posts' => !empty($q->posts) ? count($q->posts) : 0,
       'target_map_size' => count($allowedTargetMap),
-      'warmed_target_urls' => (int)$warmedTargetUrls,
+      'warmed_target_urls' => count($candidatePageUrlMap),
     ]);
 
     $inbound_counts = [];

@@ -55,22 +55,11 @@ trait LM_Export_Handlers_Trait {
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $filters = $this->get_pages_link_filters_from_request();
-    $rows = null;
-    if (!$filters['rebuild']
-      && $this->is_indexed_datastore_ready()
-      && $this->indexed_dataset_has_rows($filters['post_type'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all')
-      && $this->can_use_indexed_pages_link_summary_fastpath($filters)) {
-      $rows = $this->get_pages_with_inbound_counts_from_indexed_summary($filters);
-      if (is_array($rows) && empty($rows)) {
-        $rows = null;
-      }
-    }
-    if (!is_array($rows)) {
-      // Pages Link export must count links from all source post types into the selected candidate posts.
-      $all = $this->get_canonical_rows_for_scope('any', $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
-      $this->compact_rows_for_pages_link($all);
-      $rows = $this->get_pages_with_inbound_counts($all, $filters, true);
-    }
+    // Pages Link export must count links from all source post types into the selected candidate posts.
+    // Use row-based counting so export stays consistent with the editor rows and does not undercount inbound.
+    $all = $this->get_canonical_rows_for_scope('any', $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
+    $this->compact_rows_for_pages_link($all);
+    $rows = $this->get_pages_with_inbound_counts($all, $filters, true);
 
     $filename = 'links-manager-pages-link-export-' . date('Y-m-d-His') . '.csv';
 
