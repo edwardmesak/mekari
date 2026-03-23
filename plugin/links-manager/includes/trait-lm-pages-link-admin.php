@@ -42,7 +42,8 @@ trait LM_Pages_Link_Admin_Trait {
         }
       }
       if (!is_array($pages)) {
-        $all = $this->get_canonical_rows_for_scope($filters['post_type'], $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
+        // Pages Link counts inbound links from all source content types into the selected candidate posts.
+        $all = $this->get_canonical_rows_for_scope('any', $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
         $this->compact_rows_for_pages_link($all);
         $pages = $this->get_pages_with_inbound_counts($all, $filters, false);
       }

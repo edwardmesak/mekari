@@ -151,6 +151,7 @@ class LM_Links_Manager {
     add_action('admin_post_lm_save_anchor_targets', [$this, 'handle_save_anchor_targets']);
     add_action('admin_post_lm_update_anchor_target', [$this, 'handle_update_anchor_target']);
     add_action('admin_post_lm_update_anchor_target_group', [$this, 'handle_update_anchor_target_group']);
+    add_action('admin_post_lm_bulk_update_anchor_target_group', [$this, 'handle_bulk_update_anchor_target_group']);
     add_action('wp_ajax_lm_update_anchor_target_group_ajax', [$this, 'handle_update_anchor_target_group_ajax']);
     add_action('admin_post_lm_delete_anchor_target', [$this, 'handle_delete_anchor_target']);
     add_action('admin_post_lm_bulk_delete_anchor_targets', [$this, 'handle_bulk_delete_anchor_targets']);

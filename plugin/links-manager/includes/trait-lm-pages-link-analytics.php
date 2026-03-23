@@ -153,13 +153,10 @@ trait LM_Pages_Link_Analytics_Trait {
     $pageQuery = new WP_Query($pageQueryArgs);
     $candidatePostIds = !empty($pageQuery->posts) ? array_values(array_unique(array_map('intval', (array)$pageQuery->posts))) : [];
 
-    $scopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
-    if ($scopePostType === '') {
-      $scopePostType = 'any';
-    }
     $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
-    $summaryMap = $this->get_indexed_summary_map($scopePostType, $scopeWpmlLang);
-    if (empty($summaryMap) && ($scopePostType !== 'any' || $scopeWpmlLang !== 'all')) {
+    // Pages Link counts must include links coming from any source post type into the selected candidate posts.
+    $summaryMap = $this->get_indexed_summary_map('any', $scopeWpmlLang);
+    if (empty($summaryMap) && $scopeWpmlLang !== 'all') {
       $summaryMap = $this->get_indexed_summary_map('any', 'all');
     }
 
@@ -412,13 +409,10 @@ trait LM_Pages_Link_Analytics_Trait {
       return [];
     }
 
-    $scopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
-    if ($scopePostType === '') {
-      $scopePostType = 'any';
-    }
     $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
-    $summaryMap = $this->get_indexed_summary_map($scopePostType, $scopeWpmlLang);
-    if (empty($summaryMap) && ($scopePostType !== 'any' || $scopeWpmlLang !== 'all')) {
+    // Pages Link counts must include links coming from any source post type into the selected candidate posts.
+    $summaryMap = $this->get_indexed_summary_map('any', $scopeWpmlLang);
+    if (empty($summaryMap) && $scopeWpmlLang !== 'all') {
       $summaryMap = $this->get_indexed_summary_map('any', 'all');
     }
 

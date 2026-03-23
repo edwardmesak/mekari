@@ -66,7 +66,8 @@ trait LM_Export_Handlers_Trait {
       }
     }
     if (!is_array($rows)) {
-      $all = $this->get_canonical_rows_for_scope($filters['post_type'], $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
+      // Pages Link export must count links from all source post types into the selected candidate posts.
+      $all = $this->get_canonical_rows_for_scope('any', $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
       $this->compact_rows_for_pages_link($all);
       $rows = $this->get_pages_with_inbound_counts($all, $filters, true);
     }

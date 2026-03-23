@@ -806,7 +806,7 @@ trait LM_Links_Target_Admin_Trait {
     $entries = [];
     $groupUsage = [];
     $groupIndexByName = [];
-    if (!empty($groups)) {
+    if (!empty($groups) || !empty($targetsMap)) {
       foreach ($groups as $g) {
         $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
         foreach ($anchors as $a) {
@@ -981,13 +981,22 @@ trait LM_Links_Target_Admin_Trait {
       __('Anchor Text Target', 'links-manager'),
       __('Review tracked targets, grouped coverage, and usage totals across the current filtered content set.', 'links-manager')
     );
-    echo '<form id="lm-bulk-delete-targets-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:0 0 8px;">';
-    echo '<input type="hidden" name="action" value="lm_bulk_delete_anchor_targets"/>';
+    echo '<form id="lm-bulk-target-actions-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:0 0 8px;">';
     echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
     foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
       echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
     }
-    submit_button(__('Delete Selected Targets', 'links-manager'), 'delete', 'submit', false, ['onclick' => "return confirm('" . esc_js(__('Delete selected targets?', 'links-manager')) . "');"]);
+    echo '<select name="lm_bulk_anchor_group" style="min-width:160px; margin-right:8px;">';
+    echo '<option value="no_group">' . esc_html__('No Group', 'links-manager') . '</option>';
+    foreach ($groupNames as $gn) {
+      echo '<option value="' . esc_attr($gn) . '">' . esc_html($gn) . '</option>';
+    }
+    echo '</select>';
+    echo '<button type="submit" class="button button-secondary" formaction="' . esc_url($this->admin_post_url_with_args(['action' => 'lm_bulk_update_anchor_target_group'])) . '">' . esc_html__('Change Group for Selected', 'links-manager') . '</button> ';
+    submit_button(__('Delete Selected Targets', 'links-manager'), 'delete', 'submit', false, [
+      'formaction' => $this->admin_post_url_with_args(['action' => 'lm_bulk_delete_anchor_targets']),
+      'onclick' => "return confirm('" . esc_js(__('Delete selected targets?', 'links-manager')) . "');",
+    ]);
     echo '</form>';
     $summaryPostTypeOptions = $this->get_filterable_post_types();
     $summaryPostCategoryOptions = $this->get_post_term_options('category');
@@ -1324,7 +1333,7 @@ trait LM_Links_Target_Admin_Trait {
 
         echo '<tr>';
         if ($idx >= 0) {
-          echo '<td class="lm-col-block" style="text-align:center;"><input type="checkbox" class="lm-target-check" name="lm_target_indices[]" value="' . esc_attr((string)$idx) . '" form="lm-bulk-delete-targets-form" /></td>';
+          echo '<td class="lm-col-block" style="text-align:center;"><input type="checkbox" class="lm-target-check" name="lm_target_indices[]" value="' . esc_attr((string)$idx) . '" form="lm-bulk-target-actions-form" /></td>';
         } else {
           echo '<td class="lm-col-block" style="text-align:center;">—</td>';
         }

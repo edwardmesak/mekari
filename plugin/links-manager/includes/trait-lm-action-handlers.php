@@ -683,6 +683,79 @@ trait LM_Action_Handlers_Trait {
     wp_send_json_success($response);
   }
 
+  public function handle_bulk_update_anchor_target_group() {
+    if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
+    $nonce = $this->request_text(self::NONCE_NAME, '');
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
+
+    $rawIndices = $this->request_array('lm_target_indices');
+    $indices = array_values(array_unique(array_filter(array_map('intval', $rawIndices), function($idx) {
+      return $idx >= 0;
+    })));
+
+    if (empty($indices)) {
+      wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'No target selected.']));
+      exit;
+    }
+
+    $newGroup = trim($this->request_text('lm_bulk_anchor_group', 'no_group'));
+    $targets = $this->get_anchor_targets();
+    $selectedAnchors = [];
+    foreach ($indices as $idx) {
+      if (!isset($targets[$idx])) continue;
+      $anchor = trim((string)$targets[$idx]);
+      if ($anchor === '') continue;
+      $selectedAnchors[strtolower($anchor)] = $anchor;
+    }
+
+    if (empty($selectedAnchors)) {
+      wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'No valid targets selected.']));
+      exit;
+    }
+
+    $groups = $this->get_anchor_groups();
+    foreach ($groups as &$g) {
+      $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
+      $anchors = array_values(array_filter($anchors, function($a) use ($selectedAnchors) {
+        $key = strtolower(trim((string)$a));
+        return $key !== '' && !isset($selectedAnchors[$key]);
+      }));
+      $g['anchors'] = $anchors;
+    }
+    unset($g);
+
+    if ($newGroup !== '' && $newGroup !== 'no_group') {
+      $found = false;
+      foreach ($groups as &$g) {
+        $gname = isset($g['name']) ? (string)$g['name'] : '';
+        if ($gname !== $newGroup) {
+          continue;
+        }
+        $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
+        foreach ($selectedAnchors as $anchor) {
+          $anchors[] = $anchor;
+        }
+        $g['anchors'] = $this->normalize_anchor_list(implode("\n", $anchors));
+        $found = true;
+        break;
+      }
+      unset($g);
+
+      if (!$found) {
+        wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Group not found.']));
+        exit;
+      }
+    }
+
+    $this->save_anchor_groups($groups);
+
+    $msg = ($newGroup === '' || $newGroup === 'no_group')
+      ? ('Removed group from ' . count($selectedAnchors) . ' target(s).')
+      : ('Updated group for ' . count($selectedAnchors) . ' target(s).');
+    wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => $msg]));
+    exit;
+  }
+
   public function handle_delete_anchor_target() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
     $nonce = $this->request_text(self::NONCE_NAME, '');

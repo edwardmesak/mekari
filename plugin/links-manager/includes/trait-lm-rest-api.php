@@ -459,7 +459,8 @@ trait LM_REST_API_Trait {
       $usedRebuild = false;
 
       if (!$rebuildRequested) {
-        $all = $this->get_existing_cache_rows_for_rest($context['scope_post_type'], $context['scope_wpml_lang'], true);
+        // Pages Link summaries need all source rows so inbound counts still include links from other post types.
+        $all = $this->get_existing_cache_rows_for_rest('any', $context['scope_wpml_lang'], true);
         if (is_array($all)) {
           if ($this->is_indexed_datastore_ready()) {
             $usedIndexedAuthority = true;
@@ -471,7 +472,7 @@ trait LM_REST_API_Trait {
 
       if (!is_array($all)) {
         $all = $this->get_canonical_rows_for_scope(
-          $context['scope_post_type'],
+          'any',
           $rebuildRequested,
           $context['scope_wpml_lang'],
           $filters
