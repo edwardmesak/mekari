@@ -9,7 +9,51 @@ if (!defined('ABSPATH')) {
 
 trait LM_Cache_Rebuild_Trait {
   private function count_cache_post_ids($post_types, $wpml_lang = 'all', $modified_after_gmt = '') {
-    return count($this->query_cache_post_ids($post_types, $wpml_lang, $modified_after_gmt));
+    $post_types = array_values(array_unique(array_map('sanitize_key', (array)$post_types)));
+    if (empty($post_types)) {
+      return 0;
+    }
+
+    $scanAuthorIds = $this->get_enabled_scan_author_ids();
+    $effectiveAfterGmt = $this->get_scan_modified_after_gmt($modified_after_gmt);
+
+    $queryArgs = [
+      'post_type' => $post_types,
+      'post_status' => 'publish',
+      'posts_per_page' => 1,
+      'fields' => 'ids',
+      'suppress_filters' => false,
+      'no_found_rows' => false,
+      'orderby' => 'ID',
+      'order' => 'ASC',
+      'update_post_meta_cache' => false,
+      'update_post_term_cache' => false,
+      'cache_results' => false,
+    ];
+
+    if (!empty($scanAuthorIds)) {
+      $queryArgs['author__in'] = array_values(array_map('intval', $scanAuthorIds));
+    }
+
+    if ($this->is_wpml_active()) {
+      $queryArgs['lang'] = ($wpml_lang === 'all') ? '' : $wpml_lang;
+    }
+
+    if ($effectiveAfterGmt !== '') {
+      $queryArgs['date_query'] = [[
+        'column' => 'post_modified_gmt',
+        'after' => $effectiveAfterGmt,
+        'inclusive' => false,
+      ]];
+    }
+
+    $globalTaxQuery = $this->get_global_scan_tax_query($post_types);
+    if (!empty($globalTaxQuery)) {
+      $queryArgs['tax_query'] = $globalTaxQuery;
+    }
+
+    $q = new WP_Query($queryArgs);
+    return max(0, (int)$q->found_posts);
   }
 
   private function query_cache_post_ids($post_types, $wpml_lang = 'all', $modified_after_gmt = '') {

@@ -37,3 +37,7 @@ content-refresher/
 
 #Debug files
 QA_SMOKE_CHECKLIST.md
+
+# Skills
+.agents
+skills-lock.json

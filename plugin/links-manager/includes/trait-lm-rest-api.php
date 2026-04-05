@@ -131,6 +131,7 @@ trait LM_REST_API_Trait {
       'scope_post_type' => $scopePostType,
       'wpml_lang' => $wpmlLang,
       'post_types' => $postTypes,
+      'storage_mode' => ($scopePostType === 'any' && $this->is_indexed_datastore_ready()) ? 'indexed_stream' : 'transient_cache',
       'scan_modified_after_gmt' => '',
       'last_seen_id' => 0,
       'offset' => 0,
@@ -154,8 +155,12 @@ trait LM_REST_API_Trait {
 
     $job['scan_modified_after_gmt'] = $this->get_scan_modified_after_gmt('');
     $job['total_posts'] = $this->count_cache_post_ids($postTypes, $wpmlLang, $job['scan_modified_after_gmt']);
-
-    set_transient($this->rebuild_job_partial_rows_key($scopePostType, $wpmlLang), [], self::CACHE_TTL);
+    if ((string)$job['storage_mode'] === 'indexed_stream') {
+      $this->reset_indexed_datastore_for_lang($wpmlLang);
+      $this->clear_cache_payload($scopePostType, $wpmlLang);
+    } else {
+      set_transient($this->rebuild_job_partial_rows_key($scopePostType, $wpmlLang), [], self::CACHE_TTL);
+    }
     $this->save_rebuild_job_state($job);
 
     return rest_ensure_response($this->get_public_rebuild_job_state($job));
@@ -183,6 +188,7 @@ trait LM_REST_API_Trait {
 
     $scopePostType = sanitize_key((string)($state['scope_post_type'] ?? 'any'));
     $wpmlLang = $this->get_effective_scan_wpml_lang((string)($state['wpml_lang'] ?? 'all'));
+    $storageMode = sanitize_key((string)($state['storage_mode'] ?? 'transient_cache'));
     $scanModifiedAfterGmt = (string)($state['scan_modified_after_gmt'] ?? '');
     $postTypes = array_values(array_unique(array_map('sanitize_key', (array)($state['post_types'] ?? []))));
     $lastSeenId = max(0, (int)($state['last_seen_id'] ?? 0));
@@ -196,10 +202,14 @@ trait LM_REST_API_Trait {
       $batch = $this->get_runtime_max_crawl_batch();
     }
 
-    $partialKey = $this->rebuild_job_partial_rows_key($scopePostType, $wpmlLang);
-    $allRows = get_transient($partialKey);
-    if (!is_array($allRows)) {
-      $allRows = [];
+    $partialKey = '';
+    $allRows = [];
+    if ($storageMode !== 'indexed_stream') {
+      $partialKey = $this->rebuild_job_partial_rows_key($scopePostType, $wpmlLang);
+      $allRows = get_transient($partialKey);
+      if (!is_array($allRows)) {
+        $allRows = [];
+      }
     }
 
     $enabledSources = $this->get_enabled_scan_source_types();
@@ -224,6 +234,7 @@ trait LM_REST_API_Trait {
       $end = count($batchPostIds);
       $nextOffset = $offset;
       $nextLastSeenId = $lastSeenId;
+      $batchRows = [];
 
       for ($i = 0; $i < $end; $i++) {
         $nextOffset = $offset + $i + 1;
@@ -238,16 +249,26 @@ trait LM_REST_API_Trait {
         }
         if ($postId < 1) continue;
 
-        $this->append_rows($allRows, $this->crawl_post($postId, $enabledSources));
+        $postRows = $this->crawl_post($postId, $enabledSources);
+        if ($storageMode === 'indexed_stream') {
+          $this->append_rows($batchRows, $postRows);
+        } else {
+          $this->append_rows($allRows, $postRows);
+        }
         $processedPosts++;
 
-        if (count($allRows) >= $maxRows) {
+        if ($storageMode !== 'indexed_stream' && count($allRows) >= $maxRows) {
           $allRows = array_slice($allRows, 0, $maxRows);
           break;
         }
         if ($this->should_abort_crawl($crawlStartedAt)) {
           break;
         }
+      }
+
+      if ($storageMode === 'indexed_stream' && !empty($batchRows)) {
+        $insertedRows = (int)$this->append_indexed_datastore_rows($batchRows, $wpmlLang);
+        $state['rows_count'] = max(0, (int)($state['rows_count'] ?? 0)) + $insertedRows;
       }
     } catch (Throwable $e) {
       $state['status'] = 'error';
@@ -271,28 +292,62 @@ trait LM_REST_API_Trait {
     $newOffset = max(0, (int)(isset($nextOffset) ? $nextOffset : $offset));
     $newLastSeenId = max(0, (int)(isset($nextLastSeenId) ? $nextLastSeenId : $lastSeenId));
     $lastBatchCount = isset($batchPostIds) && is_array($batchPostIds) ? count($batchPostIds) : 0;
-    $done = ($lastBatchCount < $batch) || (($totalPosts > 0) && ($newOffset >= $totalPosts)) || ($maxPosts > 0 && $processedPosts >= $maxPosts) || (count($allRows) >= $maxRows);
+    $hitMaxPosts = ($maxPosts > 0 && $processedPosts >= $maxPosts);
+    $hitMaxRows = ($storageMode !== 'indexed_stream' && count($allRows) >= $maxRows);
+    $exhaustedPosts = ($lastBatchCount === 0) || (($totalPosts > 0) && ($newOffset >= $totalPosts));
+    $done = $exhaustedPosts || $hitMaxPosts || $hitMaxRows;
 
     if ($done) {
-      if (count($allRows) < $maxRows) {
-        $this->append_rows($allRows, $this->crawl_menus($enabledSources));
+      if ($storageMode === 'indexed_stream') {
+        $menuRows = $this->crawl_menus($enabledSources);
+        if (!empty($menuRows)) {
+          $state['rows_count'] = max(0, (int)($state['rows_count'] ?? 0)) + (int)$this->append_indexed_datastore_rows($menuRows, $wpmlLang);
+        }
+        $this->rebuild_indexed_summary_for_lang($wpmlLang);
+        $this->clear_cache_payload($scopePostType, $wpmlLang);
+        update_option($this->cache_scan_option_key($scopePostType, $wpmlLang), gmdate('Y-m-d H:i:s'), false);
+        $this->bump_dataset_cache_version();
+      } else {
+        if (count($allRows) < $maxRows) {
+          $this->append_rows($allRows, $this->crawl_menus($enabledSources));
+        }
+        $this->persist_cache_payload($scopePostType, $wpmlLang, $allRows);
       }
-      $this->persist_cache_payload($scopePostType, $wpmlLang, $allRows);
       $this->schedule_rest_list_prewarm($scopePostType, $wpmlLang, 2);
       if ($this->is_wpml_active()) {
         update_option('lm_last_wpml_lang_context', (string)$wpmlLang, false);
       }
-      delete_transient($partialKey);
-      $state['status'] = 'done';
+      if ($partialKey !== '') {
+        delete_transient($partialKey);
+      }
+      if ($hitMaxRows) {
+        $state['status'] = 'partial';
+        $state['message'] = sprintf(
+          'Refresh stopped at the safety cache row limit (%1$s rows) before all posts were scanned.',
+          number_format_i18n($maxRows)
+        );
+      } elseif ($hitMaxPosts) {
+        $state['status'] = 'partial';
+        $state['message'] = sprintf(
+          'Refresh stopped at the configured post limit (%1$s posts) before all posts were scanned.',
+          number_format_i18n($maxPosts)
+        );
+      } else {
+        $state['status'] = 'done';
+      }
     } else {
-      set_transient($partialKey, $allRows, self::CACHE_TTL);
+      if ($partialKey !== '') {
+        set_transient($partialKey, $allRows, self::CACHE_TTL);
+      }
       $state['status'] = 'running';
     }
 
     $state['offset'] = $newOffset;
     $state['last_seen_id'] = $newLastSeenId;
     $state['processed_posts'] = $processedPosts;
-    $state['rows_count'] = count((array)$allRows);
+    if ($storageMode !== 'indexed_stream') {
+      $state['rows_count'] = count((array)$allRows);
+    }
     $state['updated_at'] = current_time('mysql');
     $state['batch_size'] = $batch;
     $state['step_ms'] = max(0, (int)round((microtime(true) - $crawlStartedAt) * 1000));

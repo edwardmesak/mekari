@@ -1204,12 +1204,17 @@ class LM_Links_Manager {
           const processed = Math.max(0, parseInt((state && state.processed_posts) ? state.processed_posts : 0, 10) || 0);
           const rows = Math.max(0, parseInt((state && state.rows_count) ? state.rows_count : 0, 10) || 0);
           const status = String((state && state.status) ? state.status : 'idle');
-          const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((processed / total) * 100))) : (status === 'done' ? 100 : 0);
+          const runningPct = total > 0 ? Math.max(0, Math.min(99, Math.floor((processed / total) * 100))) : 0;
+          const pct = (status === 'done' || status === 'partial')
+            ? 100
+            : runningPct;
 
           if (progressEl) {
-            if (total > 0) {
+            if (status === 'partial' && total > 0) {
+              progressEl.textContent = processed.toLocaleString() + ' / ' + total.toLocaleString() + ' posts scanned before the safety limit (' + Math.max(0, Math.min(100, Math.floor((processed / total) * 100))) + '% of scope)';
+            } else if (total > 0) {
               progressEl.textContent = processed.toLocaleString() + ' / ' + total.toLocaleString() + ' posts (' + pct + '%)';
-            } else if (status === 'running' || status === 'done') {
+            } else if (status === 'running' || status === 'done' || status === 'partial') {
               progressEl.textContent = processed.toLocaleString() + ' posts processed';
             } else {
               progressEl.textContent = " . wp_json_encode(__('No active refresh job.', 'links-manager')) . ";
@@ -1267,6 +1272,9 @@ class LM_Links_Manager {
                 setStatusText('Refresh is running for ' + scopeLabel + '. Progress updates will appear automatically.', false);
               } else if (status === 'done') {
                 setStatusText('Refresh finished for ' + scopeLabel + '. Cached data is up to date.', false);
+              } else if (status === 'partial') {
+                const detail = String((state && state.message) ? state.message : 'Refresh stopped before the full scope completed.');
+                setStatusText(detail, true);
               } else if (status === 'error') {
                 setStatusText('Refresh failed: ' + String((state && state.last_error) ? state.last_error : 'Unknown error'), true);
               } else {
@@ -1298,6 +1306,9 @@ class LM_Links_Manager {
                 setRunningUi(false);
                 if (status === 'done') {
                   setStatusText('Refresh finished for ' + scopeLabel + '. Cached data is up to date.', false);
+                } else if (status === 'partial') {
+                  const detail = String((state && state.message) ? state.message : 'Refresh stopped before the full scope completed.');
+                  setStatusText(detail, true);
                 } else if (status === 'error') {
                   setStatusText('Refresh failed: ' + String((state && state.last_error) ? state.last_error : 'Unknown error'), true);
                 } else {
@@ -1337,6 +1348,12 @@ class LM_Links_Manager {
                   setRunningUi(false);
                   return;
                 }
+                if (status === 'partial') {
+                  const detail = String((state && state.message) ? state.message : 'Refresh stopped before the full scope completed.');
+                  setStatusText(detail, true);
+                  setRunningUi(false);
+                  return;
+                }
                 if (status === 'error') {
                   setStatusText('Failed to start refresh: ' + String((state && state.last_error) ? state.last_error : 'Unknown error'), true);
                   setRunningUi(false);
@@ -1352,9 +1369,19 @@ class LM_Links_Manager {
           });
         }
 
-        refreshStatus().catch(err => {
-          setStatusText('REST status error: ' + err.message, true);
-        });
+        refreshStatus()
+          .then(state => {
+            const status = String((state && state.status) ? state.status : 'idle');
+            if (status === 'running') {
+              runStepLoop();
+            } else {
+              setRunningUi(false);
+            }
+          })
+          .catch(err => {
+            setRunningUi(false);
+            setStatusText('REST status error: ' + err.message, true);
+          });
       }
 
       const restConfig = (window.LM_REBUILD_REST && typeof window.LM_REBUILD_REST === 'object') ? window.LM_REBUILD_REST : null;
