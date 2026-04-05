@@ -1207,14 +1207,14 @@ class LM_Links_Manager {
           const runningPct = total > 0 ? Math.max(0, Math.min(99, Math.floor((processed / total) * 100))) : 0;
           const pct = (status === 'done' || status === 'partial')
             ? 100
-            : runningPct;
+            : (status === 'finalizing' ? 99 : runningPct);
 
           if (progressEl) {
             if (status === 'partial' && total > 0) {
               progressEl.textContent = processed.toLocaleString() + ' / ' + total.toLocaleString() + ' posts scanned before the safety limit (' + Math.max(0, Math.min(100, Math.floor((processed / total) * 100))) + '% of scope)';
             } else if (total > 0) {
               progressEl.textContent = processed.toLocaleString() + ' / ' + total.toLocaleString() + ' posts (' + pct + '%)';
-            } else if (status === 'running' || status === 'done' || status === 'partial') {
+            } else if (status === 'running' || status === 'finalizing' || status === 'done' || status === 'partial') {
               progressEl.textContent = processed.toLocaleString() + ' posts processed';
             } else {
               progressEl.textContent = " . wp_json_encode(__('No active refresh job.', 'links-manager')) . ";
@@ -1270,6 +1270,9 @@ class LM_Links_Manager {
               const status = String((state && state.status) ? state.status : 'idle');
               if (status === 'running') {
                 setStatusText('Refresh is running for ' + scopeLabel + '. Progress updates will appear automatically.', false);
+              } else if (status === 'finalizing') {
+                const detail = String((state && state.message) ? state.message : 'Refresh is finalizing cached summaries...');
+                setStatusText(detail, false);
               } else if (status === 'done') {
                 setStatusText('Refresh finished for ' + scopeLabel + '. Cached data is up to date.', false);
               } else if (status === 'partial') {
@@ -1294,8 +1297,13 @@ class LM_Links_Manager {
               .then(state => {
                 updateProgress(state || {});
                 const status = String((state && state.status) ? state.status : 'idle');
-                if (status === 'running') {
+                if (status === 'running' || status === 'finalizing') {
+                  if (status === 'finalizing') {
+                    const detail = String((state && state.message) ? state.message : 'Refresh is finalizing cached summaries...');
+                    setStatusText(detail, false);
+                  } else {
                   setStatusText('Refresh in progress for ' + scopeLabel + '...', false);
+                  }
                   const hinted = parseInt((state && state.poll_ms) ? state.poll_ms : 400, 10);
                   const delay = Number.isFinite(hinted) ? Math.max(200, Math.min(5000, hinted)) : 400;
                   loopTimer = window.setTimeout(iterate, delay);
@@ -1372,7 +1380,7 @@ class LM_Links_Manager {
         refreshStatus()
           .then(state => {
             const status = String((state && state.status) ? state.status : 'idle');
-            if (status === 'running') {
+            if (status === 'running' || status === 'finalizing') {
               runStepLoop();
             } else {
               setRunningUi(false);

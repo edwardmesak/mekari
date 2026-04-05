@@ -342,6 +342,60 @@ trait LM_Crawl_Parse_Trait {
     return $results;
   }
 
+  private function crawl_row_dedupe_signature($row) {
+    if (!is_array($row)) {
+      return '';
+    }
+
+    $signatureParts = [
+      (string)($row['post_id'] ?? ''),
+      (string)($row['source'] ?? ''),
+      (string)($row['link_type'] ?? ''),
+      (string)$this->normalize_for_compare((string)($row['link'] ?? '')),
+      strtolower(trim((string)($row['anchor_text'] ?? ''))),
+      strtolower(trim((string)($row['alt_text'] ?? ''))),
+      strtolower(trim((string)($row['rel_raw'] ?? ''))),
+      (string)($row['value_type'] ?? ''),
+    ];
+
+    return implode('|', $signatureParts);
+  }
+
+  private function merge_block_and_full_html_rows($blockRows, $fullHtmlRows) {
+    $blockRows = is_array($blockRows) ? array_values($blockRows) : [];
+    $fullHtmlRows = is_array($fullHtmlRows) ? array_values($fullHtmlRows) : [];
+
+    if (empty($blockRows)) {
+      return $fullHtmlRows;
+    }
+    if (empty($fullHtmlRows)) {
+      return $blockRows;
+    }
+
+    $blockSignatureCounts = [];
+    foreach ($blockRows as $row) {
+      $signature = $this->crawl_row_dedupe_signature($row);
+      if ($signature === '') {
+        continue;
+      }
+      $blockSignatureCounts[$signature] = (int)($blockSignatureCounts[$signature] ?? 0) + 1;
+    }
+
+    $dedupedFullHtmlRows = [];
+    foreach ($fullHtmlRows as $row) {
+      $signature = $this->crawl_row_dedupe_signature($row);
+      if ($signature !== '' && !empty($blockSignatureCounts[$signature])) {
+        $blockSignatureCounts[$signature]--;
+        continue;
+      }
+      $dedupedFullHtmlRows[] = $row;
+    }
+
+    $merged = $blockRows;
+    $this->append_rows($merged, $dedupedFullHtmlRows);
+    return $merged;
+  }
+
   private function render_block_html_best_effort($block) {
     $inner = isset($block['innerHTML']) ? (string)$block['innerHTML'] : '';
     if (trim($inner) !== '') return $inner;
@@ -495,7 +549,9 @@ trait LM_Crawl_Parse_Trait {
       }
       $hasBlockMarkup = (strpos($content, '<!-- wp:') !== false);
       $blocks = ($contentHasLinkMarkers && $hasBlockMarkup && function_exists('parse_blocks')) ? parse_blocks($content) : [];
+      $contentRowsBeforeScan = count($rows);
 
+      $blockRows = [];
       if (!empty($blocks)) {
         $this->add_crawl_runtime_stat('content_block_posts', 1);
         $this->add_crawl_runtime_stat('content_blocks_total', count($blocks));
@@ -521,17 +577,31 @@ trait LM_Crawl_Parse_Trait {
             'block_index' => (string)$i,
           ]);
 
-          $this->append_rows($rows, $this->parse_links_from_html($html, $context));
+          $this->append_rows($blockRows, $this->parse_links_from_html($html, $context));
           $i++;
         }
-      } elseif ($contentHasLinkMarkers) {
+      }
+
+      $contentRowsFound = count($blockRows);
+      $fullHtmlRows = [];
+      if ($contentHasLinkMarkers) {
+        if (!empty($blocks)) {
+          $this->add_crawl_runtime_stat('content_block_fallback_full_html', 1);
+        }
         $context = array_merge($baseContext, [
           'source' => 'content',
           'link_location' => 'classic',
           'block_index' => '',
         ]);
-        $this->append_rows($rows, $this->parse_links_from_html($content, $context));
+        $fullHtmlRows = $this->parse_links_from_html($content, $context);
       }
+
+      if (!empty($blocks)) {
+        $contentRows = $this->merge_block_and_full_html_rows($blockRows, $fullHtmlRows);
+      } else {
+        $contentRows = $fullHtmlRows;
+      }
+      $this->append_rows($rows, $contentRows);
     }
 
     if (isset($enabledSourcesMap['excerpt'])) {
@@ -562,7 +632,31 @@ trait LM_Crawl_Parse_Trait {
       }
     }
 
-    return $rows;
+    return $this->dedupe_crawl_rows_by_row_id($rows);
+  }
+
+  private function dedupe_crawl_rows_by_row_id($rows) {
+    if (!is_array($rows) || empty($rows)) {
+      return [];
+    }
+
+    $deduped = [];
+    $seen = [];
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $rowId = isset($row['row_id']) ? (string)$row['row_id'] : '';
+      if ($rowId !== '') {
+        if (isset($seen[$rowId])) {
+          continue;
+        }
+        $seen[$rowId] = true;
+      }
+      $deduped[] = $row;
+    }
+
+    return $deduped;
   }
 
   private function crawl_menus($enabledSources = null) {

@@ -88,6 +88,14 @@ trait LM_Cache_Index_Sync_Trait {
     $this->rebuild_indexed_summary_for_lang($wpml_lang);
   }
 
+  private function clear_indexed_summary_for_lang($wpml_lang = 'all') {
+    global $wpdb;
+    $summaryTable = $wpdb->prefix . 'lm_link_post_summary';
+
+    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpdb->query($wpdb->prepare("DELETE FROM $summaryTable WHERE wpml_lang = %s", $wpml_lang));
+  }
+
   private function reset_indexed_datastore_for_lang($wpml_lang = 'all') {
     global $wpdb;
     $factTable = $wpdb->prefix . 'lm_link_fact';
@@ -101,7 +109,6 @@ trait LM_Cache_Index_Sync_Trait {
   private function append_indexed_datastore_rows($rows, $wpml_lang = 'all') {
     global $wpdb;
     $factTable = $wpdb->prefix . 'lm_link_fact';
-
     $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
     $rows = is_array($rows) ? $rows : [];
     if (empty($rows)) {
@@ -186,20 +193,52 @@ trait LM_Cache_Index_Sync_Trait {
   }
 
   private function rebuild_indexed_summary_for_lang($wpml_lang = 'all') {
+    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $this->clear_indexed_summary_for_lang($wpml_lang);
+
+    $afterPostId = 0;
+    do {
+      $result = $this->rebuild_indexed_summary_chunk_for_lang($wpml_lang, $afterPostId, 100);
+      $afterPostId = (int)($result['last_post_id'] ?? 0);
+    } while (empty($result['done']));
+  }
+
+  private function rebuild_indexed_summary_chunk_for_lang($wpml_lang = 'all', $afterPostId = 0, $limit = 100) {
     global $wpdb;
+
     $factTable = $wpdb->prefix . 'lm_link_fact';
     $summaryTable = $wpdb->prefix . 'lm_link_post_summary';
-
     $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
-    $wpdb->query($wpdb->prepare("DELETE FROM $summaryTable WHERE wpml_lang = %s", $wpml_lang));
+    $afterPostId = max(0, (int)$afterPostId);
+    $limit = max(1, min(500, (int)$limit));
 
-    $normalizedTargetPageExpr = "TRIM(TRAILING '/' FROM target.page_url)";
-    $normalizedSourceLinkExpr = "TRIM(TRAILING '/' FROM src.link)";
+    $postIds = $wpdb->get_col(
+      $wpdb->prepare(
+        "SELECT DISTINCT post_id
+         FROM $factTable
+         WHERE wpml_lang = %s
+           AND post_id > %d
+           AND post_id > 0
+         ORDER BY post_id ASC
+         LIMIT %d",
+        $wpml_lang,
+        $afterPostId,
+        $limit
+      )
+    );
 
-    $sql = "INSERT INTO $summaryTable (
-      wpml_lang, post_id, post_title, post_type, post_author, post_date, post_modified, page_url, inbound, internal_outbound, outbound
-    )
-    SELECT
+    $postIds = array_values(array_filter(array_map('intval', (array)$postIds)));
+    if (empty($postIds)) {
+      return [
+        'done' => true,
+        'processed_posts' => 0,
+        'last_post_id' => $afterPostId,
+      ];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($postIds), '%d'));
+    $summaryParams = array_merge([$wpml_lang], $postIds);
+    $summarySql = "SELECT
       fact.wpml_lang,
       fact.post_id,
       MAX(fact.post_title) AS post_title,
@@ -208,33 +247,73 @@ trait LM_Cache_Index_Sync_Trait {
       MAX(fact.post_date) AS post_date,
       MAX(fact.post_modified) AS post_modified,
       MAX(fact.page_url) AS page_url,
-      COALESCE(inbound_map.inbound, 0) AS inbound,
       SUM(CASE WHEN fact.link_type = 'inlink' THEN 1 ELSE 0 END) AS internal_outbound,
       SUM(CASE WHEN fact.link_type = 'exlink' THEN 1 ELSE 0 END) AS outbound
     FROM $factTable fact
-    LEFT JOIN (
-      SELECT
-        target.wpml_lang AS wpml_lang,
-        target.post_id AS post_id,
-        COUNT(*) AS inbound
-      FROM $factTable src
-      INNER JOIN $factTable target
-        ON target.wpml_lang = src.wpml_lang
-        AND $normalizedTargetPageExpr = $normalizedSourceLinkExpr
-        AND target.post_id <> src.post_id
-      WHERE src.wpml_lang = %s
-        AND src.link_type = 'inlink'
-        AND src.link <> ''
-        AND target.page_url <> ''
-      GROUP BY target.wpml_lang, target.post_id
-    ) inbound_map
-      ON inbound_map.wpml_lang = fact.wpml_lang
-      AND inbound_map.post_id = fact.post_id
     WHERE fact.wpml_lang = %s
-      AND fact.post_id > 0
+      AND fact.post_id IN ($placeholders)
     GROUP BY fact.wpml_lang, fact.post_id";
+    $summaryRows = $wpdb->get_results($wpdb->prepare($summarySql, $summaryParams), ARRAY_A);
 
-    $wpdb->query($wpdb->prepare($sql, $wpml_lang, $wpml_lang));
+    $normalizedTargetPageExpr = "TRIM(TRAILING '/' FROM target.page_url)";
+    $normalizedSourceLinkExpr = "TRIM(TRAILING '/' FROM src.link)";
+    $inboundParams = array_merge([$wpml_lang], $postIds);
+    $inboundSql = "SELECT
+      target.post_id AS post_id,
+      COUNT(*) AS inbound
+    FROM $factTable src
+    INNER JOIN $factTable target
+      ON target.wpml_lang = src.wpml_lang
+      AND $normalizedTargetPageExpr = $normalizedSourceLinkExpr
+      AND target.post_id <> src.post_id
+    WHERE src.wpml_lang = %s
+      AND src.link_type = 'inlink'
+      AND src.link <> ''
+      AND target.page_url <> ''
+      AND target.post_id IN ($placeholders)
+    GROUP BY target.post_id";
+    $inboundRows = $wpdb->get_results($wpdb->prepare($inboundSql, $inboundParams), ARRAY_A);
+
+    $inboundMap = [];
+    foreach ((array)$inboundRows as $row) {
+      $postId = isset($row['post_id']) ? (int)$row['post_id'] : 0;
+      if ($postId < 1) {
+        continue;
+      }
+      $inboundMap[$postId] = (int)($row['inbound'] ?? 0);
+    }
+
+    $batch = [];
+    foreach ((array)$summaryRows as $row) {
+      $postId = isset($row['post_id']) ? (int)$row['post_id'] : 0;
+      if ($postId < 1) {
+        continue;
+      }
+      $batch[] = [
+        'wpml_lang' => (string)($row['wpml_lang'] ?? $wpml_lang),
+        'post_id' => $postId,
+        'post_title' => sanitize_text_field((string)($row['post_title'] ?? '')),
+        'post_type' => sanitize_key((string)($row['post_type'] ?? '')),
+        'post_author' => sanitize_text_field((string)($row['post_author'] ?? '')),
+        'post_date' => $this->normalize_db_datetime_or_null($row['post_date'] ?? ''),
+        'post_modified' => $this->normalize_db_datetime_or_null($row['post_modified'] ?? ''),
+        'page_url' => esc_url_raw((string)($row['page_url'] ?? '')),
+        'inbound' => (int)($inboundMap[$postId] ?? 0),
+        'internal_outbound' => (int)($row['internal_outbound'] ?? 0),
+        'outbound' => (int)($row['outbound'] ?? 0),
+      ];
+    }
+
+    if (!empty($batch)) {
+      $this->insert_indexed_summary_batch($summaryTable, $batch);
+    }
+
+    $lastPostId = max($postIds);
+    return [
+      'done' => count($postIds) < $limit,
+      'processed_posts' => count($postIds),
+      'last_post_id' => $lastPostId,
+    ];
   }
 
   private function insert_indexed_fact_batch($table, $batch) {

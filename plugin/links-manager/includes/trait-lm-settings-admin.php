@@ -576,6 +576,84 @@ trait LM_Settings_Admin_Trait {
       echo '<div class="lm-small" style="margin-top:4px;">' . esc_html__('Detailed technical data appears below only on this Troubleshooting tab when Debug mode is enabled and data is available.', 'links-manager') . '</div>';
       echo '</div>';
 
+      $debugPostId = max(0, $this->request_int('lm_debug_post_id', 0));
+      $debugNeedle = trim($this->request_text('lm_debug_link_search', ''));
+      $debugPostResult = $debugPostId > 0 ? $this->build_post_scan_debug_result($debugPostId) : null;
+      $debugInspectUrlBase = admin_url('admin.php?page=links-manager-settings&lm_tab=debug');
+      echo '<div style="' . esc_attr($settingsCardStyle) . '">';
+      echo '<div style="font-weight:600; margin-bottom:6px;">' . esc_html__('Post Scan Debug', 'links-manager') . '</div>';
+      echo '<div class="lm-small" style="margin-bottom:8px;">' . esc_html__('Use this to inspect whether a specific published post is being scanned and which links are extracted from its stored content.', 'links-manager') . '</div>';
+      echo '<label class="lm-small" for="lm-debug-post-id" style="display:block; margin-bottom:4px;">' . esc_html__('Post ID', 'links-manager') . '</label>';
+      echo '<input id="lm-debug-post-id" type="number" min="1" value="' . esc_attr($debugPostId > 0 ? (string)$debugPostId : '') . '" style="width:120px; margin-right:8px;" />';
+      echo '<label class="lm-small" for="lm-debug-link-search" style="display:block; margin:10px 0 4px;">' . esc_html__('Optional link/domain search', 'links-manager') . '</label>';
+      echo '<input id="lm-debug-link-search" type="text" value="' . esc_attr($debugNeedle) . '" placeholder="officeless.mekari.com" style="width:280px; max-width:100%; margin-right:8px;" />';
+      echo '<a href="' . esc_url($debugInspectUrlBase) . '" class="button button-secondary" id="lm-debug-post-inspect-link">' . esc_html__('Inspect Post', 'links-manager') . '</a>';
+      echo '<script>(function(){var postInput=document.getElementById("lm-debug-post-id");var searchInput=document.getElementById("lm-debug-link-search");var link=document.getElementById("lm-debug-post-inspect-link");if(!postInput||!link)return;var base=' . wp_json_encode($debugInspectUrlBase) . ';var sync=function(){var params=[];var postVal=parseInt(postInput.value||"",10);var searchVal=searchInput?String(searchInput.value||"").trim():"";if(postVal>0){params.push("lm_debug_post_id="+encodeURIComponent(String(postVal)));}if(searchVal!==""){params.push("lm_debug_link_search="+encodeURIComponent(searchVal));}link.href=base+(params.length?"&"+params.join("&"):"");};postInput.addEventListener("input",sync);postInput.addEventListener("change",sync);if(searchInput){searchInput.addEventListener("input",sync);searchInput.addEventListener("change",sync);}sync();})();</script>';
+
+      if (is_array($debugPostResult)) {
+        echo '<table class="widefat striped" style="margin-top:8px; max-width:900px;">';
+        echo '<tbody>';
+        echo '<tr><th style="width:260px;">' . esc_html__('Post found', 'links-manager') . '</th><td>' . esc_html(!empty($debugPostResult['post_found']) ? __('Yes', 'links-manager') : __('No', 'links-manager')) . '</td></tr>';
+        echo '<tr><th>' . esc_html__('Post status', 'links-manager') . '</th><td>' . esc_html((string)($debugPostResult['post_status'] ?? '—')) . '</td></tr>';
+        echo '<tr><th>' . esc_html__('Post type', 'links-manager') . '</th><td>' . esc_html((string)($debugPostResult['post_type'] ?? '—')) . '</td></tr>';
+        echo '<tr><th>' . esc_html__('Permalink', 'links-manager') . '</th><td>' . esc_html((string)($debugPostResult['page_url'] ?? '—')) . '</td></tr>';
+        echo '<tr><th>' . esc_html__('Content has link marker', 'links-manager') . '</th><td>' . esc_html(!empty($debugPostResult['content_has_link_markers']) ? __('Yes', 'links-manager') : __('No', 'links-manager')) . '</td></tr>';
+        echo '<tr><th>' . esc_html__('Content has block markup', 'links-manager') . '</th><td>' . esc_html(!empty($debugPostResult['has_block_markup']) ? __('Yes', 'links-manager') : __('No', 'links-manager')) . '</td></tr>';
+        echo '<tr><th>' . esc_html__('Extracted rows from crawl_post()', 'links-manager') . '</th><td>' . esc_html(number_format((int)($debugPostResult['rows_count'] ?? 0))) . '</td></tr>';
+        echo '<tr><th>' . esc_html__('Rows stored in indexed datastore', 'links-manager') . '</th><td>' . esc_html(number_format((int)($debugPostResult['indexed_rows_count'] ?? 0))) . '</td></tr>';
+        if ($debugNeedle !== '') {
+          echo '<tr><th>' . esc_html__('Raw post_content contains search', 'links-manager') . '</th><td>' . esc_html(!empty($debugPostResult['content_contains_search']) ? __('Yes', 'links-manager') : __('No', 'links-manager')) . '</td></tr>';
+          echo '<tr><th>' . esc_html__('crawl_post() matches for search', 'links-manager') . '</th><td>' . esc_html(number_format((int)($debugPostResult['search_rows_count'] ?? 0))) . '</td></tr>';
+          echo '<tr><th>' . esc_html__('Indexed datastore matches for search', 'links-manager') . '</th><td>' . esc_html(number_format((int)($debugPostResult['indexed_search_rows_count'] ?? 0))) . '</td></tr>';
+        }
+        echo '</tbody>';
+        echo '</table>';
+
+        $sampleLinks = isset($debugPostResult['sample_links']) && is_array($debugPostResult['sample_links']) ? $debugPostResult['sample_links'] : [];
+        $matchedLinks = isset($debugPostResult['matched_links']) && is_array($debugPostResult['matched_links']) ? $debugPostResult['matched_links'] : [];
+        if ($debugNeedle !== '') {
+          echo '<div class="lm-small" style="margin-top:10px; font-weight:600;">' . esc_html__('Search matches in crawl_post()', 'links-manager') . '</div>';
+          if (!empty($matchedLinks)) {
+            echo '<table class="widefat striped" style="margin-top:8px; max-width:900px;">';
+            echo '<thead><tr><th style="width:60px;">#</th><th>' . esc_html__('Link', 'links-manager') . '</th><th>' . esc_html__('Source', 'links-manager') . '</th><th>' . esc_html__('Location', 'links-manager') . '</th><th>' . esc_html__('Anchor', 'links-manager') . '</th></tr></thead>';
+            echo '<tbody>';
+            foreach ($matchedLinks as $index => $sampleRow) {
+              echo '<tr>';
+              echo '<td>' . esc_html((string)($index + 1)) . '</td>';
+              echo '<td>' . esc_html((string)($sampleRow['link'] ?? '')) . '</td>';
+              echo '<td>' . esc_html((string)($sampleRow['source'] ?? '')) . '</td>';
+              echo '<td>' . esc_html((string)($sampleRow['link_location'] ?? '')) . '</td>';
+              echo '<td>' . esc_html((string)($sampleRow['anchor_text'] ?? '')) . '</td>';
+              echo '</tr>';
+            }
+            echo '</tbody>';
+            echo '</table>';
+          } else {
+            echo '<div class="lm-small" style="margin-top:8px;">' . esc_html__('No crawl_post() rows matched the search term.', 'links-manager') . '</div>';
+          }
+        }
+        if (!empty($sampleLinks)) {
+          echo '<div class="lm-small" style="margin-top:10px; font-weight:600;">' . esc_html__('Sample extracted links', 'links-manager') . '</div>';
+          echo '<table class="widefat striped" style="margin-top:8px; max-width:900px;">';
+          echo '<thead><tr><th style="width:60px;">#</th><th>' . esc_html__('Link', 'links-manager') . '</th><th>' . esc_html__('Source', 'links-manager') . '</th><th>' . esc_html__('Location', 'links-manager') . '</th><th>' . esc_html__('Anchor', 'links-manager') . '</th></tr></thead>';
+          echo '<tbody>';
+          foreach ($sampleLinks as $index => $sampleRow) {
+            echo '<tr>';
+            echo '<td>' . esc_html((string)($index + 1)) . '</td>';
+            echo '<td>' . esc_html((string)($sampleRow['link'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string)($sampleRow['source'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string)($sampleRow['link_location'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string)($sampleRow['anchor_text'] ?? '')) . '</td>';
+            echo '</tr>';
+          }
+          echo '</tbody>';
+          echo '</table>';
+        } elseif ($debugPostId > 0) {
+          echo '<div class="lm-small" style="margin-top:10px;">' . esc_html__('No links were extracted from this post by crawl_post().', 'links-manager') . '</div>';
+        }
+      }
+      echo '</div>';
+
       if ($debugModeEnabled) {
         $this->render_settings_diagnostic_box();
         $this->render_settings_runtime_profile_box();
@@ -924,6 +1002,88 @@ trait LM_Settings_Admin_Trait {
       'orphan_max' => $orphanMax,
       'low_max' => $lowMax,
       'standard_max' => $standardMax,
+    ];
+  }
+
+  private function build_post_scan_debug_result($postId) {
+    global $wpdb;
+
+    $postId = (int)$postId;
+    $post = $postId > 0 ? get_post($postId) : null;
+    if (!$post || !isset($post->ID)) {
+      return [
+        'post_found' => false,
+        'post_status' => 'not found',
+        'post_type' => '',
+        'page_url' => '',
+        'content_has_link_markers' => false,
+        'has_block_markup' => false,
+        'rows_count' => 0,
+        'indexed_rows_count' => 0,
+        'sample_links' => [],
+      ];
+    }
+
+    $content = isset($post->post_content) ? (string)$post->post_content : '';
+    $contentHasLinkMarkers = ($content !== '') && ((stripos($content, '<a') !== false) || (stripos($content, 'href=') !== false));
+    $hasBlockMarkup = strpos($content, '<!-- wp:') !== false;
+    $rows = $this->crawl_post($postId, ['content', 'excerpt', 'meta', 'menu']);
+    $sampleLinks = array_slice(array_values((array)$rows), 0, 10);
+    $needle = trim($this->request_text('lm_debug_link_search', ''));
+    $contentContainsSearch = false;
+    $matchedLinks = [];
+    if ($needle !== '') {
+      $contentContainsSearch = strpos(strtolower($content), strtolower($needle)) !== false;
+      $needleLower = strtolower($needle);
+      foreach ((array)$rows as $row) {
+        $haystack = strtolower(
+          (string)($row['link'] ?? '') . "\n" .
+          (string)($row['anchor_text'] ?? '') . "\n" .
+          (string)($row['link_location'] ?? '') . "\n" .
+          (string)($row['source'] ?? '')
+        );
+        if ($haystack !== '' && strpos($haystack, $needleLower) !== false) {
+          $matchedLinks[] = $row;
+        }
+      }
+      $matchedLinks = array_slice(array_values($matchedLinks), 0, 20);
+    }
+
+    $indexedRowsCount = 0;
+    $indexedSearchRowsCount = 0;
+    if ($this->is_indexed_datastore_ready()) {
+      $factTable = $wpdb->prefix . 'lm_link_fact';
+      $indexedRowsCount = (int)$wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM $factTable WHERE post_id = %d",
+        $postId
+      ));
+      if ($needle !== '') {
+        $like = '%' . $wpdb->esc_like($needle) . '%';
+        $indexedSearchRowsCount = (int)$wpdb->get_var($wpdb->prepare(
+          "SELECT COUNT(*) FROM $factTable WHERE post_id = %d AND (link LIKE %s OR anchor_text LIKE %s OR link_location LIKE %s OR source LIKE %s)",
+          $postId,
+          $like,
+          $like,
+          $like,
+          $like
+        ));
+      }
+    }
+
+    return [
+      'post_found' => true,
+      'post_status' => isset($post->post_status) ? (string)$post->post_status : '',
+      'post_type' => isset($post->post_type) ? (string)$post->post_type : '',
+      'page_url' => (string)get_permalink($postId),
+      'content_has_link_markers' => $contentHasLinkMarkers,
+      'has_block_markup' => $hasBlockMarkup,
+      'rows_count' => count((array)$rows),
+      'indexed_rows_count' => max(0, $indexedRowsCount),
+      'content_contains_search' => $contentContainsSearch,
+      'search_rows_count' => count((array)$matchedLinks),
+      'indexed_search_rows_count' => max(0, $indexedSearchRowsCount),
+      'matched_links' => $matchedLinks,
+      'sample_links' => $sampleLinks,
     ];
   }
 

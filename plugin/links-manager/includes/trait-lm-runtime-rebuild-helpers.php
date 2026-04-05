@@ -156,7 +156,7 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
     if (!is_array($state) || empty($state)) {
       return false;
     }
-    if (sanitize_key((string)($state['status'] ?? '')) !== 'running') {
+    if (!in_array(sanitize_key((string)($state['status'] ?? '')), ['running', 'finalizing'], true)) {
       return false;
     }
 
@@ -197,7 +197,7 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
     $message = strtolower((string)($state['message'] ?? ''));
     $stepMs = max(0, (int)($state['step_ms'] ?? 0));
 
-    if ($status !== 'running') {
+    if (!in_array($status, ['running', 'finalizing'], true)) {
       return 0;
     }
 
