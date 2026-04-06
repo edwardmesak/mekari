@@ -510,7 +510,6 @@ trait LM_Summary_Builders_Trait {
         }
 
         $anchor = trim((string)($row['anchor_text'] ?? ''));
-        if ($anchor === '') continue;
         $key = strtolower($anchor);
 
         if (!isset($map[$key])) {

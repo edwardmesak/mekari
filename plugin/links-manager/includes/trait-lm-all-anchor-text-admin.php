@@ -316,10 +316,12 @@ trait LM_All_Anchor_Text_Admin_Trait {
         $usageLabel = 'Mixed';
         if ($row['usage_type'] === 'inlink_only') $usageLabel = 'Inlink Only';
         if ($row['usage_type'] === 'outbound_only') $usageLabel = 'Outbound Only';
+        $anchorText = (string)($row['anchor_text'] ?? '');
+        $anchorDisplay = $anchorText === '' ? '(Empty anchor text)' : $anchorText;
 
         echo '<tr>';
         echo '<td class="lm-col-postid">' . esc_html((string)$rowNo) . '</td>';
-        echo '<td class="lm-col-anchor"><span class="lm-trunc" title="' . esc_attr((string)$row['anchor_text']) . '">' . esc_html((string)$row['anchor_text']) . '</span></td>';
+        echo '<td class="lm-col-anchor"><span class="lm-trunc" title="' . esc_attr($anchorDisplay) . '">' . esc_html($anchorDisplay) . '</span></td>';
         echo '<td class="lm-col-quality">' . esc_html($qualityLabel) . '</td>';
         echo '<td class="lm-col-count" style="text-align:center;">' . esc_html((string)$row['total']) . '</td>';
         echo '<td class="lm-col-count" style="text-align:center;">' . esc_html((string)$row['inlink']) . '</td>';

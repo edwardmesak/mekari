@@ -373,7 +373,6 @@ trait LM_Indexed_Aggregation_Trait {
       GROUP_CONCAT(DISTINCT source ORDER BY source SEPARATOR ',') AS source_types
       FROM $table
       $whereSql
-      AND TRIM(COALESCE(anchor_text, '')) <> ''
       GROUP BY anchor_text";
 
     $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
@@ -552,7 +551,6 @@ trait LM_Indexed_Aggregation_Trait {
       COUNT(DISTINCT link) AS destinations
       FROM $table
       $whereSql
-      AND TRIM(COALESCE(anchor_text, '')) <> ''
       GROUP BY anchor_text";
 
     $outerParts = $this->get_indexed_all_anchor_text_outer_filter_parts($filters);
@@ -633,7 +631,6 @@ trait LM_Indexed_Aggregation_Trait {
       GROUP_CONCAT(DISTINCT source ORDER BY source SEPARATOR ',') AS source_types
       FROM $table
       $whereSql
-      AND TRIM(COALESCE(anchor_text, '')) <> ''
       GROUP BY anchor_text";
 
     $outerParts = $this->get_indexed_all_anchor_text_outer_filter_parts($filters);

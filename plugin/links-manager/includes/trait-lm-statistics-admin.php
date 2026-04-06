@@ -62,6 +62,7 @@ trait LM_Statistics_Admin_Trait {
     $external_pct = (int)$snapshot['external_pct'];
     $non_good_count = (int)($stats['non_good_anchor_text'] ?? 0);
     $non_good_pct = (float)($snapshot['non_good_pct'] ?? 0);
+    $anchor_quality_total = (int)($snapshot['anchor_quality_total'] ?? 0);
     
     echo '<div class="lm-stats-wrap">';
     echo '<div class="lm-stats-grid">';
@@ -75,7 +76,8 @@ trait LM_Statistics_Admin_Trait {
     echo '<div class="lm-stat">';
     echo '<div class="lm-stat-label">Non-Good Anchor Text</div>';
     echo '<div class="lm-stat-value">' . esc_html((string)$non_good_count) . '</div>';
-    echo '<div class="lm-stat-sub"><span class="lm-pill warn">' . esc_html((string)$non_good_pct) . '%</span> non-good anchor quality (Poor/Bad)</div>';
+    echo '<div class="lm-stat-sub"><span class="lm-pill warn">' . esc_html(number_format($non_good_pct, 1)) . '%</span> of anchor summary base is non-good (Poor/Bad)</div>';
+    echo '<div class="lm-stat-sub">Anchor summary base: ' . esc_html((string)$anchor_quality_total) . '</div>';
     echo '</div>';
 
     echo '<div class="lm-stat">';

@@ -71,7 +71,7 @@ trait LM_Dashboard_Stats_Trait {
     $rows = is_array($rows) ? $rows : [];
     $rows = $this->filter_rows_for_stats_snapshot_scope($rows, $scopePostType);
     $filters = $this->default_stats_snapshot_filters($scopePostType, $wpmlLang);
-    $payload = $this->build_stats_snapshot_payload($rows, $includeOrphanPages);
+    $payload = $this->build_stats_snapshot_payload($rows, $filters, $includeOrphanPages);
     set_transient($this->stats_snapshot_key($filters, $includeOrphanPages), $payload, $this->get_stats_snapshot_ttl());
     update_option('lm_last_stats_snapshot_at', current_time('mysql'), false);
     return $payload;
@@ -214,21 +214,70 @@ trait LM_Dashboard_Stats_Trait {
     ];
   }
 
+  private function get_stats_anchor_quality_summary($all, $filters) {
+    $filters = is_array($filters) ? $filters : [];
+    $summaryFilters = [
+      'post_type' => isset($filters['post_type']) ? (string)$filters['post_type'] : 'any',
+      'post_category' => isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
+      'post_tag' => isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0,
+      'wpml_lang' => isset($filters['wpml_lang']) ? (string)$filters['wpml_lang'] : 'all',
+      'search' => isset($filters['anchor_contains']) ? (string)$filters['anchor_contains'] : '',
+      'search_mode' => isset($filters['text_match_mode']) ? (string)$filters['text_match_mode'] : 'contains',
+      'location' => isset($filters['location']) ? (string)$filters['location'] : 'any',
+      'source_type' => isset($filters['source_type']) ? (string)$filters['source_type'] : 'any',
+      'link_type' => isset($filters['link_type']) ? (string)$filters['link_type'] : 'any',
+      'value_contains' => isset($filters['value_contains']) ? (string)$filters['value_contains'] : '',
+      'source_contains' => isset($filters['source_contains']) ? (string)$filters['source_contains'] : '',
+      'title_contains' => isset($filters['title_contains']) ? (string)$filters['title_contains'] : '',
+      'author_contains' => isset($filters['author_contains']) ? (string)$filters['author_contains'] : '',
+      'seo_flag' => isset($filters['seo_flag']) ? (string)$filters['seo_flag'] : 'any',
+      'usage_type' => 'any',
+      'quality' => 'any',
+      'group' => 'any',
+      'min_total' => 0,
+      'max_total' => -1,
+      'min_inlink' => 0,
+      'max_inlink' => -1,
+      'min_outbound' => 0,
+      'max_outbound' => -1,
+      'min_pages' => 0,
+      'max_pages' => -1,
+      'min_destinations' => 0,
+      'max_destinations' => -1,
+      'orderby' => 'total',
+      'order' => 'DESC',
+      'per_page' => 25,
+      'paged' => 1,
+      'rebuild' => !empty($filters['rebuild']),
+    ];
+
+    $rows = $this->build_all_anchor_text_rows($all, $summaryFilters);
+    $buckets = ['good' => 0, 'poor' => 0, 'bad' => 0];
+    foreach ((array)$rows as $row) {
+      $quality = isset($row['quality']) ? (string)$row['quality'] : 'poor';
+      if (!isset($buckets[$quality])) {
+        $buckets[$quality] = 0;
+      }
+      $buckets[$quality] += (int)($row['total'] ?? 0);
+    }
+
+    return $buckets;
+  }
+
   private function stats_snapshot_key($filters, $includeOrphanPages) {
     $version = (int)get_option('lm_stats_snapshot_version', 1);
-    $schemaVersion = 2;
+    $schemaVersion = 3;
     $scope = (string)($filters['post_type'] ?? 'any');
     $lang = (string)($filters['wpml_lang'] ?? 'all');
     $orphanFlag = $includeOrphanPages ? '1' : '0';
     return 'lm_stats_snapshot_' . md5($scope . '|' . $lang . '|' . $orphanFlag . '|' . get_current_blog_id() . '|' . $version . '|schema_' . $schemaVersion);
   }
 
-  private function build_stats_snapshot_payload($all, $includeOrphanPages) {
+  private function build_stats_snapshot_payload($all, $filters, $includeOrphanPages) {
     $stats = $this->get_dashboard_stats($all, $includeOrphanPages);
     $tops = $this->build_top_lists($all, 10);
 
     $postTypeBuckets = [];
-    $anchorQualityBuckets = ['good' => 0, 'poor' => 0, 'bad' => 0];
     foreach ($all as $row) {
       $pt = (string)($row['post_type'] ?? '');
       if ($pt !== '') {
@@ -236,12 +285,10 @@ trait LM_Dashboard_Stats_Trait {
         if (($row['link_type'] ?? '') === 'inlink') $postTypeBuckets[$pt]['internal']++;
         if (($row['link_type'] ?? '') === 'exlink') $postTypeBuckets[$pt]['external']++;
       }
-
-      $q = $this->get_anchor_quality_suggestion((string)($row['anchor_text'] ?? ''));
-      if (($q['quality'] ?? '') === 'good') $anchorQualityBuckets['good']++;
-      elseif (($q['quality'] ?? '') === 'poor') $anchorQualityBuckets['poor']++;
-      else $anchorQualityBuckets['bad']++;
     }
+
+    $anchorQualityBuckets = $this->get_stats_anchor_quality_summary($all, $filters);
+    $stats['non_good_anchor_text'] = (int)($anchorQualityBuckets['poor'] ?? 0) + (int)($anchorQualityBuckets['bad'] ?? 0);
 
     ksort($postTypeBuckets);
     $maxPostType = 1;
@@ -252,6 +299,10 @@ trait LM_Dashboard_Stats_Trait {
     $internalCount = (int)($stats['internal_links'] ?? 0);
     $externalCount = (int)($stats['external_links'] ?? 0);
     $linkTotal = $internalCount + $externalCount;
+    $anchorQualityTotal = 0;
+    foreach ((array)$anchorQualityBuckets as $bucketCount) {
+      $anchorQualityTotal += (int)$bucketCount;
+    }
 
     return [
       'stats' => $stats,
@@ -260,11 +311,12 @@ trait LM_Dashboard_Stats_Trait {
       'anchor_quality_buckets' => $anchorQualityBuckets,
       'max_post_type' => $maxPostType,
       'max_anchor' => max($anchorQualityBuckets ?: [1]),
+      'anchor_quality_total' => $anchorQualityTotal,
       'internal_count' => $internalCount,
       'external_count' => $externalCount,
       'internal_pct' => $linkTotal > 0 ? (int)round(($internalCount / $linkTotal) * 100) : 0,
       'external_pct' => $linkTotal > 0 ? (100 - ((int)round(($internalCount / $linkTotal) * 100))) : 0,
-      'non_good_pct' => ($stats['total_links'] ?? 0) > 0 ? round((($stats['non_good_anchor_text'] ?? 0) / $stats['total_links']) * 100) : 0,
+      'non_good_pct' => $anchorQualityTotal > 0 ? round((($stats['non_good_anchor_text'] ?? 0) / $anchorQualityTotal) * 100, 1) : 0,
     ];
   }
 
@@ -279,7 +331,7 @@ trait LM_Dashboard_Stats_Trait {
       return $cached;
     }
 
-    $payload = $this->build_stats_snapshot_payload($all, $includeOrphanPages);
+    $payload = $this->build_stats_snapshot_payload($all, $filters, $includeOrphanPages);
     set_transient($key, $payload, $this->get_stats_snapshot_ttl());
     update_option('lm_last_stats_snapshot_at', current_time('mysql'), false);
     $this->profile_end('stats_snapshot_build', $profileStarted, [
