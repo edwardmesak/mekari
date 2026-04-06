@@ -4,7 +4,7 @@
  * Description: Manage and analyze all links across your WordPress site with precision. Edit link URLs, anchor texts, and relationship attributes in a user-friendly interface. Identify orphan pages and export link data for SEO audits.
  * Requires at least: 5.0
  * Requires PHP: 7.2
- * Version: 4.4.2
+ * Version: 4.4.3
  * Author: Edward Mesak Dua Padang
  * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -94,7 +94,7 @@ class LM_Links_Manager {
   const PAGE_SLUG = 'links-manager-editor';
   const NONCE_ACTION = 'lm_links_manager_nonce_action';
   const NONCE_NAME = 'lm_nonce';
-  const DB_VERSION = '4.8';
+  const DB_VERSION = '4.9';
 
   const CACHE_TTL = 6 * HOUR_IN_SECONDS;
   const CACHE_BASE_TTL = 30 * DAY_IN_SECONDS;

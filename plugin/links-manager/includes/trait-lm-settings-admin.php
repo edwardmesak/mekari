@@ -499,7 +499,7 @@ trait LM_Settings_Admin_Trait {
 
       echo '<hr style="margin:14px 0;"/>';
       echo '<h2 style="margin-top:0;">' . esc_html__('Anchor Quality - Weak Phrase Rules', 'links-manager') . '</h2>';
-      echo '<div class="lm-small">' . esc_html__('List words or phrases considered weak anchor text. Use one phrase per line or separate with commas. Empty anchor text is always Bad.', 'links-manager') . '</div>';
+      echo '<div class="lm-small">' . esc_html__('List words or phrases considered weak anchor text. Use one phrase per line or separate with commas. Matching is exact after trim/lowercase normalization. Empty anchor text is always Bad.', 'links-manager') . '</div>';
       echo '<div style="margin-top:8px;">';
       echo '<textarea name="lm_weak_anchor_patterns" rows="12" style="width:100%; max-width:760px;">' . esc_textarea((string)($settings['weak_anchor_patterns'] ?? '')) . '</textarea>';
       echo '</div>';

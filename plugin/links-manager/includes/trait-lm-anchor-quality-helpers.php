@@ -15,7 +15,7 @@ trait LM_Anchor_Quality_Helpers_Trait {
     $weak_patterns = $this->get_weak_anchor_patterns();
 
     foreach ($weak_patterns as $pattern) {
-      if ($anchor === $pattern || strpos($anchor, $pattern) === 0) {
+      if ($anchor === $pattern) {
         return true;
       }
     }

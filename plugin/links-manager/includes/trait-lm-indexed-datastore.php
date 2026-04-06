@@ -636,8 +636,6 @@ trait LM_Indexed_Datastore_Trait {
       }
       $weakPatternClauses[] = "$anchorExpr = %s";
       $weakPatternParams[] = $pattern;
-      $weakPatternClauses[] = "$anchorExpr LIKE %s";
-      $weakPatternParams[] = $pattern . '%';
     }
 
     $poorDetailClauses = [$isShortExpr, $isLongExpr];

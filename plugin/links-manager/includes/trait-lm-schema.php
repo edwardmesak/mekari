@@ -38,6 +38,10 @@ trait LM_Schema_Trait {
     if (version_compare($installedVersion, '4.8', '<')) {
       $this->ensure_link_fact_domain_schema();
     }
+
+    if (version_compare($installedVersion, '4.9', '<')) {
+      $this->maybe_migrate_legacy_weak_anchor_patterns();
+    }
   }
 
   private function ensure_link_fact_domain_schema() {

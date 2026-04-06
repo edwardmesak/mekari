@@ -36,6 +36,22 @@ trait LM_Anchor_Helpers_Trait {
       'here', 'this', 'that', 'it', 'download', 'get', 'buy', 'order',
       '...', '->', '>>', '>', '->->', '=>', 'lihat lebih lanjut', 'klik di sini',
       'baca selengkapnya', 'lihat selengkapnya', 'pelajari', 'dapatkan',
+      'click this', 'click link', 'this link', 'continue reading', 'read article',
+      'read post', 'see details', 'view details', 'discover more', 'selengkapnya',
+      'baca lebih lanjut', 'baca lebih lengkap', 'klik', 'klik di sini sekarang',
+      'lihat', 'lihat detail', 'lihat info', 'cek', 'kunjungi', 'lanjut',
+      'lanjutkan membaca', 'pelajari lebih lanjut', 'info lengkap', 'itu', 'ini',
+      '>>>', '--', '[...]', 'selengkapnya...'
+    ];
+  }
+
+  private function get_legacy_default_weak_anchor_patterns() {
+    return [
+      'click here', 'read more', 'read full post', 'learn more', 'find out more',
+      'more information', 'see more', 'view more', 'go to', 'link', 'click',
+      'here', 'this', 'that', 'it', 'download', 'get', 'buy', 'order',
+      '...', '->', '>>', '>', '->->', '=>', 'lihat lebih lanjut', 'klik di sini',
+      'baca selengkapnya', 'lihat selengkapnya', 'pelajari', 'dapatkan',
       'learn', 'more', 'read', 'details', 'view', 'open', 'check', 'visit',
       'click this', 'click link', 'this link', 'continue reading', 'read article',
       'read post', 'see details', 'view details', 'discover more', 'selengkapnya',
@@ -44,6 +60,28 @@ trait LM_Anchor_Helpers_Trait {
       'lanjutkan membaca', 'pelajari lebih lanjut', 'info lengkap', 'itu', 'ini',
       'halaman', 'artikel', '>>>', '--', '[...]', 'selengkapnya...'
     ];
+  }
+
+  private function maybe_migrate_legacy_weak_anchor_patterns() {
+    $settings = $this->get_settings();
+    $raw = (string)($settings['weak_anchor_patterns'] ?? '');
+    $currentPatterns = $this->normalize_weak_anchor_patterns($raw);
+    if (empty($currentPatterns)) {
+      return;
+    }
+
+    $legacyDefaults = $this->get_legacy_default_weak_anchor_patterns();
+    if ($currentPatterns !== $legacyDefaults) {
+      return;
+    }
+
+    $newDefaults = $this->get_default_weak_anchor_patterns();
+    $settings['weak_anchor_patterns'] = implode("\n", $newDefaults);
+    $this->weak_anchor_patterns_cache = $newDefaults;
+    $this->save_settings($settings);
+    $this->bump_anchor_config_version();
+    $this->clear_cache_all();
+    $this->schedule_background_rebuild('any', 'all', 2);
   }
 
   private function get_weak_anchor_patterns() {
