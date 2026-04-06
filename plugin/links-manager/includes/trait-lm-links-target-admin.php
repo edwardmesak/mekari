@@ -326,6 +326,7 @@ trait LM_Links_Target_Admin_Trait {
     foreach ((array)$summaryTargetsMap as $tKey => $tLabel) {
       $c = $counts[$tKey] ?? ['total' => 0, 'inlink' => 0, 'outbound' => 0];
       $glist = isset($anchorToGroups[$tKey]) ? implode(', ', array_keys($anchorToGroups[$tKey])) : '—';
+      $currentGroups = isset($anchorToGroups[$tKey]) && is_array($anchorToGroups[$tKey]) ? array_values(array_keys($anchorToGroups[$tKey])) : [];
       if (isset($anchorToGroups[$tKey]) && is_array($anchorToGroups[$tKey]) && count($anchorToGroups[$tKey]) > 0) {
         $keys = array_keys($anchorToGroups[$tKey]);
         $currentGroup = (string)$keys[0];
@@ -340,6 +341,7 @@ trait LM_Links_Target_Admin_Trait {
         'c' => $c,
         'glist' => $glist,
         'currentGroup' => $currentGroup,
+        'currentGroups' => $currentGroups,
         'idx' => $idx,
       ];
     }
@@ -420,6 +422,7 @@ trait LM_Links_Target_Admin_Trait {
         'c' => $c,
         'glist' => $glist,
         'currentGroup' => (string)($baseRow['currentGroup'] ?? 'no_group'),
+        'currentGroups' => isset($baseRow['currentGroups']) && is_array($baseRow['currentGroups']) ? array_values($baseRow['currentGroups']) : [],
         'idx' => (int)($baseRow['idx'] ?? -1),
       ];
     }
@@ -650,7 +653,7 @@ trait LM_Links_Target_Admin_Trait {
         case 'outbound_usage':
           $cmp = ((int)$a['usageOutbound'] <=> (int)$b['usageOutbound']);
           break;
-        case 'tag':
+        case 'group':
         default:
           $cmp = strcmp((string)$a['name'], (string)$b['name']);
           break;
@@ -677,8 +680,8 @@ trait LM_Links_Target_Admin_Trait {
 
     $msg = $this->request_text('lm_msg', '');
     $msgClass = $this->notice_class_for_message($msg, 'success');
-    $groupOrderby = $this->request_text('lm_group_orderby', 'tag');
-    if (!in_array($groupOrderby, ['tag', 'total_anchors', 'total_usage', 'inlink_usage', 'outbound_usage'], true)) $groupOrderby = 'tag';
+    $groupOrderby = $this->request_text('lm_group_orderby', 'group');
+    if (!in_array($groupOrderby, ['group', 'total_anchors', 'total_usage', 'inlink_usage', 'outbound_usage'], true)) $groupOrderby = 'group';
     $groupOrder = strtoupper($this->request_text('lm_group_order', 'ASC'));
     if (!in_array($groupOrder, ['ASC', 'DESC'], true)) $groupOrder = 'ASC';
     $groups = $this->get_anchor_groups();
@@ -730,7 +733,7 @@ trait LM_Links_Target_Admin_Trait {
     echo '<div class="lm-card lm-card-full">';
     $this->render_admin_section_intro(
       __('Anchor Text Target Grouping', 'links-manager'),
-      __('Review grouped anchors, total usage, and internal versus outbound usage before editing or exporting groups.', 'links-manager')
+      __('Review grouped anchors, total usage, and internal versus outbound usage before editing or exporting groups. Anchors assigned to multiple groups are counted in each selected group.', 'links-manager')
     );
     echo '<form method="get" action="" style="margin:0 0 8px;">';
     echo '<input type="hidden" name="page" value="links-manager-target"/>';
@@ -741,7 +744,7 @@ trait LM_Links_Target_Admin_Trait {
     echo '<div class="lm-filter-field">';
     echo '<div class="lm-small" style="margin-bottom:6px;">Order By</div>';
     echo '<select name="lm_group_orderby">';
-    echo '<option value="tag"' . selected($groupOrderby, 'tag', false) . '>Group</option>';
+    echo '<option value="group"' . selected($groupOrderby, 'group', false) . '>Group</option>';
     echo '<option value="total_anchors"' . selected($groupOrderby, 'total_anchors', false) . '>Total Anchors</option>';
     echo '<option value="total_usage"' . selected($groupOrderby, 'total_usage', false) . '>Total Usage</option>';
     echo '<option value="inlink_usage"' . selected($groupOrderby, 'inlink_usage', false) . '>Total Inlinks</option>';
@@ -782,6 +785,7 @@ trait LM_Links_Target_Admin_Trait {
     echo '<a class="button button-secondary" href="' . esc_url($groupingExportUrl) . '">Export CSV</a>';
     echo '<a class="button" href="' . esc_url($this->admin_page_url('links-manager-target')) . '">Reset Filter</a>';
     echo '</div>';
+    echo '<div class="lm-small" style="margin-top:6px;">' . esc_html__('Note: group totals and percentages use overlapping coverage. If one anchor belongs to multiple groups, it is counted in each selected group.', 'links-manager') . '</div>';
     echo '</div>';
     echo '</div>';
     echo '</form>';
@@ -857,12 +861,12 @@ trait LM_Links_Target_Admin_Trait {
     echo $this->table_header_with_tooltip('lm-col-postid', '#', 'Row number in current result page.', 'left');
     echo $this->table_header_with_tooltip('lm-col-group', 'Group', 'Anchor group name.', 'left');
     echo $this->table_header_with_tooltip('lm-col-count', 'Total Anchors', 'Number of anchors inside this group.');
-    echo $this->table_header_with_tooltip('lm-col-total', 'Total Usage Across All Pages (All Link Types)', 'Combined uses of all anchors in this group.');
-    echo $this->table_header_with_tooltip('lm-col-count', '%', 'Share of total usage among groups.');
-    echo $this->table_header_with_tooltip('lm-col-inlink', 'Total Use as Inlinks', 'Usage count when links are internal.');
-    echo $this->table_header_with_tooltip('lm-col-count', '%', 'Share of inlink usage among groups.');
-    echo $this->table_header_with_tooltip('lm-col-outbound', 'Total Use as Outbound', 'Usage count when links are outbound.');
-    echo $this->table_header_with_tooltip('lm-col-count', '%', 'Share of outbound usage among groups.');
+    echo $this->table_header_with_tooltip('lm-col-total', 'Total Usage Across All Pages (All Link Types)', 'Combined uses of all anchors in this group. Anchors assigned to multiple groups are counted in each selected group.');
+    echo $this->table_header_with_tooltip('lm-col-count', '%', 'Share of total usage among groups, based on overlapping group coverage.');
+    echo $this->table_header_with_tooltip('lm-col-inlink', 'Total Use as Inlinks', 'Usage count when links are internal. Anchors assigned to multiple groups are counted in each selected group.');
+    echo $this->table_header_with_tooltip('lm-col-count', '%', 'Share of inlink usage among groups, based on overlapping group coverage.');
+    echo $this->table_header_with_tooltip('lm-col-outbound', 'Total Use as Outbound', 'Usage count when links are outbound. Anchors assigned to multiple groups are counted in each selected group.');
+    echo $this->table_header_with_tooltip('lm-col-count', '%', 'Share of outbound usage among groups, based on overlapping group coverage.');
     echo $this->table_header_with_tooltip('lm-col-action', 'Action', 'Edit or delete actions for group.', 'right');
     echo '</tr></thead><tbody>';
 
@@ -945,13 +949,13 @@ trait LM_Links_Target_Admin_Trait {
     }
     echo '<div class="lm-tabs" role="tablist" aria-label="Target Anchor Mode">';
     echo '<button type="button" class="lm-tab is-active" data-lm-tab="only" aria-selected="true">Only anchor</button>';
-    echo '<button type="button" class="lm-tab" data-lm-tab="tags" aria-selected="false">Anchor with groups</button>';
+    echo '<button type="button" class="lm-tab" data-lm-tab="group" aria-selected="false">Anchor with groups</button>';
     echo '</div>';
     echo '<input type="hidden" name="lm_anchor_mode" value="only"/>';
     echo '<div class="lm-textarea-wrap">';
     echo '<textarea name="lm_anchor_targets" placeholder="Enter anchors, one per line or comma-separated (e.g. buy shoes, contact us)"></textarea>';
     echo '<div class="lm-textarea-hint" data-lm-hint="only">Enter anchors, one per line or comma-separated</div>';
-    echo '<div class="lm-textarea-hint" data-lm-hint="tags" style="display:none;">Format: anchor text, group</div>';
+    echo '<div class="lm-textarea-hint" data-lm-hint="group" style="display:none;">Format: anchor text, group</div>';
     echo '<div class="lm-textarea-actions">';
     echo '<label>CSV or TXT <input type="file" name="lm_anchor_file" accept=".csv,.txt" /></label>';
     echo '</div>';
@@ -981,23 +985,31 @@ trait LM_Links_Target_Admin_Trait {
       __('Anchor Text Target', 'links-manager'),
       __('Review tracked targets, grouped coverage, and usage totals across the current filtered content set.', 'links-manager')
     );
-    echo '<form id="lm-bulk-target-actions-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:0 0 8px;">';
+    echo '<div style="margin:8px 0 12px; padding:14px; border:1px solid #c3c4c7; border-left:4px solid #2271b1; border-radius:8px; background:#f6f7f7; box-shadow:0 1px 2px rgba(0,0,0,0.04);">';
+    echo '<div style="font-weight:600; margin-bottom:4px;">' . esc_html__('Bulk Actions for Selected Targets', 'links-manager') . '</div>';
+    echo '<div class="lm-small" style="margin-bottom:10px;">' . esc_html__('Use this area to update groups or delete the checked target rows in the table below.', 'links-manager') . '</div>';
+    echo '<form id="lm-bulk-target-actions-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:0;">';
     echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
     foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
       echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
     }
-    echo '<select name="lm_bulk_anchor_group" style="min-width:160px; margin-right:8px;">';
-    echo '<option value="no_group">' . esc_html__('No Group', 'links-manager') . '</option>';
+    echo '<details class="lm-group-picker" data-placeholder="' . esc_attr__('Groups for Selected Targets', 'links-manager') . '" style="display:inline-block; margin-right:8px; vertical-align:middle; min-width:240px;">';
+    echo '<summary class="button button-secondary" style="cursor:pointer;">' . esc_html__('Groups for Selected Targets', 'links-manager') . '</summary>';
+    echo '<div class="lm-checklist" style="margin-top:8px; padding:8px; border:1px solid #dcdcde; border-radius:6px; background:#fff; max-height:220px; overflow:auto;">';
+    echo '<div class="lm-small" style="margin:0 0 8px;">' . esc_html__('Select one or more groups. Choose "No Group" to remove all group assignments.', 'links-manager') . '</div>';
+    echo '<label style="display:block; margin:0 0 6px;"><input type="checkbox" name="lm_bulk_anchor_groups[]" value="no_group" /> ' . esc_html__('No Group', 'links-manager') . '</label>';
     foreach ($groupNames as $gn) {
-      echo '<option value="' . esc_attr($gn) . '">' . esc_html($gn) . '</option>';
+      echo '<label style="display:block; margin:0 0 6px;"><input type="checkbox" name="lm_bulk_anchor_groups[]" value="' . esc_attr($gn) . '" /> ' . esc_html($gn) . '</label>';
     }
-    echo '</select>';
-    echo '<button type="submit" class="button button-secondary" formaction="' . esc_url($this->admin_post_url_with_args(['action' => 'lm_bulk_update_anchor_target_group'])) . '">' . esc_html__('Change Group for Selected', 'links-manager') . '</button> ';
+    echo '</div>';
+    echo '</details>';
+    echo '<button type="submit" class="button button-secondary" formaction="' . esc_url($this->admin_post_url_with_args(['action' => 'lm_bulk_update_anchor_target_group'])) . '">' . esc_html__('Update Groups for Selected', 'links-manager') . '</button> ';
     submit_button(__('Delete Selected Targets', 'links-manager'), 'delete', 'submit', false, [
       'formaction' => $this->admin_post_url_with_args(['action' => 'lm_bulk_delete_anchor_targets']),
       'onclick' => "return confirm('" . esc_js(__('Delete selected targets?', 'links-manager')) . "');",
     ]);
     echo '</form>';
+    echo '</div>';
     $summaryPostTypeOptions = $this->get_filterable_post_types();
     $summaryPostCategoryOptions = $this->get_post_term_options('category');
     $summaryPostTagOptions = $this->get_post_term_options('post_tag');
@@ -1038,7 +1050,10 @@ trait LM_Links_Target_Admin_Trait {
       'action' => 'lm_export_links_target_csv',
       self::NONCE_NAME => wp_create_nonce(self::NONCE_ACTION),
     ], $this->get_links_target_summary_query_args($summaryState)), $this->admin_post_url_with_args());
-    echo '<form method="get" action="" style="margin:8px 0 10px;">';
+    echo '<div style="margin:8px 0 10px; padding:12px; border:1px solid #dcdcde; border-radius:8px; background:#fff; box-shadow:inset 0 1px 0 rgba(255,255,255,0.6);">';
+    echo '<div style="font-weight:600; margin-bottom:4px;">' . esc_html__('Filter Results', 'links-manager') . '</div>';
+    echo '<div class="lm-small" style="margin-bottom:10px;">' . esc_html__('Use these filters to narrow the target summary table. These controls do not update or delete groups.', 'links-manager') . '</div>';
+    echo '<form method="get" action="" style="margin:0;">';
     echo '<input type="hidden" name="page" value="links-manager-target"/>';
     foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
       echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
@@ -1220,6 +1235,7 @@ trait LM_Links_Target_Admin_Trait {
     echo '</div>';
     echo '</div>';
     echo '</form>';
+    echo '</div>';
 
     $summaryTargetsMap = $targetsMap + $groupAnchorsMap;
     $targetIndexByKey = [];
@@ -1323,6 +1339,7 @@ trait LM_Links_Target_Admin_Trait {
         $c = $row['c'];
         $glist = $row['glist'];
         $currentGroup = $row['currentGroup'];
+        $currentGroups = isset($row['currentGroups']) && is_array($row['currentGroups']) ? array_values($row['currentGroups']) : [];
         $idx = $row['idx'];
         $editUrl = $idx >= 0 ? $this->admin_page_url('links-manager-target', ['lm_edit_target' => $idx]) : '';
         $del = $idx >= 0 ? $this->admin_post_url_with_args([
@@ -1355,13 +1372,17 @@ trait LM_Links_Target_Admin_Trait {
         echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
         echo '<input type="hidden" name="lm_anchor_value" value="' . esc_attr($tLabel) . '"/>';
         echo '<div class="lm-form-msg"></div>';
-        echo '<select name="lm_anchor_group" style="min-width:120px; font-size:11px; margin-right:6px;">';
-        echo '<option value="no_group"' . selected($currentGroup, 'no_group', false) . '>No Group</option>';
+        echo '<details class="lm-group-picker" data-placeholder="' . esc_attr__('Choose Groups', 'links-manager') . '" style="display:inline-block; margin-right:6px; vertical-align:middle; min-width:150px;">';
+        echo '<summary class="button button-small">' . esc_html__('Choose Groups', 'links-manager') . '</summary>';
+        echo '<div class="lm-checklist" style="margin-top:6px; padding:8px; border:1px solid #dcdcde; border-radius:6px; background:#fff; max-height:180px; overflow:auto; text-align:left;">';
+        echo '<div class="lm-small" style="margin:0 0 8px;">' . esc_html__('Select one or more groups. Choose "No Group" to remove all group assignments.', 'links-manager') . '</div>';
+        echo '<label style="display:block; margin:0 0 6px;"><input type="checkbox" name="lm_anchor_groups[]" value="no_group"' . checked(empty($currentGroups), true, false) . ' /> ' . esc_html__('No Group', 'links-manager') . '</label>';
         foreach ($groupNames as $gn) {
-          echo '<option value="' . esc_attr($gn) . '"' . selected($currentGroup, $gn, false) . '>' . esc_html($gn) . '</option>';
+          echo '<label style="display:block; margin:0 0 6px;"><input type="checkbox" name="lm_anchor_groups[]" value="' . esc_attr($gn) . '"' . checked(in_array($gn, $currentGroups, true), true, false) . ' /> ' . esc_html($gn) . '</label>';
         }
-        echo '</select>';
-        submit_button(__('Change Group', 'links-manager'), 'secondary', 'submit', false);
+        echo '</div>';
+        echo '</details>';
+        submit_button(__('Update Groups', 'links-manager'), 'secondary', 'submit', false);
         echo '</form>';
         echo '</td>';
         echo '</tr>';
@@ -1412,6 +1433,63 @@ trait LM_Links_Target_Admin_Trait {
             document.querySelectorAll(".lm-target-check").forEach(function(el){ el.checked = targetAll.checked; });
           });
         }
+
+        var updateGroupPickerLabel = function(details){
+          if (!details) return;
+          var summary = details.querySelector("summary");
+          if (!summary) return;
+          var placeholder = details.getAttribute("data-placeholder") || "Choose Groups";
+          var checkboxes = Array.prototype.slice.call(details.querySelectorAll("input[type=\"checkbox\"]"));
+          if (!checkboxes.length) {
+            summary.textContent = placeholder;
+            return;
+          }
+          var selectedGroups = checkboxes.filter(function(input){
+            return input.checked && input.value !== "no_group";
+          });
+          var noGroupChecked = checkboxes.some(function(input){
+            return input.checked && input.value === "no_group";
+          });
+
+          if (selectedGroups.length > 0) {
+            if (selectedGroups.length === 1) {
+              var label = selectedGroups[0].parentNode ? selectedGroups[0].parentNode.textContent : "";
+              summary.textContent = (label || placeholder).trim();
+            } else {
+              summary.textContent = selectedGroups.length + " groups selected";
+            }
+            return;
+          }
+
+          if (noGroupChecked) {
+            summary.textContent = "No Group";
+            return;
+          }
+
+          summary.textContent = placeholder;
+        };
+
+        document.querySelectorAll(".lm-group-picker").forEach(function(details){
+          var checkboxes = Array.prototype.slice.call(details.querySelectorAll("input[type=\"checkbox\"]"));
+          if (!checkboxes.length) return;
+
+          checkboxes.forEach(function(input){
+            input.addEventListener("change", function(){
+              if (input.value === "no_group" && input.checked) {
+                checkboxes.forEach(function(other){
+                  if (other !== input) other.checked = false;
+                });
+              } else if (input.value !== "no_group" && input.checked) {
+                checkboxes.forEach(function(other){
+                  if (other.value === "no_group") other.checked = false;
+                });
+              }
+              updateGroupPickerLabel(details);
+            });
+          });
+
+          updateGroupPickerLabel(details);
+        });
       })();
     </script>';
     echo '</div>'; // grid

@@ -239,8 +239,8 @@ trait LM_Export_Handlers_Trait {
     $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
-    $groupOrderby = $this->request_text('lm_group_orderby', 'tag');
-    if (!in_array($groupOrderby, ['tag', 'total_anchors', 'total_usage', 'inlink_usage', 'outbound_usage'], true)) $groupOrderby = 'tag';
+    $groupOrderby = $this->request_text('lm_group_orderby', 'group');
+    if (!in_array($groupOrderby, ['group', 'total_anchors', 'total_usage', 'inlink_usage', 'outbound_usage'], true)) $groupOrderby = 'group';
     $groupOrder = strtoupper($this->request_text('lm_group_order', 'ASC'));
     if (!in_array($groupOrder, ['ASC', 'DESC'], true)) $groupOrder = 'ASC';
 
@@ -307,6 +307,17 @@ trait LM_Export_Handlers_Trait {
 
     $out = fopen('php://output', 'w');
     fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+    $this->csv_write_row($out, [
+      'note',
+      'Anchors assigned to multiple groups are counted in each selected group.',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+    ]);
 
     $this->csv_write_row($out, [
       'group',

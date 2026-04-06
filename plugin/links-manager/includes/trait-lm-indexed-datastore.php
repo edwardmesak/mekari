@@ -162,6 +162,12 @@ trait LM_Indexed_Datastore_Trait {
       return true;
     }
 
+    if ($mode === 'doesnt_contain') {
+      $whereParts[] = "LOWER(COALESCE($column, '')) NOT LIKE %s";
+      $params[] = '%' . strtolower($wpdb->esc_like($needle)) . '%';
+      return true;
+    }
+
     $whereParts[] = "LOWER($column) LIKE %s";
     $params[] = '%' . strtolower($wpdb->esc_like($needle)) . '%';
     return true;

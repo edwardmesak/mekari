@@ -8,6 +8,37 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Action_Handlers_Trait {
+  private function get_selected_anchor_group_names_from_request($fieldName, $legacyFieldName = '') {
+    $rawGroups = $this->request_array($fieldName);
+    if (empty($rawGroups) && $legacyFieldName !== '' && $this->request_has($legacyFieldName)) {
+      $legacyValue = trim($this->request_text($legacyFieldName, ''));
+      if ($legacyValue !== '') {
+        $rawGroups = [$legacyValue];
+      }
+    }
+
+    $validGroupNames = [];
+    foreach ($this->get_anchor_groups() as $group) {
+      $groupName = trim((string)($group['name'] ?? ''));
+      if ($groupName !== '') {
+        $validGroupNames[$groupName] = true;
+      }
+    }
+
+    $selectedGroups = [];
+    foreach ((array)$rawGroups as $rawGroup) {
+      $groupName = trim(sanitize_text_field((string)$rawGroup));
+      if ($groupName === '' || $groupName === 'no_group') {
+        continue;
+      }
+      if (isset($validGroupNames[$groupName])) {
+        $selectedGroups[$groupName] = true;
+      }
+    }
+
+    return array_keys($selectedGroups);
+  }
+
   public function handle_update_link() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
@@ -500,7 +531,7 @@ trait LM_Action_Handlers_Trait {
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $mode = $this->request_text('lm_anchor_mode', 'only');
-    if (!in_array($mode, ['only', 'tags'], true)) $mode = 'only';
+    if (!in_array($mode, ['only', 'group'], true)) $mode = 'only';
 
     $targetsRaw = (string)$this->request_raw('lm_anchor_targets', '');
     $targets = [];
@@ -512,7 +543,7 @@ trait LM_Action_Handlers_Trait {
       $line = trim((string)$line);
       if ($line === '') continue;
 
-      if ($mode === 'tags') {
+      if ($mode === 'group') {
         $parts = array_map('trim', explode(',', $line, 2));
         $anchor = $parts[0] ?? '';
         $groupName = $parts[1] ?? '';
@@ -581,8 +612,7 @@ trait LM_Action_Handlers_Trait {
 
     $anchor = $this->request_text('lm_anchor_value', '');
     $anchor = trim($anchor);
-    $newGroup = $this->request_text('lm_anchor_group', '');
-    $newGroup = trim($newGroup);
+    $selectedGroups = $this->get_selected_anchor_group_names_from_request('lm_anchor_groups', 'lm_anchor_group');
 
     if ($anchor === '') {
       wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Invalid anchor.']));
@@ -600,17 +630,18 @@ trait LM_Action_Handlers_Trait {
     }
     unset($g);
 
-    if ($newGroup !== '' && $newGroup !== 'no_group') {
+    foreach ($selectedGroups as $selectedGroup) {
       $found = false;
       foreach ($groups as &$g) {
         $gname = isset($g['name']) ? (string)$g['name'] : '';
-        if ($gname === $newGroup) {
-          $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
-          $anchors[] = $anchor;
-          $g['anchors'] = $this->normalize_anchor_list(implode("\n", $anchors));
-          $found = true;
-          break;
+        if ($gname !== $selectedGroup) {
+          continue;
         }
+        $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
+        $anchors[] = $anchor;
+        $g['anchors'] = $this->normalize_anchor_list(implode("\n", $anchors));
+        $found = true;
+        break;
       }
       unset($g);
       if (!$found) {
@@ -621,7 +652,8 @@ trait LM_Action_Handlers_Trait {
 
     $this->save_anchor_groups($groups);
 
-    wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Group updated.']));
+    $message = empty($selectedGroups) ? 'Anchor removed from all groups.' : 'Anchor groups updated.';
+    wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => $message]));
     exit;
   }
 
@@ -637,8 +669,7 @@ trait LM_Action_Handlers_Trait {
 
     $anchor = $this->request_text('lm_anchor_value', '');
     $anchor = trim($anchor);
-    $newGroup = $this->request_text('lm_anchor_group', '');
-    $newGroup = trim($newGroup);
+    $selectedGroups = $this->get_selected_anchor_group_names_from_request('lm_anchor_groups', 'lm_anchor_group');
 
     if ($anchor === '') {
       wp_send_json_error(['msg' => 'Invalid anchor.'], 400);
@@ -655,17 +686,18 @@ trait LM_Action_Handlers_Trait {
     }
     unset($g);
 
-    if ($newGroup !== '' && $newGroup !== 'no_group') {
+    foreach ($selectedGroups as $selectedGroup) {
       $found = false;
       foreach ($groups as &$g) {
         $gname = isset($g['name']) ? (string)$g['name'] : '';
-        if ($gname === $newGroup) {
-          $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
-          $anchors[] = $anchor;
-          $g['anchors'] = $this->normalize_anchor_list(implode("\n", $anchors));
-          $found = true;
-          break;
+        if ($gname !== $selectedGroup) {
+          continue;
         }
+        $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
+        $anchors[] = $anchor;
+        $g['anchors'] = $this->normalize_anchor_list(implode("\n", $anchors));
+        $found = true;
+        break;
       }
       unset($g);
       if (!$found) {
@@ -676,8 +708,8 @@ trait LM_Action_Handlers_Trait {
     $this->save_anchor_groups($groups);
 
     $response = [
-      'msg' => 'Group updated successfully.',
-      'updated_group' => $newGroup,
+      'msg' => empty($selectedGroups) ? 'Anchor removed from all groups.' : 'Groups updated successfully.',
+      'updated_groups' => $selectedGroups,
     ];
 
     wp_send_json_success($response);
@@ -698,7 +730,7 @@ trait LM_Action_Handlers_Trait {
       exit;
     }
 
-    $newGroup = trim($this->request_text('lm_bulk_anchor_group', 'no_group'));
+    $selectedGroups = $this->get_selected_anchor_group_names_from_request('lm_bulk_anchor_groups', 'lm_bulk_anchor_group');
     $targets = $this->get_anchor_targets();
     $selectedAnchors = [];
     foreach ($indices as $idx) {
@@ -724,11 +756,11 @@ trait LM_Action_Handlers_Trait {
     }
     unset($g);
 
-    if ($newGroup !== '' && $newGroup !== 'no_group') {
+    foreach ($selectedGroups as $selectedGroup) {
       $found = false;
       foreach ($groups as &$g) {
         $gname = isset($g['name']) ? (string)$g['name'] : '';
-        if ($gname !== $newGroup) {
+        if ($gname !== $selectedGroup) {
           continue;
         }
         $anchors = isset($g['anchors']) ? (array)$g['anchors'] : [];
@@ -749,9 +781,9 @@ trait LM_Action_Handlers_Trait {
 
     $this->save_anchor_groups($groups);
 
-    $msg = ($newGroup === '' || $newGroup === 'no_group')
-      ? ('Removed group from ' . count($selectedAnchors) . ' target(s).')
-      : ('Updated group for ' . count($selectedAnchors) . ' target(s).');
+    $msg = empty($selectedGroups)
+      ? ('Removed all groups from ' . count($selectedAnchors) . ' target(s).')
+      : ('Updated groups for ' . count($selectedAnchors) . ' target(s).');
     wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => $msg]));
     exit;
   }

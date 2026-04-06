@@ -66,7 +66,7 @@ trait LM_Filter_Helpers_Trait {
 
   private function sanitize_text_match_mode($mode) {
     $mode = sanitize_key((string)$mode);
-    if (!in_array($mode, ['contains', 'exact', 'regex', 'starts_with', 'ends_with'], true)) {
+    if (!in_array($mode, ['contains', 'doesnt_contain', 'exact', 'regex', 'starts_with', 'ends_with'], true)) {
       $mode = 'contains';
     }
     return $mode;
@@ -84,6 +84,7 @@ trait LM_Filter_Helpers_Trait {
   private function get_text_match_modes() {
     return [
       'contains' => 'Contains',
+      'doesnt_contain' => "Doesn't contain",
       'exact' => 'Exact match',
       'regex' => 'Regex',
       'starts_with' => 'Starts with',
@@ -142,6 +143,10 @@ trait LM_Filter_Helpers_Trait {
       $needleLen = strlen($needleLower);
       if ($needleLen > strlen($haystackLower)) return false;
       return substr($haystackLower, -$needleLen) === $needleLower;
+    }
+
+    if ($mode === 'doesnt_contain') {
+      return stripos($haystack, $needle) === false;
     }
 
     return stripos($haystack, $needle) !== false;

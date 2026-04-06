@@ -45,6 +45,26 @@ When deleted from WordPress (not just deactivated), the plugin removes:
 
 ## Changelog
 
+### 4.4.3
+
+- Changed weak anchor phrase detection to exact-match rules and reduced overly generic default weak phrases
+- Added a one-time upgrade routine to refresh legacy default weak anchor phrase settings
+- Synced Anchor Text Quality statistics with All Anchor Text summary totals, including empty anchors
+- Improved Statistics percentages to use the same anchor summary base as Anchor Text Summary
+- Added multi-group support for Links Target anchors, including bulk updates and checklist-based group pickers
+- Clarified that Links Target group totals use overlapping coverage when one anchor belongs to multiple groups
+- Improved Links Target UI separation between bulk actions and result filters
+- Added a `Doesn't contain` text search mode across supported filter screens
+- Improved large-site refresh flow with chunked finalization and clearer running/finalizing states in Refresh Data
+- Fixed Refresh Data progress handling so running jobs resume polling after reload and no longer show 100% before completion
+- Added safer partial refresh messaging when rebuilds stop at configured safety limits instead of reporting stale data as fully up to date
+- Fixed editor REST cursor pagination so rows no longer repeat, disappear, or paginate unstably when sort values match
+- Corrected REST pagination totals and next-cursor metadata after cursor filtering
+- Fixed Pages Link inbound counting to resolve target landing pages from the full in-scope candidate map
+- Kept Pages Link inbound reporting aligned with Links Editor while preserving scope restrictions from settings
+- Improved link extraction for Gutenberg content by keeping full post-content fallback parsing and deduplicating overlaps with block-based parsing
+- Added a Troubleshooting `Post Scan Debug` tool to inspect crawl results for a specific post, compare extracted rows with indexed datastore rows, and search for a specific URL/domain
+
 ### 4.4.2
 
 - Enforced per-post capability checks in link update handlers
