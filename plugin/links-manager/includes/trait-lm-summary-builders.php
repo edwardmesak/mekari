@@ -509,7 +509,7 @@ trait LM_Summary_Builders_Trait {
           if ($seoFlag === 'ugc' && !$ugc) continue;
         }
 
-        $anchor = trim((string)($row['anchor_text'] ?? ''));
+        $anchor = $this->normalize_anchor_text_value((string)($row['anchor_text'] ?? ''), true);
         $key = strtolower($anchor);
 
         if (!isset($map[$key])) {
@@ -601,8 +601,7 @@ trait LM_Summary_Builders_Trait {
       if ($maxDestinations >= 0 && (int)$r['destinations'] > $maxDestinations) continue;
 
       if ($hasGroupFilter) {
-        $anchorKey = strtolower(trim((string)($r['anchor_text'] ?? '')));
-        if ($anchorKey === '') continue;
+        $anchorKey = strtolower($this->normalize_anchor_text_value((string)($r['anchor_text'] ?? ''), true));
         $groupsForAnchor = isset($anchorToGroups[$anchorKey]) ? array_keys($anchorToGroups[$anchorKey]) : [];
         if ($selectedGroup === 'no_group') {
           if (!empty($groupsForAnchor)) continue;

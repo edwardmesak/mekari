@@ -804,7 +804,7 @@ trait LM_REST_API_Trait {
     $indexedSummaryRows = $this->get_indexed_all_anchor_text_summary_rows($summaryFilters);
     if (!empty($indexedSummaryRows)) {
       foreach ($indexedSummaryRows as $summaryRow) {
-        $k = strtolower(trim((string)($summaryRow['anchor_text'] ?? '')));
+        $k = strtolower($this->normalize_anchor_text_value((string)($summaryRow['anchor_text'] ?? ''), true));
         if ($k === '') {
           continue;
         }
@@ -819,7 +819,7 @@ trait LM_REST_API_Trait {
 
     $all = $this->get_canonical_rows_for_scope('any', false, $wpmlLang, $summaryFilters);
     foreach ($all as $row) {
-      $a = trim((string)($row['anchor_text'] ?? ''));
+      $a = $this->normalize_anchor_text_value((string)($row['anchor_text'] ?? ''), true);
       if ($a === '') continue;
       $k = strtolower($a);
       if (!isset($anchorUsage[$k])) $anchorUsage[$k] = ['total' => 0, 'inlink' => 0, 'outbound' => 0];

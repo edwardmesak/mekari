@@ -24,7 +24,8 @@ trait LM_Anchor_Quality_Helpers_Trait {
   }
 
   private function get_anchor_quality_suggestion($anchor) {
-    if (empty($anchor)) {
+    $anchor = $this->normalize_anchor_text_value($anchor, true);
+    if ($anchor === '') {
       return ['quality' => 'bad', 'warning' => 'Empty anchor text - use descriptive text'];
     }
 
@@ -44,7 +45,7 @@ trait LM_Anchor_Quality_Helpers_Trait {
   }
 
   private function get_anchor_quality_label($anchor) {
-    $anchorKey = strtolower(trim((string)$anchor));
+    $anchorKey = strtolower($this->normalize_anchor_text_value($anchor, true));
     if (isset($this->anchor_quality_label_cache[$anchorKey])) {
       return (string)$this->anchor_quality_label_cache[$anchorKey];
     }

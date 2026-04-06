@@ -171,7 +171,7 @@ trait LM_Dashboard_Stats_Trait {
     $externalPageCounts = [];
 
     foreach ($all as $row) {
-      $anchor = trim((string)($row['anchor_text'] ?? ''));
+      $anchor = $this->normalize_anchor_text_value((string)($row['anchor_text'] ?? ''), true);
       if ($anchor !== '') {
         if ($row['link_type'] === 'inlink') {
           if (!isset($internalAnchorCounts[$anchor])) $internalAnchorCounts[$anchor] = 0;

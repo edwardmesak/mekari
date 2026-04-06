@@ -316,7 +316,7 @@ trait LM_All_Anchor_Text_Admin_Trait {
         $usageLabel = 'Mixed';
         if ($row['usage_type'] === 'inlink_only') $usageLabel = 'Inlink Only';
         if ($row['usage_type'] === 'outbound_only') $usageLabel = 'Outbound Only';
-        $anchorText = (string)($row['anchor_text'] ?? '');
+        $anchorText = $this->normalize_anchor_text_value((string)($row['anchor_text'] ?? ''), true);
         $anchorDisplay = $anchorText === '' ? '(Empty anchor text)' : $anchorText;
 
         echo '<tr>';

@@ -11,6 +11,7 @@ trait LM_Indexed_Aggregation_Trait {
       'db_version' => (string)get_option('lm_db_version', '0'),
       'stats_version' => (int)get_option('lm_stats_snapshot_version', 1),
       'dataset_version' => $this->get_dataset_cache_version(),
+      'logic_version' => 2,
     ];
     return 'lm_all_anchor_text_paged_' . md5(wp_json_encode($payload));
   }
@@ -382,7 +383,7 @@ trait LM_Indexed_Aggregation_Trait {
 
     $out = [];
     foreach ($rows as $row) {
-      $anchor = (string)($row['anchor_text'] ?? '');
+      $anchor = $this->normalize_anchor_text_value((string)($row['anchor_text'] ?? ''), true);
       $inlink = (int)($row['inlink'] ?? 0);
       $outbound = (int)($row['outbound'] ?? 0);
       $usageType = 'mixed';
@@ -679,7 +680,7 @@ trait LM_Indexed_Aggregation_Trait {
 
     $items = [];
     foreach ((array)$rows as $row) {
-      $anchor = (string)($row['anchor_text'] ?? '');
+      $anchor = $this->normalize_anchor_text_value((string)($row['anchor_text'] ?? ''), true);
       $inlink = (int)($row['inlink'] ?? 0);
       $outbound = (int)($row['outbound'] ?? 0);
       $usageType = 'mixed';

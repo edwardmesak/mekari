@@ -139,7 +139,7 @@ trait LM_Cache_Index_Sync_Trait {
       $linkType = sanitize_key((string)($row['link_type'] ?? ''));
       $link = esc_url_raw((string)($row['link'] ?? ''));
       $linkDomain = strtolower((string)parse_url($link, PHP_URL_HOST));
-      $anchorText = sanitize_text_field((string)($row['anchor_text'] ?? ''));
+      $anchorText = sanitize_text_field($this->normalize_anchor_text_value((string)($row['anchor_text'] ?? ''), true));
       $altText = sanitize_text_field((string)($row['alt_text'] ?? ''));
       $snippet = sanitize_textarea_field((string)($row['snippet'] ?? ''));
       $relRaw = sanitize_text_field((string)($row['rel_raw'] ?? ''));

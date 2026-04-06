@@ -292,13 +292,13 @@ trait LM_Crawl_Parse_Trait {
       $resolved = $this->normalize_url($this->resolve_to_absolute($href, $context['page_url']));
       $linkType = $this->is_external($resolved) ? 'exlink' : 'inlink';
 
-      $anchorText = trim($a->textContent);
+      $anchorText = $this->normalize_anchor_text_value($a->textContent, true);
 
       $altText = '';
       $imgs = $a->getElementsByTagName('img');
       if ($imgs && $imgs->length > 0) {
         $img = $imgs->item(0);
-        $altText = trim($img->getAttribute('alt'));
+        $altText = $this->normalize_anchor_text_value($img->getAttribute('alt'), true);
       }
 
       $rel = $a->getAttribute('rel');
