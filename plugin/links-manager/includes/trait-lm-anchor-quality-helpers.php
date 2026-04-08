@@ -8,6 +8,20 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Anchor_Quality_Helpers_Trait {
+  private function get_anchor_quality_length_thresholds() {
+    $settings = $this->get_settings();
+    $shortMin = isset($settings['anchor_poor_short_min']) ? (int)$settings['anchor_poor_short_min'] : 3;
+    $longMax = isset($settings['anchor_poor_long_max']) ? (int)$settings['anchor_poor_long_max'] : 100;
+
+    $shortMin = max(1, min(1000, $shortMin));
+    $longMax = max($shortMin, min(1000, $longMax));
+
+    return [
+      'short_min' => $shortMin,
+      'long_max' => $longMax,
+    ];
+  }
+
   private function has_weak_anchor_text($anchor) {
     $anchor = strtolower(trim((string)$anchor));
     if ($anchor === '') return true;
@@ -25,6 +39,10 @@ trait LM_Anchor_Quality_Helpers_Trait {
 
   private function get_anchor_quality_suggestion($anchor) {
     $anchor = $this->normalize_anchor_text_value($anchor, true);
+    $lengthThresholds = $this->get_anchor_quality_length_thresholds();
+    $shortMin = (int)$lengthThresholds['short_min'];
+    $longMax = (int)$lengthThresholds['long_max'];
+
     if ($anchor === '') {
       return ['quality' => 'bad', 'warning' => 'Empty anchor text - use descriptive text'];
     }
@@ -33,12 +51,12 @@ trait LM_Anchor_Quality_Helpers_Trait {
       return ['quality' => 'poor', 'warning' => 'Weak anchor text for SEO - use more descriptive text'];
     }
 
-    if (strlen($anchor) < 3) {
-      return ['quality' => 'poor', 'warning' => 'Anchor text too short (< 3 characters)'];
+    if (strlen($anchor) < $shortMin) {
+      return ['quality' => 'poor', 'warning' => sprintf('Anchor text too short (< %d characters)', $shortMin)];
     }
 
-    if (strlen($anchor) > 100) {
-      return ['quality' => 'poor', 'warning' => 'Anchor text too long (> 100 characters), use a shorter version'];
+    if (strlen($anchor) > $longMax) {
+      return ['quality' => 'poor', 'warning' => sprintf('Anchor text too long (> %d characters), use a shorter version', $longMax)];
     }
 
     return ['quality' => 'good', 'warning' => ''];
@@ -61,6 +79,12 @@ trait LM_Anchor_Quality_Helpers_Trait {
   }
 
   private function get_anchor_quality_status_help_text() {
-    return 'Good = descriptive anchor text (3-100 chars), Poor = weak/generic or length issue, Bad = empty anchor text.';
+    $lengthThresholds = $this->get_anchor_quality_length_thresholds();
+
+    return sprintf(
+      'Good = descriptive anchor text (%d-%d chars), Poor = weak/generic or length issue, Bad = empty anchor text.',
+      (int)$lengthThresholds['short_min'],
+      (int)$lengthThresholds['long_max']
+    );
   }
 }

@@ -39,6 +39,8 @@ trait LM_Settings_Access_Trait {
       'external_outbound_low_max' => '5',
       'external_outbound_optimal_max' => '10',
       'audit_retention_days' => (string)self::AUDIT_RETENTION_DAYS,
+      'anchor_poor_short_min' => '3',
+      'anchor_poor_long_max' => '100',
       'weak_anchor_patterns' => implode("\n", $this->get_default_weak_anchor_patterns()),
       'allowed_roles' => ['administrator'],
     ];
@@ -96,6 +98,13 @@ trait LM_Settings_Access_Trait {
     if ($maxPostsPerRebuild < 0) $maxPostsPerRebuild = 0;
     if ($maxPostsPerRebuild > 50000) $maxPostsPerRebuild = 50000;
     $opt['max_posts_per_rebuild'] = (string)$maxPostsPerRebuild;
+
+    $anchorPoorShortMin = isset($opt['anchor_poor_short_min']) ? (int)$opt['anchor_poor_short_min'] : 3;
+    $anchorPoorLongMax = isset($opt['anchor_poor_long_max']) ? (int)$opt['anchor_poor_long_max'] : 100;
+    $anchorPoorShortMin = max(1, min(1000, $anchorPoorShortMin));
+    $anchorPoorLongMax = max($anchorPoorShortMin, min(1000, $anchorPoorLongMax));
+    $opt['anchor_poor_short_min'] = (string)$anchorPoorShortMin;
+    $opt['anchor_poor_long_max'] = (string)$anchorPoorLongMax;
 
     return array_merge($defaults, $opt);
   }

@@ -769,10 +769,14 @@ trait LM_Indexed_Datastore_Trait {
       return;
     }
 
+    $lengthThresholds = $this->get_anchor_quality_length_thresholds();
+    $shortMin = (int)$lengthThresholds['short_min'];
+    $longMax = (int)$lengthThresholds['long_max'];
+
     $anchorExpr = "LOWER(TRIM(COALESCE(anchor_text, '')))";
     $isEmptyExpr = "$anchorExpr = ''";
-    $isShortExpr = "CHAR_LENGTH(TRIM(COALESCE(anchor_text, ''))) < 3";
-    $isLongExpr = "CHAR_LENGTH(TRIM(COALESCE(anchor_text, ''))) > 100";
+    $isShortExpr = 'CHAR_LENGTH(TRIM(COALESCE(anchor_text, \'\'))) < ' . $shortMin;
+    $isLongExpr = 'CHAR_LENGTH(TRIM(COALESCE(anchor_text, \'\'))) > ' . $longMax;
 
     if ($quality === 'bad') {
       $whereParts[] = $isEmptyExpr;

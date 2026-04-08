@@ -505,6 +505,19 @@ trait LM_Settings_Admin_Trait {
       echo '<hr style="margin:14px 0;"/>';
       echo '<h2 style="margin-top:0;">' . esc_html__('Anchor Quality - Weak Phrase Rules', 'links-manager') . '</h2>';
       echo '<div class="lm-small">' . esc_html__('List words or phrases considered weak anchor text. Use one phrase per line or separate with commas. Matching is exact after trim/lowercase normalization. Empty anchor text is always Bad.', 'links-manager') . '</div>';
+      echo '<div class="lm-settings-two-col" style="margin-top:10px;">';
+      echo '<p style="margin:0 0 10px;">';
+      echo '<label class="lm-small" style="' . esc_attr($settingsLabelStyle) . '">' . esc_html__('Poor if anchor length is below:', 'links-manager') . '</label>';
+      echo '<input type="number" name="lm_anchor_poor_short_min" min="1" max="1000" value="' . esc_attr((string)($settings['anchor_poor_short_min'] ?? '3')) . '" style="width:110px;" />';
+      echo '<span class="lm-small" style="margin-left:8px;">' . esc_html__('Default 3 characters.', 'links-manager') . '</span>';
+      echo '</p>';
+      echo '<p style="margin:0 0 10px;">';
+      echo '<label class="lm-small" style="' . esc_attr($settingsLabelStyle) . '">' . esc_html__('Poor if anchor length is above:', 'links-manager') . '</label>';
+      echo '<input type="number" name="lm_anchor_poor_long_max" min="1" max="1000" value="' . esc_attr((string)($settings['anchor_poor_long_max'] ?? '100')) . '" style="width:110px;" />';
+      echo '<span class="lm-small" style="margin-left:8px;">' . esc_html__('Default 100 characters.', 'links-manager') . '</span>';
+      echo '</p>';
+      echo '</div>';
+      echo '<div class="lm-small" style="margin-top:2px;">' . esc_html__('If the maximum is set below the minimum, it will be adjusted automatically when saving.', 'links-manager') . '</div>';
       echo '<div style="margin-top:8px;">';
       echo '<textarea name="lm_weak_anchor_patterns" rows="12" style="width:100%; max-width:760px;">' . esc_textarea((string)($settings['weak_anchor_patterns'] ?? '')) . '</textarea>';
       echo '</div>';
@@ -1238,6 +1251,21 @@ trait LM_Settings_Admin_Trait {
     return implode("\n", $normalized);
   }
 
+  private function sanitize_anchor_length_thresholds($source) {
+    $source = is_array($source) ? $source : [];
+
+    $shortMin = isset($source['lm_anchor_poor_short_min']) ? (int)$source['lm_anchor_poor_short_min'] : 3;
+    $longMax = isset($source['lm_anchor_poor_long_max']) ? (int)$source['lm_anchor_poor_long_max'] : 100;
+
+    $shortMin = max(1, min(1000, $shortMin));
+    $longMax = max($shortMin, min(1000, $longMax));
+
+    return [
+      'short_min' => $shortMin,
+      'long_max' => $longMax,
+    ];
+  }
+
   private function sanitize_inbound_thresholds($source) {
     $source = is_array($source) ? $source : [];
     $orphanMax = isset($source['lm_inbound_orphan_max']) ? (int)$source['lm_inbound_orphan_max'] : 0;
@@ -1493,6 +1521,16 @@ trait LM_Settings_Admin_Trait {
     ];
   }
 
+  private function get_anchor_config_dependency_state($settings) {
+    $settings = is_array($settings) ? $settings : [];
+
+    return [
+      'anchor_poor_short_min' => (string)($settings['anchor_poor_short_min'] ?? ''),
+      'anchor_poor_long_max' => (string)($settings['anchor_poor_long_max'] ?? ''),
+      'weak_anchor_patterns' => (string)($settings['weak_anchor_patterns'] ?? ''),
+    ];
+  }
+
   public function handle_save_settings() {
     if (!current_user_can('manage_options')) wp_die($this->unauthorized_message());
 
@@ -1501,6 +1539,7 @@ trait LM_Settings_Admin_Trait {
 
     $settings = $this->get_settings();
     $previousPerformanceState = $this->get_performance_cache_dependency_state($settings);
+    $previousAnchorConfigState = $this->get_anchor_config_dependency_state($settings);
     $availablePostTypes = $this->get_default_scan_post_types();
     $activeTab = $this->request_key('lm_active_tab', 'general');
     if (!in_array($activeTab, ['general', 'performance', 'status', 'data', 'debug'], true)) {
@@ -1591,6 +1630,10 @@ trait LM_Settings_Admin_Trait {
       if ($auditRetentionDays > 3650) $auditRetentionDays = 3650;
       $settings['audit_retention_days'] = (string)$auditRetentionDays;
 
+      $anchorLengthThresholds = $this->sanitize_anchor_length_thresholds($requestSource);
+      $settings['anchor_poor_short_min'] = (string)$anchorLengthThresholds['short_min'];
+      $settings['anchor_poor_long_max'] = (string)$anchorLengthThresholds['long_max'];
+
       $weakPatternsRaw = (string)wp_unslash($this->request_raw('lm_weak_anchor_patterns', (string)($settings['weak_anchor_patterns'] ?? '')));
       $normalizedWeakPatterns = $this->normalize_weak_anchor_patterns($weakPatternsRaw);
       if ($clearedAll) {
@@ -1605,6 +1648,8 @@ trait LM_Settings_Admin_Trait {
 
     if ($resetDataSettings) {
       $settings['audit_retention_days'] = (string)self::AUDIT_RETENTION_DAYS;
+      $settings['anchor_poor_short_min'] = '3';
+      $settings['anchor_poor_long_max'] = '100';
       $settings['inbound_orphan_max'] = '0';
       $settings['inbound_low_max'] = '5';
       $settings['inbound_standard_max'] = '10';
@@ -1622,8 +1667,15 @@ trait LM_Settings_Admin_Trait {
 
     $currentPerformanceState = $this->get_performance_cache_dependency_state($settings);
     $performanceChanged = ($currentPerformanceState !== $previousPerformanceState);
+    $currentAnchorConfigState = $this->get_anchor_config_dependency_state($settings);
+    $anchorConfigChanged = ($currentAnchorConfigState !== $previousAnchorConfigState);
     if ($performanceChanged) {
       $this->clear_main_cache_all();
+      $this->schedule_background_rebuild('any', 'all', 2);
+    }
+    if ($anchorConfigChanged) {
+      $this->bump_anchor_config_version();
+      $this->clear_cache_all();
       $this->schedule_background_rebuild('any', 'all', 2);
     }
 
