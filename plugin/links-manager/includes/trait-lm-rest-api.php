@@ -214,7 +214,6 @@ trait LM_REST_API_Trait {
     }
 
     $enabledSources = $this->get_enabled_scan_source_types();
-    $maxRows = $this->get_runtime_max_cache_rows();
     $maxPosts = $this->get_max_posts_per_rebuild();
     $processedPosts = (int)($state['processed_posts'] ?? 0);
     $crawlStartedAt = microtime(true);
@@ -239,9 +238,7 @@ trait LM_REST_API_Trait {
             unset($state['finalize_last_post_id'], $state['finalize_processed_posts']);
           }
         } else {
-          if (count($allRows) < $maxRows) {
-            $this->append_rows($allRows, $this->crawl_menus($enabledSources));
-          }
+          $this->append_rows($allRows, $this->crawl_menus($enabledSources));
           $this->persist_cache_payload($scopePostType, $wpmlLang, $allRows);
           $state['status'] = 'done';
           $state['message'] = '';
@@ -309,10 +306,6 @@ trait LM_REST_API_Trait {
         }
         $processedPosts++;
 
-        if ($storageMode !== 'indexed_stream' && count($allRows) >= $maxRows) {
-          $allRows = array_slice($allRows, 0, $maxRows);
-          break;
-        }
         if ($this->should_abort_crawl($crawlStartedAt)) {
           break;
         }
@@ -345,9 +338,8 @@ trait LM_REST_API_Trait {
     $newLastSeenId = max(0, (int)(isset($nextLastSeenId) ? $nextLastSeenId : $lastSeenId));
     $lastBatchCount = isset($batchPostIds) && is_array($batchPostIds) ? count($batchPostIds) : 0;
     $hitMaxPosts = ($maxPosts > 0 && $processedPosts >= $maxPosts);
-    $hitMaxRows = ($storageMode !== 'indexed_stream' && count($allRows) >= $maxRows);
     $exhaustedPosts = ($lastBatchCount === 0) || (($totalPosts > 0) && ($newOffset >= $totalPosts));
-    $done = $exhaustedPosts || $hitMaxPosts || $hitMaxRows;
+    $done = $exhaustedPosts || $hitMaxPosts;
 
     if ($done) {
       if ($storageMode === 'indexed_stream') {
@@ -355,7 +347,7 @@ trait LM_REST_API_Trait {
         if (!empty($menuRows)) {
           $state['rows_count'] = max(0, (int)($state['rows_count'] ?? 0)) + (int)$this->append_indexed_datastore_rows($menuRows, $wpmlLang);
         }
-        if (!$hitMaxPosts && !$hitMaxRows) {
+        if (!$hitMaxPosts) {
           $this->clear_indexed_summary_for_lang($wpmlLang);
           $state['status'] = 'finalizing';
           $state['message'] = 'Refreshing cached summaries from the scanned rows...';
@@ -363,21 +355,12 @@ trait LM_REST_API_Trait {
           $state['finalize_processed_posts'] = 0;
         }
       } else {
-        if (count($allRows) < $maxRows) {
-          $this->append_rows($allRows, $this->crawl_menus($enabledSources));
-        }
+        $this->append_rows($allRows, $this->crawl_menus($enabledSources));
         $state['status'] = 'finalizing';
         $state['message'] = 'Finalizing cached rows...';
         unset($state['finalize_last_post_id'], $state['finalize_processed_posts']);
       }
-      if ($hitMaxRows) {
-        $state['status'] = 'partial';
-        $state['message'] = sprintf(
-          'Refresh stopped at the safety cache row limit (%1$s rows) before all posts were scanned.',
-          number_format_i18n($maxRows)
-        );
-        unset($state['finalize_last_post_id'], $state['finalize_processed_posts']);
-      } elseif ($hitMaxPosts) {
+      if ($hitMaxPosts) {
         $state['status'] = 'partial';
         $state['message'] = sprintf(
           'Refresh stopped at the configured post limit (%1$s posts) before all posts were scanned.',
@@ -676,21 +659,13 @@ trait LM_REST_API_Trait {
 
     $all = null;
     $executionMode = 'cache_scan_fallback';
-    $usedIndexedAuthority = false;
     $usedExistingCache = false;
     $usedRebuild = false;
-
-    if (!$rebuildRequested && $this->is_indexed_datastore_ready()) {
-      $all = $this->get_indexed_fact_rows($context['scope_post_type'], $context['scope_wpml_lang'], $filters);
-      if (is_array($all) && !empty($all)) {
-        $usedIndexedAuthority = true;
-      }
-    }
 
     if (!is_array($all)) {
       $all = null;
     }
-    if (empty($all) && !$rebuildRequested && !$usedIndexedAuthority) {
+    if (empty($all) && !$rebuildRequested) {
       $all = $this->get_existing_cache_rows_for_rest($context['scope_post_type'], $context['scope_wpml_lang'], false);
       if (is_array($all)) {
         $usedExistingCache = true;
@@ -709,8 +684,6 @@ trait LM_REST_API_Trait {
 
     if ($usedRebuild) {
       $executionMode = 'rebuild_cache_scan';
-    } elseif ($usedIndexedAuthority) {
-      $executionMode = 'indexed_prefilter_php';
     } elseif ($usedExistingCache) {
       $executionMode = 'cache_scan';
     }
@@ -918,6 +891,28 @@ trait LM_REST_API_Trait {
         }
       }
 
+      if (empty($context['rebuild_requested'])) {
+        $indexedPagedResult = $this->get_pages_link_paged_result_from_indexed_summary($filters);
+        if (is_array($indexedPagedResult)) {
+          $response = [
+            'items' => array_values((array)($indexedPagedResult['pages'] ?? [])),
+            'pagination' => [
+              'total' => max(0, (int)($indexedPagedResult['total'] ?? 0)),
+              'per_page' => max(10, (int)($indexedPagedResult['per_page'] ?? ($filters['per_page'] ?? 25))),
+              'paged' => max(1, (int)($indexedPagedResult['paged'] ?? ($filters['paged'] ?? 1))),
+              'total_pages' => max(1, (int)($indexedPagedResult['total_pages'] ?? 1)),
+              'next_cursor' => '',
+            ],
+            'status_summary' => isset($indexedPagedResult['status_summary']) && is_array($indexedPagedResult['status_summary']) ? $indexedPagedResult['status_summary'] : [],
+            'internal_outbound_summary' => isset($indexedPagedResult['internal_outbound_summary']) && is_array($indexedPagedResult['internal_outbound_summary']) ? $indexedPagedResult['internal_outbound_summary'] : [],
+            'external_outbound_summary' => isset($indexedPagedResult['external_outbound_summary']) && is_array($indexedPagedResult['external_outbound_summary']) ? $indexedPagedResult['external_outbound_summary'] : [],
+          ];
+          $response = $this->attach_rest_execution_meta($response, 'pages_link_list', 'indexed_summary_fastpath', false);
+          $this->set_rest_response_cache($context['cache_key'], $response);
+          return $this->enrich_pages_link_rest_response($response, $filters);
+        }
+      }
+
       $pagesResult = $this->load_pages_link_rest_summary_rows($filters, $context);
       $response = $this->paginate_pages_link_rest_response((array)($pagesResult['pages'] ?? []), $filters);
       $response = $this->attach_rest_execution_meta($response, 'pages_link_list', (string)($pagesResult['execution_mode'] ?? 'cache_scan_fallback'), false);
@@ -968,17 +963,32 @@ trait LM_REST_API_Trait {
     $pagination = isset($response['pagination']) && is_array($response['pagination']) ? $response['pagination'] : [];
     $items = isset($response['items']) && is_array($response['items']) ? array_values($response['items']) : [];
     $summaryPages = isset($response['summary_pages']) && is_array($response['summary_pages']) ? array_values($response['summary_pages']) : [];
+    $statusSummary = isset($response['status_summary']) && is_array($response['status_summary']) ? $response['status_summary'] : null;
+    $internalOutboundSummary = isset($response['internal_outbound_summary']) && is_array($response['internal_outbound_summary']) ? $response['internal_outbound_summary'] : null;
+    $externalOutboundSummary = isset($response['external_outbound_summary']) && is_array($response['external_outbound_summary']) ? $response['external_outbound_summary'] : null;
     $paged = max(1, (int)($pagination['paged'] ?? 1));
     $totalPages = max(1, (int)($pagination['total_pages'] ?? 1));
     $total = max(0, (int)($pagination['total'] ?? count($items)));
+
+    if (is_array($statusSummary) && is_array($internalOutboundSummary) && is_array($externalOutboundSummary)) {
+      $summariesHtml = $this->get_pages_link_summaries_html_from_counts(
+        $filters,
+        $total,
+        $statusSummary,
+        $internalOutboundSummary,
+        $externalOutboundSummary
+      );
+    } else {
+      $summariesHtml = $this->get_pages_link_summaries_html($summaryPages, $filters);
+    }
 
     $response['rendered'] = [
       'tbody_html' => $this->get_pages_link_results_tbody_html($items),
       'pagination_html' => $this->get_rest_pagination_html($paged, $totalPages, $total, (int)($pagination['per_page'] ?? ($filters['per_page'] ?? 25))),
       'total_text' => (string)$total,
-      'summaries_html' => $this->get_pages_link_summaries_html($summaryPages, $filters),
+      'summaries_html' => $summariesHtml,
     ];
-    unset($response['summary_pages']);
+    unset($response['summary_pages'], $response['status_summary'], $response['internal_outbound_summary'], $response['external_outbound_summary']);
 
     return $response;
   }

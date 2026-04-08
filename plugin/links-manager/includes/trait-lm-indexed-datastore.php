@@ -1006,19 +1006,6 @@ trait LM_Indexed_Datastore_Trait {
     }
     $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
 
-    if ($this->is_indexed_datastore_ready()) {
-      $indexedRows = $this->get_indexed_fact_rows($scopePostType, $wpmlLang);
-      if (!empty($indexedRows)) {
-        return $indexedRows;
-      }
-      if ($allowAnyAllFallback && ($scopePostType !== 'any' || $wpmlLang !== 'all')) {
-        $indexedRowsAnyAll = $this->get_indexed_fact_rows('any', 'all');
-        if (is_array($indexedRowsAnyAll) && !empty($indexedRowsAnyAll)) {
-          return $indexedRowsAnyAll;
-        }
-      }
-    }
-
     $main = get_transient($this->cache_key($scopePostType, $wpmlLang));
     if (is_array($main) && !empty($main)) {
       return $main;

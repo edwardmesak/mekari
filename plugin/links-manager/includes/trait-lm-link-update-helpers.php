@@ -250,8 +250,9 @@ trait LM_Link_Update_Helpers_Trait {
     if ($source === 'content') {
       $content = (string)$post->post_content;
       $blocks = function_exists('parse_blocks') ? parse_blocks($content) : [];
+      $isClassicContentTarget = ($location === 'classic' || trim((string)$block_index) === '');
 
-      if (empty($blocks)) {
+      if (empty($blocks) || $isClassicContentTarget) {
         $res = $this->update_single_occurrence_in_html($content, $old_link, $occurrence, $new_link, $new_rel, $new_anchor, (string)$pageUrl);
         if ($res['changed'] !== 1) {
           return ['ok' => false, 'msg' => 'Target link not found (content changed?)'];

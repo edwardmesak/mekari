@@ -269,7 +269,6 @@ trait LM_Cache_Rebuild_Trait {
     }
 
     $all = [];
-    $maxRows = $this->get_runtime_max_cache_rows();
     $maxPosts = $this->get_max_posts_per_rebuild();
     $processedPosts = 0;
     foreach ($currentPostIds as $postId) {
@@ -286,17 +285,10 @@ trait LM_Cache_Rebuild_Trait {
         $this->append_rows($all, $rowsByPostId[$postId]);
       }
 
-      if (count($all) >= $maxRows) {
-        $all = array_slice($all, 0, $maxRows);
-        break;
-      }
-
       $processedPosts++;
     }
 
-    if (count($all) < $maxRows) {
-      $this->append_rows($all, $this->crawl_menus($enabledSources));
-    }
+    $this->append_rows($all, $this->crawl_menus($enabledSources));
     return $all;
   }
 
@@ -838,11 +830,6 @@ trait LM_Cache_Rebuild_Trait {
     if (!$force_rebuild) {
       $cached = get_transient($key);
       if (is_array($cached) && !empty($cached)) {
-        $maxRows = $this->get_runtime_max_cache_rows();
-        if (count($cached) > $maxRows) {
-          $cached = array_slice($cached, 0, $maxRows);
-          $this->persist_cache_payload($scope_post_type, $wpml_lang, $cached);
-        }
         $this->profile_end('cache_read_hit', $profileTotalStarted, [
           'rows' => count($cached),
           'scope_post_type' => (string)$scope_post_type,
@@ -855,11 +842,6 @@ trait LM_Cache_Rebuild_Trait {
     $backup = get_transient($backupKey);
     $lastScanGmt = (string)get_option($this->cache_scan_option_key($scope_post_type, $wpml_lang), '');
     if (!$force_rebuild && $allow_stale_serve && is_array($backup) && !empty($backup)) {
-      $maxRows = $this->get_runtime_max_cache_rows();
-      if (count($backup) > $maxRows) {
-        $backup = array_slice($backup, 0, $maxRows);
-      }
-
       $this->profile_end('cache_read_backup_stale', $profileTotalStarted, [
         'rows' => count($backup),
         'scope_post_type' => (string)$scope_post_type,
@@ -899,7 +881,6 @@ trait LM_Cache_Rebuild_Trait {
     }
 
     $all = [];
-    $maxRows = $this->get_runtime_max_cache_rows();
     $processedPosts = 0;
     $crawlStartedAt = microtime(true);
     $crawlAborted = false;
@@ -960,12 +941,6 @@ trait LM_Cache_Rebuild_Trait {
 
           $this->append_rows($all, $this->crawl_post($post_id, $enabledSources));
           $processedPosts++;
-
-          if (count($all) >= $maxRows) {
-            $all = array_slice($all, 0, $maxRows);
-            $crawlAborted = true;
-            break 2;
-          }
           if ($this->should_abort_crawl($crawlStartedAt)) {
             $crawlAborted = true;
             break 2;

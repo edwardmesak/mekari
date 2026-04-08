@@ -49,10 +49,6 @@ trait LM_Cache_Index_Sync_Trait {
   }
 
   private function persist_cache_payload($scope_post_type, $wpml_lang, $rows) {
-    $maxRows = $this->get_runtime_max_cache_rows();
-    if (is_array($rows) && count($rows) > $maxRows) {
-      $rows = array_slice($rows, 0, $maxRows);
-    }
     set_transient($this->cache_key($scope_post_type, $wpml_lang), $rows, self::CACHE_TTL);
     set_transient($this->cache_backup_key($scope_post_type, $wpml_lang), $rows, self::CACHE_BASE_TTL);
     update_option($this->cache_scan_option_key($scope_post_type, $wpml_lang), gmdate('Y-m-d H:i:s'), false);
@@ -61,6 +57,8 @@ trait LM_Cache_Index_Sync_Trait {
     $scope_post_type = sanitize_key((string)$scope_post_type);
     if ($scope_post_type === 'any') {
       $this->sync_indexed_datastore_from_rows($rows, $wpml_lang);
+    }
+    if ($scope_post_type === 'any') {
       $this->warm_common_precomputed_stats_snapshots($rows, $wpml_lang, false);
     }
   }

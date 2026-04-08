@@ -688,4 +688,144 @@ trait LM_Pages_Link_Admin_Trait {
 
     return (string)ob_get_clean();
   }
+
+  private function get_pages_link_summaries_html_from_counts($filters, $total, $statusSummary, $internalOutboundSummary, $externalOutboundSummary) {
+    $total = max(0, (int)$total);
+    $statusSummary = is_array($statusSummary) ? $statusSummary : [];
+    $internalOutboundSummary = is_array($internalOutboundSummary) ? $internalOutboundSummary : [];
+    $externalOutboundSummary = is_array($externalOutboundSummary) ? $externalOutboundSummary : [];
+
+    $statusSummary = array_merge([
+      'orphan' => 0,
+      'low' => 0,
+      'standard' => 0,
+      'excellent' => 0,
+    ], $statusSummary);
+    $internalOutboundSummary = array_merge([
+      'none' => 0,
+      'low' => 0,
+      'optimal' => 0,
+      'excessive' => 0,
+    ], $internalOutboundSummary);
+    $externalOutboundSummary = array_merge([
+      'none' => 0,
+      'low' => 0,
+      'optimal' => 0,
+      'excessive' => 0,
+    ], $externalOutboundSummary);
+
+    $summaryRows = [
+      ['key' => 'orphan', 'label' => 'Orphaned'],
+      ['key' => 'low', 'label' => 'Low'],
+      ['key' => 'standard', 'label' => 'Standard'],
+      ['key' => 'excellent', 'label' => 'Excellent'],
+    ];
+    $outboundSummaryRows = [
+      ['key' => 'none', 'label' => 'None'],
+      ['key' => 'low', 'label' => 'Low'],
+      ['key' => 'optimal', 'label' => 'Optimal'],
+      ['key' => 'excessive', 'label' => 'Excessive'],
+    ];
+
+    $internalOutboundThresholds = $this->get_internal_outbound_status_thresholds();
+    $externalOutboundThresholds = $this->get_external_outbound_status_thresholds();
+    $internalOutboundRanges = $this->get_four_level_status_ranges_text($internalOutboundThresholds);
+    $externalOutboundRanges = $this->get_four_level_status_ranges_text($externalOutboundThresholds);
+
+    $statusThresholds = $this->get_inbound_status_thresholds();
+    $orphanMax = (int)$statusThresholds['orphan_max'];
+    $lowMax = (int)$statusThresholds['low_max'];
+    $standardMax = (int)$statusThresholds['standard_max'];
+    $lowMin = $orphanMax + 1;
+    $standardMin = $lowMax + 1;
+    $excellentMin = $standardMax + 1;
+    $orphanLabel = ($orphanMax === 0) ? '0' : ('0-' . $orphanMax);
+    $lowLabel = ($lowMin <= $lowMax) ? ($lowMin . '-' . $lowMax) : (string)$lowMax;
+    $standardLabel = ($standardMin <= $standardMax) ? ($standardMin . '-' . $standardMax) : (string)$standardMax;
+
+    ob_start();
+
+    echo '<div class="lm-card lm-card-full">';
+    $this->render_admin_section_intro(
+      __('Internal Inbound Status Summary', 'links-manager'),
+      __('See how many published pages receive links from other internal published pages.', 'links-manager')
+    );
+    echo '<div class="lm-small" style="margin-bottom:6px;">Status reference: Orphaned = ' . esc_html((string)$orphanLabel) . ', Low = ' . esc_html((string)$lowLabel) . ', Standard = ' . esc_html((string)$standardLabel) . ', Excellent = ' . esc_html((string)$excellentMin) . '+.</div>';
+    echo '<div class="lm-table-wrap lm-summary-table-wrap"><table class="widefat striped lm-table"><thead><tr><th>#</th><th>Status</th><th>Total Page URLs</th><th>%</th></tr></thead><tbody>';
+    $summaryRowNo = 1;
+    foreach ($summaryRows as $summaryRow) {
+      $summaryKey = (string)$summaryRow['key'];
+      $summaryCount = isset($statusSummary[$summaryKey]) ? (int)$statusSummary[$summaryKey] : 0;
+      $summaryPercent = $total > 0 ? round(($summaryCount / $total) * 100, 1) : 0;
+      $summaryFilterUrl = $this->pages_link_admin_url($filters, [
+        'lm_pages_link_status' => $summaryKey,
+        'lm_pages_link_paged' => 1,
+      ]);
+
+      echo '<tr>';
+      echo '<td style="text-align:center;">' . esc_html((string)$summaryRowNo) . '</td>';
+      echo '<td>' . esc_html((string)$summaryRow['label']) . '</td>';
+      echo '<td style="text-align:center;"><a href="' . esc_url($summaryFilterUrl) . '">' . esc_html((string)$summaryCount) . '</a></td>';
+      echo '<td style="text-align:center;">' . esc_html((string)$summaryPercent) . '%</td>';
+      echo '</tr>';
+      $summaryRowNo++;
+    }
+    echo '</tbody></table></div></div>';
+
+    echo '<div class="lm-card lm-card-full">';
+    $this->render_admin_section_intro(
+      __('Internal Outbound Status Summary', 'links-manager'),
+      __('See how many published pages link to other internal published pages.', 'links-manager')
+    );
+    echo '<div class="lm-small" style="margin-bottom:8px;">Status reference: None = ' . esc_html((string)$internalOutboundRanges['none']) . ', Low = ' . esc_html((string)$internalOutboundRanges['low']) . ', Optimal = ' . esc_html((string)$internalOutboundRanges['optimal']) . ', Excessive = ' . esc_html((string)$internalOutboundRanges['excessive']) . '.</div>';
+    echo '<div class="lm-table-wrap lm-summary-table-wrap"><table class="widefat striped lm-table"><thead><tr><th>#</th><th>Status</th><th>Total Page URLs</th><th>%</th></tr></thead><tbody>';
+    $internalSummaryRowNo = 1;
+    foreach ($outboundSummaryRows as $summaryRow) {
+      $summaryKey = (string)$summaryRow['key'];
+      $summaryCount = isset($internalOutboundSummary[$summaryKey]) ? (int)$internalOutboundSummary[$summaryKey] : 0;
+      $summaryPercent = $total > 0 ? round(($summaryCount / $total) * 100, 1) : 0;
+      $summaryFilterUrl = $this->pages_link_admin_url($filters, [
+        'lm_pages_link_internal_outbound_status' => $summaryKey,
+        'lm_pages_link_paged' => 1,
+      ]);
+
+      echo '<tr>';
+      echo '<td style="text-align:center;">' . esc_html((string)$internalSummaryRowNo) . '</td>';
+      echo '<td>' . esc_html((string)$summaryRow['label']) . '</td>';
+      echo '<td style="text-align:center;"><a href="' . esc_url($summaryFilterUrl) . '">' . esc_html((string)$summaryCount) . '</a></td>';
+      echo '<td style="text-align:center;">' . esc_html((string)$summaryPercent) . '%</td>';
+      echo '</tr>';
+      $internalSummaryRowNo++;
+    }
+    echo '</tbody></table></div></div>';
+
+    echo '<div class="lm-card lm-card-full">';
+    $this->render_admin_section_intro(
+      __('External Outbound Status Summary', 'links-manager'),
+      __('See how many published pages link to external domains.', 'links-manager')
+    );
+    echo '<div class="lm-small" style="margin-bottom:8px;">Status reference: None = ' . esc_html((string)$externalOutboundRanges['none']) . ', Low = ' . esc_html((string)$externalOutboundRanges['low']) . ', Optimal = ' . esc_html((string)$externalOutboundRanges['optimal']) . ', Excessive = ' . esc_html((string)$externalOutboundRanges['excessive']) . '.</div>';
+    echo '<div class="lm-table-wrap lm-summary-table-wrap"><table class="widefat striped lm-table"><thead><tr><th>#</th><th>Status</th><th>Total Page URLs</th><th>%</th></tr></thead><tbody>';
+    $externalSummaryRowNo = 1;
+    foreach ($outboundSummaryRows as $summaryRow) {
+      $summaryKey = (string)$summaryRow['key'];
+      $summaryCount = isset($externalOutboundSummary[$summaryKey]) ? (int)$externalOutboundSummary[$summaryKey] : 0;
+      $summaryPercent = $total > 0 ? round(($summaryCount / $total) * 100, 1) : 0;
+      $summaryFilterUrl = $this->pages_link_admin_url($filters, [
+        'lm_pages_link_external_outbound_status' => $summaryKey,
+        'lm_pages_link_paged' => 1,
+      ]);
+
+      echo '<tr>';
+      echo '<td style="text-align:center;">' . esc_html((string)$externalSummaryRowNo) . '</td>';
+      echo '<td>' . esc_html((string)$summaryRow['label']) . '</td>';
+      echo '<td style="text-align:center;"><a href="' . esc_url($summaryFilterUrl) . '">' . esc_html((string)$summaryCount) . '</a></td>';
+      echo '<td style="text-align:center;">' . esc_html((string)$summaryPercent) . '%</td>';
+      echo '</tr>';
+      $externalSummaryRowNo++;
+    }
+    echo '</tbody></table></div></div>';
+
+    return (string)ob_get_clean();
+  }
 }

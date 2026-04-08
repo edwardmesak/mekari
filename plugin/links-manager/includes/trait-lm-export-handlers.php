@@ -48,6 +48,67 @@ trait LM_Export_Handlers_Trait {
     return ($semicolon > $comma) ? ';' : ',';
   }
 
+  private function stream_indexed_editor_export_rows($out, $filters) {
+    $filters = is_array($filters) ? $filters : [];
+    $scopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $cursor = '';
+    $perPage = 1000;
+    $exportFilters = $filters;
+    $exportFilters['per_page'] = $perPage;
+    $exportFilters['paged'] = 1;
+
+    while (true) {
+      $exportFilters['cursor'] = $cursor;
+      $response = $this->get_indexed_editor_list_fastpath_response($scopePostType, $scopeWpmlLang, $exportFilters);
+      if (!is_array($response)) {
+        return false;
+      }
+
+      $items = isset($response['items']) && is_array($response['items']) ? array_values($response['items']) : [];
+      foreach ($items as $r) {
+        $this->csv_write_row($out, [
+          $r['post_id'] ?? '',
+          $r['link'] ?? '',
+          $r['row_id'] ?? '',
+          '',
+          '',
+          '',
+          $r['source'] ?? '',
+          $r['link_location'] ?? '',
+          $r['block_index'] ?? '',
+          $r['occurrence'] ?? '',
+          $r['post_title'] ?? '',
+          $r['post_type'] ?? '',
+          $r['post_author'] ?? '',
+          $r['post_date'] ?? '',
+          $r['post_modified'] ?? '',
+          $r['page_url'] ?? '',
+          $r['link'] ?? '',
+          $r['link'] ?? '',
+          $r['anchor_text'] ?? '',
+          $r['alt_text'] ?? '',
+          $r['snippet'] ?? '',
+          $r['link_type'] ?? '',
+          $r['relationship'] ?? '',
+          $r['value_type'] ?? '',
+          1,
+        ]);
+      }
+
+      $pagination = isset($response['pagination']) && is_array($response['pagination']) ? $response['pagination'] : [];
+      $cursor = (string)($pagination['next_cursor'] ?? '');
+      if ($cursor === '' || empty($items)) {
+        break;
+      }
+    }
+
+    return true;
+  }
+
   public function handle_export_pages_link_csv() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
@@ -615,8 +676,6 @@ trait LM_Export_Handlers_Trait {
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $filters = $this->get_filters_from_request();
-    $all = $this->get_canonical_rows_for_scope($filters['post_type'], $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
-    $rows = $this->apply_filters_and_group($all, $filters);
 
     $filename = 'links-manager-export-' . date('Y-m-d-His') . '.csv';
 
@@ -634,6 +693,14 @@ trait LM_Export_Handlers_Trait {
       'page_url', 'link_resolved', 'link_raw', 'anchor_text', 'alt_text', 'snippet',
       'link_type', 'relationship', 'value_type', 'count'
     ]);
+
+    if (empty($filters['rebuild']) && $this->is_indexed_datastore_ready() && $this->stream_indexed_editor_export_rows($out, $filters)) {
+      fclose($out);
+      exit;
+    }
+
+    $all = $this->get_canonical_rows_for_scope($filters['post_type'], $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
+    $rows = $this->apply_filters_and_group($all, $filters);
 
     foreach ($rows as $r) {
       $this->csv_write_row($out, [

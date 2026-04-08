@@ -349,7 +349,6 @@ trait LM_Editor_Admin_Trait {
     $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
     $rebuildRequested = !empty($filters['rebuild']);
     $all = null;
-    $usedIndexedAuthority = false;
     $usedExistingCache = false;
     $indexedFastResponse = null;
 
@@ -374,17 +373,10 @@ trait LM_Editor_Admin_Trait {
       }
     }
 
-    if (!$rebuildRequested && $this->is_indexed_datastore_ready()) {
-      $all = $this->get_indexed_fact_rows($scopePostType, $scopeWpmlLang, $filters);
-      if (is_array($all) && !empty($all)) {
-        $usedIndexedAuthority = true;
-      }
-    }
-
     if (!is_array($all)) {
       $all = null;
     }
-    if (empty($all) && !$rebuildRequested && !$usedIndexedAuthority) {
+    if (empty($all) && !$rebuildRequested) {
       $all = $this->get_existing_cache_rows_for_rest($scopePostType, $scopeWpmlLang, false);
       if (is_array($all)) {
         $usedExistingCache = true;
@@ -409,7 +401,7 @@ trait LM_Editor_Admin_Trait {
       'per_page' => $perPage,
       'paged' => $paged,
       'total_pages' => $totalPages,
-      'data_source' => $usedIndexedAuthority ? 'indexed' : ($usedExistingCache ? 'cache' : 'canonical'),
+      'data_source' => $usedExistingCache ? 'cache' : 'canonical',
     ];
   }
 
