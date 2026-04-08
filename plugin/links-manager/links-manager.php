@@ -94,7 +94,7 @@ class LM_Links_Manager {
   const PAGE_SLUG = 'links-manager-editor';
   const NONCE_ACTION = 'lm_links_manager_nonce_action';
   const NONCE_NAME = 'lm_nonce';
-  const DB_VERSION = '4.9';
+  const DB_VERSION = '5.0';
 
   const CACHE_TTL = 6 * HOUR_IN_SECONDS;
   const CACHE_BASE_TTL = 30 * DAY_IN_SECONDS;

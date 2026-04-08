@@ -42,6 +42,10 @@ trait LM_Schema_Trait {
     if (version_compare($installedVersion, '4.9', '<')) {
       $this->maybe_migrate_legacy_weak_anchor_patterns();
     }
+
+    if (version_compare($installedVersion, '5.0', '<')) {
+      $this->ensure_link_fact_normalized_url_schema();
+    }
   }
 
   private function ensure_link_fact_domain_schema() {
@@ -65,6 +69,38 @@ trait LM_Schema_Trait {
       'idx_lang_post_type_link_type_domain' => "(wpml_lang, post_type, link_type, link_domain)",
       'idx_lang_post_type_link_type_source_domain' => "(wpml_lang, post_type, link_type, source, link_domain)",
       'idx_lang_post_type_link_type_location_domain' => "(wpml_lang, post_type, link_type, link_location, link_domain)",
+    ];
+
+    foreach ($requiredIndexes as $indexName => $definition) {
+      $existing = $wpdb->get_var($wpdb->prepare("SHOW INDEX FROM $table WHERE Key_name = %s", $indexName));
+      if (empty($existing)) {
+        $wpdb->query("ALTER TABLE $table ADD INDEX $indexName $definition");
+      }
+    }
+  }
+
+  private function ensure_link_fact_normalized_url_schema() {
+    global $wpdb;
+
+    $table = $wpdb->prefix . 'lm_link_fact';
+    $tableExists = (string)$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+    if ($tableExists !== $table) {
+      return;
+    }
+
+    $normalizedPageColumn = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM $table LIKE %s", 'normalized_page_url'));
+    if (empty($normalizedPageColumn)) {
+      $wpdb->query("ALTER TABLE $table ADD COLUMN normalized_page_url VARCHAR(1024) NOT NULL DEFAULT '' AFTER page_url");
+    }
+
+    $normalizedLinkColumn = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM $table LIKE %s", 'normalized_link'));
+    if (empty($normalizedLinkColumn)) {
+      $wpdb->query("ALTER TABLE $table ADD COLUMN normalized_link VARCHAR(1024) NOT NULL DEFAULT '' AFTER link");
+    }
+
+    $requiredIndexes = [
+      'idx_lang_norm_page_url_post' => "(wpml_lang, normalized_page_url(191), post_id)",
+      'idx_lang_link_type_norm_link_post' => "(wpml_lang, link_type, normalized_link(191), post_id)",
     ];
 
     foreach ($requiredIndexes as $indexName => $definition) {
@@ -138,12 +174,14 @@ trait LM_Schema_Trait {
       post_date DATETIME NULL,
       post_modified DATETIME NULL,
       page_url VARCHAR(1024) NOT NULL DEFAULT '',
+      normalized_page_url VARCHAR(1024) NOT NULL DEFAULT '',
       source VARCHAR(32) NOT NULL DEFAULT '',
       link_location VARCHAR(128) NOT NULL DEFAULT '',
       block_index VARCHAR(64) NOT NULL DEFAULT '',
       occurrence VARCHAR(32) NOT NULL DEFAULT '',
       link_type VARCHAR(16) NOT NULL DEFAULT '',
       link VARCHAR(1024) NOT NULL DEFAULT '',
+      normalized_link VARCHAR(1024) NOT NULL DEFAULT '',
       link_domain VARCHAR(255) NOT NULL DEFAULT '',
       anchor_text TEXT,
       alt_text TEXT,
@@ -174,6 +212,8 @@ trait LM_Schema_Trait {
       KEY idx_lang_link_type_domain (wpml_lang, link_type, link_domain),
       KEY idx_link (link(191)),
       KEY idx_page_url (page_url(191)),
+      KEY idx_lang_norm_page_url_post (wpml_lang, normalized_page_url(191), post_id),
+      KEY idx_lang_link_type_norm_link_post (wpml_lang, link_type, normalized_link(191), post_id),
       KEY idx_lang_post_type_page_url (wpml_lang, post_type, page_url(191)),
       KEY idx_lang_post_type_link (wpml_lang, post_type, link(191)),
       KEY idx_lang_post_type_link_domain (wpml_lang, post_type, link_domain),

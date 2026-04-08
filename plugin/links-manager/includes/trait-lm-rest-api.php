@@ -221,21 +221,161 @@ trait LM_REST_API_Trait {
     if ($currentStatus === 'finalizing') {
       try {
         if ($storageMode === 'indexed_stream') {
-          $finalizeLastPostId = max(0, (int)($state['finalize_last_post_id'] ?? 0));
-          $result = $this->rebuild_indexed_summary_chunk_for_lang($wpmlLang, $finalizeLastPostId, 100);
-          $state['finalize_last_post_id'] = max(0, (int)($result['last_post_id'] ?? $finalizeLastPostId));
-          $state['finalize_processed_posts'] = max(0, (int)($state['finalize_processed_posts'] ?? 0)) + max(0, (int)($result['processed_posts'] ?? 0));
-
-          if (empty($result['done'])) {
+          $backfillDone = !empty($state['normalized_backfill_done']);
+          if (!$backfillDone) {
+            $backfillLastId = max(0, (int)($state['normalized_backfill_last_id'] ?? 0));
+            $backfillChunkSize = $this->normalize_finalize_chunk_size((int)($state['normalized_backfill_chunk_size'] ?? $this->get_default_finalize_chunk_size()));
+            $backfillResult = $this->backfill_normalized_url_chunk_for_lang($wpmlLang, $backfillLastId, $backfillChunkSize);
+            $backfillStepMs = max(0, (int)($backfillResult['step_ms'] ?? 0));
+            $state['normalized_backfill_last_id'] = max(0, (int)($backfillResult['last_fact_id'] ?? $backfillLastId));
+            $state['normalized_backfill_processed'] = max(0, (int)($state['normalized_backfill_processed'] ?? 0)) + max(0, (int)($backfillResult['processed_rows'] ?? 0));
+            $state['normalized_backfill_step_ms'] = $backfillStepMs;
+            $state['normalized_backfill_chunk_size'] = $this->tune_finalize_chunk_size($backfillChunkSize, $backfillStepMs);
+            $state['normalized_backfill_done'] = !empty($backfillResult['done']);
             $state['status'] = 'finalizing';
-            $state['message'] = 'Refreshing cached summaries from the scanned rows...';
+            $state['message'] = !empty($state['normalized_backfill_done'])
+              ? 'Preparing normalized link data completed. Continuing summary refresh...'
+              : 'Preparing normalized link data...';
+            if (!empty($state['normalized_backfill_done']) && empty($state['finalize_stage'])) {
+              $state['finalize_stage'] = 'summary_seed';
+            }
           } else {
-            $this->clear_cache_payload($scopePostType, $wpmlLang);
-            update_option($this->cache_scan_option_key($scopePostType, $wpmlLang), gmdate('Y-m-d H:i:s'), false);
-            $this->bump_dataset_cache_version();
-            $state['status'] = 'done';
-            $state['message'] = '';
-            unset($state['finalize_last_post_id'], $state['finalize_processed_posts']);
+            $finalizeStage = sanitize_key((string)($state['finalize_stage'] ?? 'summary_seed'));
+            if ($finalizeStage === '') {
+              $finalizeStage = 'summary_seed';
+            }
+
+            if ($finalizeStage === 'summary_seed') {
+              $finalizeLastPostId = max(0, (int)($state['finalize_seed_last_post_id'] ?? 0));
+              $finalizeChunkSize = $this->get_finalize_stage_chunk_size_from_state($state, 'summary_seed');
+              $result = $this->build_indexed_summary_seed_chunk_for_lang($wpmlLang, $finalizeLastPostId, $finalizeChunkSize);
+              $finalizeStepMs = max(0, (int)($result['step_ms'] ?? 0));
+              $state['finalize_stage'] = 'summary_seed';
+              $state['finalize_seed_last_post_id'] = max(0, (int)($result['last_post_id'] ?? $finalizeLastPostId));
+              $state['finalize_seed_processed_posts'] = max(0, (int)($state['finalize_seed_processed_posts'] ?? 0)) + max(0, (int)($result['processed_posts'] ?? 0));
+              $state['finalize_seed_chunk_size'] = $this->tune_finalize_chunk_size($finalizeChunkSize, $finalizeStepMs);
+              $state['finalize_seed_step_ms'] = $finalizeStepMs;
+              $state['finalize_summary_rows'] = max(0, (int)($result['summary_rows'] ?? 0));
+              $state['finalize_last_summary_query_ms'] = max(0, (int)($result['summary_query_ms'] ?? 0));
+              $state['finalize_step_ms'] = $finalizeStepMs;
+              $state['finalize_processed_posts'] = max(0, (int)($state['finalize_seed_processed_posts'] ?? 0));
+              $state['finalize_chunk_size'] = max(0, (int)($state['finalize_seed_chunk_size'] ?? 0));
+              $shouldPauseFinalizing = (empty($result['done']) && $this->should_abort_finalize($crawlStartedAt));
+
+              $this->save_last_finalize_metrics([
+                'captured_at' => current_time('mysql'),
+                'scope_post_type' => (string)$scopePostType,
+                'wpml_lang' => (string)$wpmlLang,
+                'status' => 'finalizing',
+                'finalize_stage' => 'summary_seed',
+                'normalized_backfill_done' => !empty($state['normalized_backfill_done']),
+                'normalized_backfill_processed' => max(0, (int)($state['normalized_backfill_processed'] ?? 0)),
+                'normalized_backfill_step_ms' => max(0, (int)($state['normalized_backfill_step_ms'] ?? 0)),
+                'normalized_backfill_chunk_size' => max(0, (int)($state['normalized_backfill_chunk_size'] ?? 0)),
+                'finalize_processed_posts' => max(0, (int)($state['finalize_processed_posts'] ?? 0)),
+                'finalize_chunk_size' => max(0, (int)($state['finalize_chunk_size'] ?? 0)),
+                'finalize_step_ms' => max(0, (int)($state['finalize_step_ms'] ?? 0)),
+                'finalize_seed_processed_posts' => max(0, (int)($state['finalize_seed_processed_posts'] ?? 0)),
+                'finalize_seed_chunk_size' => max(0, (int)($state['finalize_seed_chunk_size'] ?? 0)),
+                'finalize_seed_step_ms' => max(0, (int)($state['finalize_seed_step_ms'] ?? 0)),
+                'finalize_inbound_processed_posts' => max(0, (int)($state['finalize_inbound_processed_posts'] ?? 0)),
+                'finalize_inbound_chunk_size' => max(0, (int)($state['finalize_inbound_chunk_size'] ?? 0)),
+                'finalize_inbound_step_ms' => max(0, (int)($state['finalize_inbound_step_ms'] ?? 0)),
+                'finalize_last_summary_query_ms' => max(0, (int)($state['finalize_last_summary_query_ms'] ?? 0)),
+                'finalize_last_inbound_query_ms' => max(0, (int)($state['finalize_last_inbound_query_ms'] ?? 0)),
+                'finalize_summary_rows' => max(0, (int)($state['finalize_summary_rows'] ?? 0)),
+                'finalize_inbound_rows' => max(0, (int)($state['finalize_inbound_rows'] ?? 0)),
+              ]);
+
+              if (empty($result['done'])) {
+                $state['status'] = 'finalizing';
+                $state['message'] = $shouldPauseFinalizing
+                  ? 'Refreshing cached summaries in smaller steps to avoid server timeouts...'
+                  : 'Refreshing cached summaries from scanned rows...';
+              } else {
+                $state['finalize_stage'] = 'inbound_finalize';
+                $state['message'] = 'Computing inbound summary from prepared rows...';
+              }
+            } else {
+              $finalizeLastPostId = max(0, (int)($state['finalize_inbound_last_post_id'] ?? 0));
+              $finalizeChunkSize = $this->get_finalize_stage_chunk_size_from_state($state, 'inbound_finalize');
+              $result = $this->finalize_indexed_summary_inbound_chunk_for_lang($wpmlLang, $finalizeLastPostId, $finalizeChunkSize);
+              $finalizeStepMs = max(0, (int)($result['step_ms'] ?? 0));
+              $state['finalize_stage'] = 'inbound_finalize';
+              $state['finalize_inbound_last_post_id'] = max(0, (int)($result['last_post_id'] ?? $finalizeLastPostId));
+              $state['finalize_inbound_processed_posts'] = max(0, (int)($state['finalize_inbound_processed_posts'] ?? 0)) + max(0, (int)($result['processed_posts'] ?? 0));
+              $state['finalize_inbound_chunk_size'] = $this->tune_finalize_chunk_size($finalizeChunkSize, $finalizeStepMs);
+              $state['finalize_inbound_step_ms'] = $finalizeStepMs;
+              $state['finalize_inbound_rows'] = max(0, (int)($result['inbound_rows'] ?? 0));
+              $state['finalize_last_inbound_query_ms'] = max(0, (int)($result['inbound_query_ms'] ?? 0));
+              $state['finalize_step_ms'] = $finalizeStepMs;
+              $state['finalize_processed_posts'] = max(0, (int)($state['finalize_inbound_processed_posts'] ?? 0));
+              $state['finalize_chunk_size'] = max(0, (int)($state['finalize_inbound_chunk_size'] ?? 0));
+              $shouldPauseFinalizing = (empty($result['done']) && $this->should_abort_finalize($crawlStartedAt));
+
+              $this->save_last_finalize_metrics([
+                'captured_at' => current_time('mysql'),
+                'scope_post_type' => (string)$scopePostType,
+                'wpml_lang' => (string)$wpmlLang,
+                'status' => 'finalizing',
+                'finalize_stage' => 'inbound_finalize',
+                'normalized_backfill_done' => !empty($state['normalized_backfill_done']),
+                'normalized_backfill_processed' => max(0, (int)($state['normalized_backfill_processed'] ?? 0)),
+                'normalized_backfill_step_ms' => max(0, (int)($state['normalized_backfill_step_ms'] ?? 0)),
+                'normalized_backfill_chunk_size' => max(0, (int)($state['normalized_backfill_chunk_size'] ?? 0)),
+                'finalize_processed_posts' => max(0, (int)($state['finalize_processed_posts'] ?? 0)),
+                'finalize_chunk_size' => max(0, (int)($state['finalize_chunk_size'] ?? 0)),
+                'finalize_step_ms' => max(0, (int)($state['finalize_step_ms'] ?? 0)),
+                'finalize_seed_processed_posts' => max(0, (int)($state['finalize_seed_processed_posts'] ?? 0)),
+                'finalize_seed_chunk_size' => max(0, (int)($state['finalize_seed_chunk_size'] ?? 0)),
+                'finalize_seed_step_ms' => max(0, (int)($state['finalize_seed_step_ms'] ?? 0)),
+                'finalize_inbound_processed_posts' => max(0, (int)($state['finalize_inbound_processed_posts'] ?? 0)),
+                'finalize_inbound_chunk_size' => max(0, (int)($state['finalize_inbound_chunk_size'] ?? 0)),
+                'finalize_inbound_step_ms' => max(0, (int)($state['finalize_inbound_step_ms'] ?? 0)),
+                'finalize_last_summary_query_ms' => max(0, (int)($state['finalize_last_summary_query_ms'] ?? 0)),
+                'finalize_last_inbound_query_ms' => max(0, (int)($state['finalize_last_inbound_query_ms'] ?? 0)),
+                'finalize_summary_rows' => max(0, (int)($state['finalize_summary_rows'] ?? 0)),
+                'finalize_inbound_rows' => max(0, (int)($state['finalize_inbound_rows'] ?? 0)),
+              ]);
+
+              if (empty($result['done'])) {
+                $state['status'] = 'finalizing';
+                $state['message'] = $shouldPauseFinalizing
+                  ? 'Computing inbound summary in smaller steps to avoid server timeouts...'
+                  : 'Computing inbound summary from prepared rows...';
+              } else {
+                $this->clear_cache_payload($scopePostType, $wpmlLang);
+                update_option($this->cache_scan_option_key($scopePostType, $wpmlLang), gmdate('Y-m-d H:i:s'), false);
+                $this->bump_dataset_cache_version();
+                $this->save_last_finalize_metrics([
+                  'captured_at' => current_time('mysql'),
+                  'scope_post_type' => (string)$scopePostType,
+                  'wpml_lang' => (string)$wpmlLang,
+                  'status' => 'done',
+                  'finalize_stage' => 'done',
+                  'normalized_backfill_done' => true,
+                  'normalized_backfill_processed' => max(0, (int)($state['normalized_backfill_processed'] ?? 0)),
+                  'normalized_backfill_step_ms' => max(0, (int)($state['normalized_backfill_step_ms'] ?? 0)),
+                  'normalized_backfill_chunk_size' => max(0, (int)($state['normalized_backfill_chunk_size'] ?? 0)),
+                  'finalize_processed_posts' => max(0, (int)($state['finalize_processed_posts'] ?? 0)),
+                  'finalize_chunk_size' => max(0, (int)($state['finalize_chunk_size'] ?? 0)),
+                  'finalize_step_ms' => max(0, (int)($state['finalize_step_ms'] ?? 0)),
+                  'finalize_seed_processed_posts' => max(0, (int)($state['finalize_seed_processed_posts'] ?? 0)),
+                  'finalize_seed_chunk_size' => max(0, (int)($state['finalize_seed_chunk_size'] ?? 0)),
+                  'finalize_seed_step_ms' => max(0, (int)($state['finalize_seed_step_ms'] ?? 0)),
+                  'finalize_inbound_processed_posts' => max(0, (int)($state['finalize_inbound_processed_posts'] ?? 0)),
+                  'finalize_inbound_chunk_size' => max(0, (int)($state['finalize_inbound_chunk_size'] ?? 0)),
+                  'finalize_inbound_step_ms' => max(0, (int)($state['finalize_inbound_step_ms'] ?? 0)),
+                  'finalize_last_summary_query_ms' => max(0, (int)($state['finalize_last_summary_query_ms'] ?? 0)),
+                  'finalize_last_inbound_query_ms' => max(0, (int)($state['finalize_last_inbound_query_ms'] ?? 0)),
+                  'finalize_summary_rows' => max(0, (int)($state['finalize_summary_rows'] ?? 0)),
+                  'finalize_inbound_rows' => max(0, (int)($state['finalize_inbound_rows'] ?? 0)),
+                ]);
+                $state['status'] = 'done';
+                $state['message'] = '';
+                unset($state['finalize_stage'], $state['finalize_last_post_id'], $state['finalize_processed_posts'], $state['finalize_chunk_size'], $state['finalize_step_ms'], $state['finalize_summary_rows'], $state['finalize_inbound_rows'], $state['finalize_seed_last_post_id'], $state['finalize_seed_processed_posts'], $state['finalize_seed_step_ms'], $state['finalize_seed_chunk_size'], $state['finalize_inbound_last_post_id'], $state['finalize_inbound_processed_posts'], $state['finalize_inbound_step_ms'], $state['finalize_inbound_chunk_size'], $state['finalize_last_summary_query_ms'], $state['finalize_last_inbound_query_ms'], $state['normalized_backfill_last_id'], $state['normalized_backfill_processed'], $state['normalized_backfill_step_ms'], $state['normalized_backfill_chunk_size'], $state['normalized_backfill_done']);
+              }
+            }
           }
         } else {
           $this->append_rows($allRows, $this->crawl_menus($enabledSources));
@@ -350,15 +490,35 @@ trait LM_REST_API_Trait {
         if (!$hitMaxPosts) {
           $this->clear_indexed_summary_for_lang($wpmlLang);
           $state['status'] = 'finalizing';
-          $state['message'] = 'Refreshing cached summaries from the scanned rows...';
+          $state['message'] = 'Preparing normalized link data...';
+          $state['normalized_backfill_last_id'] = 0;
+          $state['normalized_backfill_processed'] = 0;
+          $state['normalized_backfill_step_ms'] = 0;
+          $state['normalized_backfill_chunk_size'] = $this->get_default_finalize_chunk_size();
+          $state['normalized_backfill_done'] = false;
+          $state['finalize_stage'] = 'summary_seed';
           $state['finalize_last_post_id'] = 0;
           $state['finalize_processed_posts'] = 0;
+          $state['finalize_chunk_size'] = $this->get_default_finalize_chunk_size();
+          $state['finalize_step_ms'] = 0;
+          $state['finalize_summary_rows'] = 0;
+          $state['finalize_inbound_rows'] = 0;
+          $state['finalize_seed_last_post_id'] = 0;
+          $state['finalize_seed_processed_posts'] = 0;
+          $state['finalize_seed_step_ms'] = 0;
+          $state['finalize_seed_chunk_size'] = $this->get_default_finalize_seed_chunk_size();
+          $state['finalize_inbound_last_post_id'] = 0;
+          $state['finalize_inbound_processed_posts'] = 0;
+          $state['finalize_inbound_step_ms'] = 0;
+          $state['finalize_inbound_chunk_size'] = $this->get_default_finalize_inbound_chunk_size();
+          $state['finalize_last_summary_query_ms'] = 0;
+          $state['finalize_last_inbound_query_ms'] = 0;
         }
       } else {
         $this->append_rows($allRows, $this->crawl_menus($enabledSources));
         $state['status'] = 'finalizing';
         $state['message'] = 'Finalizing cached rows...';
-        unset($state['finalize_last_post_id'], $state['finalize_processed_posts']);
+        unset($state['finalize_stage'], $state['finalize_last_post_id'], $state['finalize_processed_posts'], $state['finalize_chunk_size'], $state['finalize_step_ms'], $state['finalize_summary_rows'], $state['finalize_inbound_rows'], $state['finalize_seed_last_post_id'], $state['finalize_seed_processed_posts'], $state['finalize_seed_step_ms'], $state['finalize_seed_chunk_size'], $state['finalize_inbound_last_post_id'], $state['finalize_inbound_processed_posts'], $state['finalize_inbound_step_ms'], $state['finalize_inbound_chunk_size'], $state['finalize_last_summary_query_ms'], $state['finalize_last_inbound_query_ms'], $state['normalized_backfill_last_id'], $state['normalized_backfill_processed'], $state['normalized_backfill_step_ms'], $state['normalized_backfill_chunk_size'], $state['normalized_backfill_done']);
       }
       if ($hitMaxPosts) {
         $state['status'] = 'partial';
@@ -366,7 +526,7 @@ trait LM_REST_API_Trait {
           'Refresh stopped at the configured post limit (%1$s posts) before all posts were scanned.',
           number_format_i18n($maxPosts)
         );
-        unset($state['finalize_last_post_id'], $state['finalize_processed_posts']);
+        unset($state['finalize_stage'], $state['finalize_last_post_id'], $state['finalize_processed_posts'], $state['finalize_chunk_size'], $state['finalize_step_ms'], $state['finalize_summary_rows'], $state['finalize_inbound_rows'], $state['finalize_seed_last_post_id'], $state['finalize_seed_processed_posts'], $state['finalize_seed_step_ms'], $state['finalize_seed_chunk_size'], $state['finalize_inbound_last_post_id'], $state['finalize_inbound_processed_posts'], $state['finalize_inbound_step_ms'], $state['finalize_inbound_chunk_size'], $state['finalize_last_summary_query_ms'], $state['finalize_last_inbound_query_ms'], $state['normalized_backfill_last_id'], $state['normalized_backfill_processed'], $state['normalized_backfill_step_ms'], $state['normalized_backfill_chunk_size'], $state['normalized_backfill_done']);
       }
     } else {
       if ($partialKey !== '') {

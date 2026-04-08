@@ -332,10 +332,15 @@ trait LM_Settings_Admin_Trait {
         $cacheAgeHours = (int)floor((time() - $lastScanTs) / HOUR_IN_SECONDS);
       }
     }
-    $readinessWpmlLang = 'all';
+    $readinessWpmlLang = $this->get_requested_view_wpml_lang((string)($this->get_wpml_admin_lang_url_args()['lang'] ?? 'all'));
     $readinessScopeLabel = __('all scopes / all languages', 'links-manager');
+    if ($this->is_wpml_active() && $readinessWpmlLang !== '' && $readinessWpmlLang !== 'all') {
+      $wpmlLanguagesMap = $this->get_wpml_languages_map();
+      $langLabel = isset($wpmlLanguagesMap[$readinessWpmlLang]) ? (string)$wpmlLanguagesMap[$readinessWpmlLang] : strtoupper($readinessWpmlLang);
+      $readinessScopeLabel = sprintf(__('all scopes / language: %s', 'links-manager'), $langLabel);
+    }
 
-    $indexedRowsCount = $this->get_indexed_fact_count('any', $readinessWpmlLang);
+    $indexedRowsCount = $this->get_indexed_fact_count_exact_scope('any', $readinessWpmlLang);
     $effectiveCacheRowsCount = $indexedRowsCount;
 
     $restRecommendation = __('Data looks ready. Manual refresh is optional.', 'links-manager');
@@ -364,7 +369,7 @@ trait LM_Settings_Admin_Trait {
 
     echo '<div style="' . esc_attr($settingsCardStyle) . '">';
     echo '<div style="font-weight:600; margin-bottom:6px;">' . esc_html__('Current Data Status', 'links-manager') . '</div>';
-    echo '<div class="lm-small" style="margin-bottom:6px;">' . esc_html(sprintf(__('Counts below summarize global data scope: %s.', 'links-manager'), $readinessScopeLabel)) . '</div>';
+    echo '<div class="lm-small" style="margin-bottom:6px;">' . esc_html(sprintf(__('Counts below summarize the current report scope: %s.', 'links-manager'), $readinessScopeLabel)) . '</div>';
     echo '<table class="widefat striped" style="margin-top:8px; max-width:760px;">';
     echo '<tbody>';
     echo '<tr><th style="width:260px;">' . esc_html__('Available report rows', 'links-manager') . '</th><td>' . esc_html(number_format($effectiveCacheRowsCount)) . '</td></tr>';
@@ -558,6 +563,8 @@ trait LM_Settings_Admin_Trait {
         echo '</ul>';
       }
       echo '</div>';
+
+      $this->render_settings_refresh_troubleshooting_box($troubleshootingRestState, $settingsCardStyle);
 
       echo '<div style="' . esc_attr($settingsCardStyle) . '">';
       echo '<div style="font-weight:600; margin-bottom:6px;">' . esc_html__('Debug mode', 'links-manager') . '</div>';
@@ -774,6 +781,153 @@ trait LM_Settings_Admin_Trait {
     echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
     submit_button(__('Clear Diagnostic', 'links-manager'), 'secondary', 'submit', false);
     echo '</form>';
+    echo '</div>';
+  }
+
+  private function render_settings_refresh_troubleshooting_box($state, $cardStyle) {
+    $state = is_array($state) ? $state : [];
+    $status = isset($state['status']) ? sanitize_key((string)$state['status']) : 'idle';
+    if ($status === '') {
+      $status = 'idle';
+    }
+
+    $scopePostType = sanitize_key((string)($state['scope_post_type'] ?? 'any'));
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $wpmlLang = sanitize_key((string)($state['wpml_lang'] ?? 'all'));
+    if ($wpmlLang === '') {
+      $wpmlLang = 'all';
+    }
+
+    $message = sanitize_text_field((string)($state['message'] ?? ''));
+    $storageMode = sanitize_key((string)($state['storage_mode'] ?? ''));
+    if ($storageMode === '') {
+      $storageMode = 'indexed_stream';
+    }
+    $processedPosts = max(0, (int)($state['processed_posts'] ?? 0));
+    $totalPosts = max(0, (int)($state['total_posts'] ?? 0));
+    $rowsCount = max(0, (int)($state['rows_count'] ?? 0));
+    $batchSize = max(0, (int)($state['batch_size'] ?? 0));
+    $crawlStepMs = max(0, (int)($state['step_ms'] ?? 0));
+    $updatedAt = (string)($state['updated_at'] ?? '');
+    if ($updatedAt === '') {
+      $updatedAt = '—';
+    }
+
+    $normalizedHealth = $this->get_indexed_normalized_url_health('all');
+    $normalizedSchemaReady = !empty($normalizedHealth['schema_ready']);
+    $normalizedMissingRows = max(0, (int)($normalizedHealth['rows_missing_normalized'] ?? 0));
+    $normalizedTotalRows = max(0, (int)($normalizedHealth['rows_total'] ?? 0));
+    $lastFinalizeMetrics = $this->get_last_finalize_metrics();
+
+    $normalizedBackfillDone = !empty($state['normalized_backfill_done']);
+    $normalizedBackfillProcessed = max(0, (int)($state['normalized_backfill_processed'] ?? 0));
+    $normalizedBackfillLastId = max(0, (int)($state['normalized_backfill_last_id'] ?? 0));
+    $normalizedBackfillStepMs = max(0, (int)($state['normalized_backfill_step_ms'] ?? 0));
+    $normalizedBackfillChunkSize = max(0, (int)($state['normalized_backfill_chunk_size'] ?? 0));
+    $finalizeStage = sanitize_key((string)($state['finalize_stage'] ?? ''));
+
+    $finalizeProcessedPosts = max(0, (int)($state['finalize_processed_posts'] ?? 0));
+    $finalizeChunkSize = max(0, (int)($state['finalize_chunk_size'] ?? 0));
+    $finalizeStepMs = max(0, (int)($state['finalize_step_ms'] ?? 0));
+    $finalizeSummaryRows = max(0, (int)($state['finalize_summary_rows'] ?? 0));
+    $finalizeInboundRows = max(0, (int)($state['finalize_inbound_rows'] ?? 0));
+    $finalizeSeedProcessedPosts = max(0, (int)($state['finalize_seed_processed_posts'] ?? 0));
+    $finalizeSeedStepMs = max(0, (int)($state['finalize_seed_step_ms'] ?? 0));
+    $finalizeSeedChunkSize = max(0, (int)($state['finalize_seed_chunk_size'] ?? 0));
+    $finalizeInboundProcessedPosts = max(0, (int)($state['finalize_inbound_processed_posts'] ?? 0));
+    $finalizeInboundStepMs = max(0, (int)($state['finalize_inbound_step_ms'] ?? 0));
+    $finalizeInboundChunkSize = max(0, (int)($state['finalize_inbound_chunk_size'] ?? 0));
+    $finalizeLastSummaryQueryMs = max(0, (int)($state['finalize_last_summary_query_ms'] ?? 0));
+    $finalizeLastInboundQueryMs = max(0, (int)($state['finalize_last_inbound_query_ms'] ?? 0));
+
+    $hasLiveFinalizeMetrics = ($finalizeProcessedPosts > 0 || $finalizeStepMs > 0 || $finalizeSummaryRows > 0 || $finalizeInboundRows > 0 || $finalizeSeedProcessedPosts > 0 || $finalizeInboundProcessedPosts > 0 || $normalizedBackfillProcessed > 0 || $normalizedBackfillStepMs > 0);
+    if (!$hasLiveFinalizeMetrics && is_array($lastFinalizeMetrics) && !empty($lastFinalizeMetrics)) {
+      $normalizedBackfillDone = !empty($lastFinalizeMetrics['normalized_backfill_done']);
+      $normalizedBackfillProcessed = max(0, (int)($lastFinalizeMetrics['normalized_backfill_processed'] ?? 0));
+      $normalizedBackfillStepMs = max(0, (int)($lastFinalizeMetrics['normalized_backfill_step_ms'] ?? 0));
+      $normalizedBackfillChunkSize = max(0, (int)($lastFinalizeMetrics['normalized_backfill_chunk_size'] ?? 0));
+      $finalizeStage = sanitize_key((string)($lastFinalizeMetrics['finalize_stage'] ?? ''));
+      $finalizeProcessedPosts = max(0, (int)($lastFinalizeMetrics['finalize_processed_posts'] ?? 0));
+      $finalizeChunkSize = max(0, (int)($lastFinalizeMetrics['finalize_chunk_size'] ?? 0));
+      $finalizeStepMs = max(0, (int)($lastFinalizeMetrics['finalize_step_ms'] ?? 0));
+      $finalizeSummaryRows = max(0, (int)($lastFinalizeMetrics['finalize_summary_rows'] ?? 0));
+      $finalizeInboundRows = max(0, (int)($lastFinalizeMetrics['finalize_inbound_rows'] ?? 0));
+      $finalizeSeedProcessedPosts = max(0, (int)($lastFinalizeMetrics['finalize_seed_processed_posts'] ?? 0));
+      $finalizeSeedStepMs = max(0, (int)($lastFinalizeMetrics['finalize_seed_step_ms'] ?? 0));
+      $finalizeSeedChunkSize = max(0, (int)($lastFinalizeMetrics['finalize_seed_chunk_size'] ?? 0));
+      $finalizeInboundProcessedPosts = max(0, (int)($lastFinalizeMetrics['finalize_inbound_processed_posts'] ?? 0));
+      $finalizeInboundStepMs = max(0, (int)($lastFinalizeMetrics['finalize_inbound_step_ms'] ?? 0));
+      $finalizeInboundChunkSize = max(0, (int)($lastFinalizeMetrics['finalize_inbound_chunk_size'] ?? 0));
+      $finalizeLastSummaryQueryMs = max(0, (int)($lastFinalizeMetrics['finalize_last_summary_query_ms'] ?? 0));
+      $finalizeLastInboundQueryMs = max(0, (int)($lastFinalizeMetrics['finalize_last_inbound_query_ms'] ?? 0));
+    }
+
+    $scopeLabel = $scopePostType . ' / ' . $wpmlLang;
+    $phaseLabel = $message !== '' ? $message : __('No active refresh phase.', 'links-manager');
+    $normalizedCoverage = '—';
+    if ($normalizedSchemaReady) {
+      $normalizedReadyRows = max(0, $normalizedTotalRows - $normalizedMissingRows);
+      $normalizedCoverage = number_format($normalizedReadyRows) . ' / ' . number_format($normalizedTotalRows);
+    }
+    if ($status === 'done' && $normalizedSchemaReady && $normalizedMissingRows === 0) {
+      $normalizedBackfillDone = true;
+    }
+    $lastFinalizeCapturedAt = is_array($lastFinalizeMetrics) ? (string)($lastFinalizeMetrics['captured_at'] ?? '') : '';
+    if ($lastFinalizeCapturedAt === '') {
+      $lastFinalizeCapturedAt = '—';
+    }
+    $finalizeStageLabel = $finalizeStage !== '' ? $finalizeStage : __('Not active', 'links-manager');
+    if ($status === 'done') {
+      $finalizeSummaryScopePostType = $scopePostType;
+      $finalizeSummaryScopeWpmlLang = $wpmlLang;
+      if (is_array($lastFinalizeMetrics) && !empty($lastFinalizeMetrics)) {
+        $snapshotScopePostType = sanitize_key((string)($lastFinalizeMetrics['scope_post_type'] ?? $finalizeSummaryScopePostType));
+        $snapshotScopeWpmlLang = sanitize_key((string)($lastFinalizeMetrics['wpml_lang'] ?? $finalizeSummaryScopeWpmlLang));
+        if ($snapshotScopePostType !== '') {
+          $finalizeSummaryScopePostType = $snapshotScopePostType;
+        }
+        if ($snapshotScopeWpmlLang !== '') {
+          $finalizeSummaryScopeWpmlLang = $snapshotScopeWpmlLang;
+        }
+      }
+      $finalizeProcessedPosts = $this->get_indexed_summary_count_exact_scope($finalizeSummaryScopePostType, $finalizeSummaryScopeWpmlLang);
+    }
+
+    echo '<div style="' . esc_attr($cardStyle) . '">';
+    echo '<div style="font-weight:600; margin-bottom:6px;">' . esc_html__('Refresh Diagnostics', 'links-manager') . '</div>';
+    echo '<div class="lm-small" style="margin-bottom:8px;">' . esc_html__('Use these values to identify where Refresh Data spends time: crawl phase, normalized URL preparation, or summary finalizing.', 'links-manager') . '</div>';
+    echo '<table class="widefat striped" style="margin-top:8px; max-width:900px;">';
+    echo '<tbody>';
+    echo '<tr><th style="width:280px;">' . esc_html__('Job status', 'links-manager') . '</th><td>' . esc_html($status) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Current phase', 'links-manager') . '</th><td>' . esc_html($phaseLabel) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Active refresh scope', 'links-manager') . '</th><td>' . esc_html($scopeLabel) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Storage mode', 'links-manager') . '</th><td>' . esc_html($storageMode) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Crawl progress', 'links-manager') . '</th><td>' . esc_html(number_format($processedPosts)) . ' / ' . esc_html(number_format($totalPosts)) . ' posts</td></tr>';
+    echo '<tr><th>' . esc_html__('Indexed rows seen by refresh', 'links-manager') . '</th><td>' . esc_html(number_format($rowsCount)) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Current crawl batch', 'links-manager') . '</th><td>' . esc_html($batchSize > 0 ? number_format($batchSize) : 'auto') . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Last crawl step time', 'links-manager') . '</th><td>' . esc_html(number_format($crawlStepMs)) . ' ms</td></tr>';
+    echo '<tr><th>' . esc_html__('Last job update', 'links-manager') . '</th><td>' . esc_html($updatedAt) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Normalized URL schema', 'links-manager') . '</th><td>' . esc_html($normalizedSchemaReady ? __('Ready', 'links-manager') : __('Not ready', 'links-manager')) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Normalized URL coverage', 'links-manager') . '</th><td>' . esc_html($normalizedCoverage) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Rows still missing normalized data', 'links-manager') . '</th><td>' . esc_html(number_format($normalizedMissingRows)) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Normalized backfill status', 'links-manager') . '</th><td>' . esc_html($normalizedBackfillDone ? __('Done', 'links-manager') : __('Pending or running', 'links-manager')) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Normalized backfill progress', 'links-manager') . '</th><td>' . esc_html(number_format($normalizedBackfillProcessed)) . ' rows | last fact ID ' . esc_html(number_format($normalizedBackfillLastId)) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Normalized backfill step', 'links-manager') . '</th><td>' . esc_html(number_format($normalizedBackfillStepMs)) . ' ms | chunk ' . esc_html($normalizedBackfillChunkSize > 0 ? number_format($normalizedBackfillChunkSize) : 'auto') . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Active finalizing stage', 'links-manager') . '</th><td>' . esc_html($finalizeStageLabel) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Finalizing overall progress', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeProcessedPosts)) . ' posts processed</td></tr>';
+    echo '<tr><th>' . esc_html__('Summary seed progress', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeSeedProcessedPosts)) . ' posts | ' . esc_html(number_format($finalizeSeedStepMs)) . ' ms | chunk ' . esc_html($finalizeSeedChunkSize > 0 ? number_format($finalizeSeedChunkSize) : 'auto') . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Inbound finalize progress', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeInboundProcessedPosts)) . ' posts | ' . esc_html(number_format($finalizeInboundStepMs)) . ' ms | chunk ' . esc_html($finalizeInboundChunkSize > 0 ? number_format($finalizeInboundChunkSize) : 'auto') . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Finalizing last step', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeStepMs)) . ' ms | chunk ' . esc_html($finalizeChunkSize > 0 ? number_format($finalizeChunkSize) : 'auto') . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Last summary query time', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeLastSummaryQueryMs)) . ' ms</td></tr>';
+    echo '<tr><th>' . esc_html__('Last inbound query time', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeLastInboundQueryMs)) . ' ms</td></tr>';
+    echo '<tr><th>' . esc_html__('Summary rows written in last step', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeSummaryRows)) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Inbound rows computed in last step', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeInboundRows)) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Last finalizing snapshot', 'links-manager') . '</th><td>' . esc_html($lastFinalizeCapturedAt) . '</td></tr>';
+    echo '</tbody>';
+    echo '</table>';
+    echo '<div class="lm-small" style="margin-top:8px;">' . esc_html__('Optimization hints: if normalized missing rows stays high, the bottleneck is backfill. If backfill is done but finalizing step time remains high, the inbound summary query still needs tuning.', 'links-manager') . '</div>';
     echo '</div>';
   }
 

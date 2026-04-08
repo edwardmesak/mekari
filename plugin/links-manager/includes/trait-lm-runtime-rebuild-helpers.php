@@ -67,9 +67,24 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
     return $budget;
   }
 
-  private function should_abort_crawl($startedAt) {
+  private function get_finalize_time_budget_seconds() {
+    $budget = $this->get_crawl_time_budget_seconds();
+    if ($budget > 15) {
+      $budget = 15;
+    }
+    if ($budget < 5) {
+      $budget = 5;
+    }
+    return $budget;
+  }
+
+  private function should_abort_rebuild_phase($startedAt, $phase = 'crawl') {
     $elapsed = microtime(true) - (float)$startedAt;
-    if ($elapsed >= $this->get_crawl_time_budget_seconds()) {
+    $budget = ($phase === 'finalize')
+      ? $this->get_finalize_time_budget_seconds()
+      : $this->get_crawl_time_budget_seconds();
+
+    if ($elapsed >= $budget) {
       return true;
     }
 
@@ -84,12 +99,102 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
     return false;
   }
 
+  private function should_abort_crawl($startedAt) {
+    return $this->should_abort_rebuild_phase($startedAt, 'crawl');
+  }
+
+  private function should_abort_finalize($startedAt) {
+    return $this->should_abort_rebuild_phase($startedAt, 'finalize');
+  }
+
+  private function get_default_finalize_chunk_size() {
+    $runtimeBatch = $this->get_runtime_max_crawl_batch();
+    if ($runtimeBatch <= 40) {
+      return 15;
+    }
+    if ($runtimeBatch <= 60) {
+      return 20;
+    }
+    if ($runtimeBatch <= 100) {
+      return 25;
+    }
+    return 40;
+  }
+
+  private function get_default_finalize_seed_chunk_size() {
+    return $this->normalize_finalize_chunk_size(max(25, (int)floor($this->get_default_finalize_chunk_size() * 2)));
+  }
+
+  private function get_default_finalize_inbound_chunk_size() {
+    return $this->normalize_finalize_chunk_size($this->get_default_finalize_chunk_size());
+  }
+
+  private function normalize_finalize_chunk_size($size) {
+    $size = (int)$size;
+    if ($size < 10) {
+      $size = 10;
+    }
+    if ($size > 100) {
+      $size = 100;
+    }
+    return $size;
+  }
+
+  private function get_finalize_chunk_size_from_state($state) {
+    $saved = is_array($state) ? (int)($state['finalize_chunk_size'] ?? 0) : 0;
+    if ($saved > 0) {
+      return $this->normalize_finalize_chunk_size($saved);
+    }
+    return $this->normalize_finalize_chunk_size($this->get_default_finalize_chunk_size());
+  }
+
+  private function get_finalize_stage_chunk_size_from_state($state, $stage) {
+    $state = is_array($state) ? $state : [];
+    $stage = sanitize_key((string)$stage);
+    if ($stage === 'summary_seed') {
+      $saved = (int)($state['finalize_seed_chunk_size'] ?? 0);
+      if ($saved > 0) {
+        return $this->normalize_finalize_chunk_size($saved);
+      }
+      return $this->get_default_finalize_seed_chunk_size();
+    }
+
+    if ($stage === 'inbound_finalize') {
+      $saved = (int)($state['finalize_inbound_chunk_size'] ?? 0);
+      if ($saved > 0) {
+        return $this->normalize_finalize_chunk_size($saved);
+      }
+      return $this->get_default_finalize_inbound_chunk_size();
+    }
+
+    return $this->get_finalize_chunk_size_from_state($state);
+  }
+
+  private function tune_finalize_chunk_size($currentSize, $stepMs) {
+    $currentSize = $this->normalize_finalize_chunk_size($currentSize);
+    $stepMs = max(0, (int)$stepMs);
+    $budgetMs = $this->get_finalize_time_budget_seconds() * 1000;
+
+    if ($stepMs >= (int)floor($budgetMs * 0.7)) {
+      return $this->normalize_finalize_chunk_size((int)floor($currentSize / 2));
+    }
+    if ($stepMs > 0 && $stepMs <= (int)floor($budgetMs * 0.25)) {
+      return $this->normalize_finalize_chunk_size($currentSize + 10);
+    }
+
+    return $currentSize;
+  }
+
   private function rebuild_job_state_option_key() {
     return 'lm_rebuild_job_state_' . get_current_blog_id();
   }
 
   private function rebuild_job_partial_rows_key($scopePostType, $wpmlLang) {
     return 'lm_rebuild_partial_' . md5((string)$scopePostType . '|' . (string)$wpmlLang . '|' . get_current_blog_id());
+  }
+
+  private function rebuild_last_finalize_metrics_option_key() {
+    return 'lm_rebuild_last_finalize_metrics_' . get_current_blog_id();
   }
 
   private function get_rebuild_job_state() {
@@ -110,6 +215,18 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
       delete_transient($this->rebuild_job_partial_rows_key((string)$state['scope_post_type'], (string)$state['wpml_lang']));
     }
     delete_option($this->rebuild_job_state_option_key());
+  }
+
+  private function get_last_finalize_metrics() {
+    $metrics = get_option($this->rebuild_last_finalize_metrics_option_key(), []);
+    return is_array($metrics) ? $metrics : [];
+  }
+
+  private function save_last_finalize_metrics($metrics) {
+    if (!is_array($metrics)) {
+      $metrics = [];
+    }
+    update_option($this->rebuild_last_finalize_metrics_option_key(), $metrics, false);
   }
 
   private function rebuild_job_lock_key() {
@@ -234,6 +351,22 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
       'updated_at' => (string)($state['updated_at'] ?? ''),
       'batch_size' => max(0, (int)($state['batch_size'] ?? 0)),
       'step_ms' => max(0, (int)($state['step_ms'] ?? 0)),
+      'normalized_backfill_last_id' => max(0, (int)($state['normalized_backfill_last_id'] ?? 0)),
+      'normalized_backfill_processed' => max(0, (int)($state['normalized_backfill_processed'] ?? 0)),
+      'normalized_backfill_step_ms' => max(0, (int)($state['normalized_backfill_step_ms'] ?? 0)),
+      'normalized_backfill_chunk_size' => max(0, (int)($state['normalized_backfill_chunk_size'] ?? 0)),
+      'normalized_backfill_done' => !empty($state['normalized_backfill_done']),
+      'finalize_stage' => sanitize_key((string)($state['finalize_stage'] ?? '')),
+      'finalize_seed_last_post_id' => max(0, (int)($state['finalize_seed_last_post_id'] ?? 0)),
+      'finalize_seed_processed_posts' => max(0, (int)($state['finalize_seed_processed_posts'] ?? 0)),
+      'finalize_seed_step_ms' => max(0, (int)($state['finalize_seed_step_ms'] ?? 0)),
+      'finalize_seed_chunk_size' => max(0, (int)($state['finalize_seed_chunk_size'] ?? 0)),
+      'finalize_inbound_last_post_id' => max(0, (int)($state['finalize_inbound_last_post_id'] ?? 0)),
+      'finalize_inbound_processed_posts' => max(0, (int)($state['finalize_inbound_processed_posts'] ?? 0)),
+      'finalize_inbound_step_ms' => max(0, (int)($state['finalize_inbound_step_ms'] ?? 0)),
+      'finalize_inbound_chunk_size' => max(0, (int)($state['finalize_inbound_chunk_size'] ?? 0)),
+      'finalize_last_summary_query_ms' => max(0, (int)($state['finalize_last_summary_query_ms'] ?? 0)),
+      'finalize_last_inbound_query_ms' => max(0, (int)($state['finalize_last_inbound_query_ms'] ?? 0)),
       'last_error' => sanitize_text_field((string)($state['last_error'] ?? '')),
       'message' => sanitize_text_field((string)($state['message'] ?? '')),
       'poll_ms' => max(0, (int)$this->get_rebuild_poll_ms($state)),

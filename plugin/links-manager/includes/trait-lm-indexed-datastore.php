@@ -17,6 +17,63 @@ trait LM_Indexed_Datastore_Trait {
     return (bool)$hasColumn;
   }
 
+  private function indexed_fact_has_normalized_url_columns() {
+    static $hasColumns = null;
+    if ($hasColumns !== null) {
+      return (bool)$hasColumns;
+    }
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'lm_link_fact';
+    $normalizedPageColumn = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM $table LIKE %s", 'normalized_page_url'));
+    $normalizedLinkColumn = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM $table LIKE %s", 'normalized_link'));
+    $hasColumns = (!empty($normalizedPageColumn) && !empty($normalizedLinkColumn));
+    return (bool)$hasColumns;
+  }
+
+  private function get_indexed_normalized_url_health($wpmlLang = 'all') {
+    $health = [
+      'schema_ready' => false,
+      'rows_total' => 0,
+      'rows_missing_normalized' => 0,
+    ];
+
+    if (!$this->is_indexed_datastore_ready() || !$this->indexed_fact_has_normalized_url_columns()) {
+      return $health;
+    }
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'lm_link_fact';
+    $wpmlLang = sanitize_key((string)$wpmlLang);
+    if ($wpmlLang === '') {
+      $wpmlLang = 'all';
+    }
+
+    $whereSql = '';
+    $params = [];
+    if ($wpmlLang !== 'all') {
+      $whereSql = ' WHERE wpml_lang = %s';
+      $params[] = $wpmlLang;
+    }
+
+    $totalSql = "SELECT COUNT(*) FROM $table" . $whereSql;
+    if (!empty($params)) {
+      $totalSql = $wpdb->prepare($totalSql, $params);
+    }
+    $health['rows_total'] = max(0, (int)$wpdb->get_var($totalSql));
+
+    $missingSql = "SELECT COUNT(*) FROM $table" . $whereSql;
+    $missingSql .= ($whereSql === '' ? ' WHERE ' : ' AND ');
+    $missingSql .= "(normalized_page_url = '' OR normalized_link = '')";
+    if (!empty($params)) {
+      $missingSql = $wpdb->prepare($missingSql, $params);
+    }
+    $health['rows_missing_normalized'] = max(0, (int)$wpdb->get_var($missingSql));
+    $health['schema_ready'] = true;
+
+    return $health;
+  }
+
   private function get_indexed_link_domain_sql_expression() {
     $fallbackExpr = "LOWER(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(link, 'https://', ''), 'http://', ''), '/', 1), '?', 1), ':', 1))";
     if ($this->indexed_fact_has_link_domain_column()) {
@@ -355,7 +412,60 @@ trait LM_Indexed_Datastore_Trait {
     return $out;
   }
 
+  private function get_indexed_summary_count_exact_scope($scopePostType = 'any', $wpmlLang = 'all') {
+    global $wpdb;
+
+    if (!$this->is_indexed_datastore_ready()) {
+      return 0;
+    }
+
+    $table = $wpdb->prefix . 'lm_link_post_summary';
+    $scopePostType = sanitize_key((string)$scopePostType);
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $wpmlLang = sanitize_key((string)$wpmlLang);
+    if ($wpmlLang === '') {
+      $wpmlLang = 'all';
+    }
+
+    $whereParts = ['wpml_lang = %s'];
+    $params = [$wpmlLang];
+    if ($scopePostType !== 'any') {
+      $whereParts[] = 'post_type = %s';
+      $params[] = $scopePostType;
+    }
+
+    $sql = "SELECT COUNT(*) FROM $table WHERE " . implode(' AND ', $whereParts);
+    return max(0, (int)$wpdb->get_var($wpdb->prepare($sql, $params)));
+  }
+
   private function get_indexed_fact_count($scopePostType = 'any', $wpmlLang = 'all') {
+    global $wpdb;
+
+    if (!$this->is_indexed_datastore_ready()) {
+      return 0;
+    }
+
+    $table = $wpdb->prefix . 'lm_link_fact';
+    $scopePostType = sanitize_key((string)$scopePostType);
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
+
+    $whereParts = ['wpml_lang = %s'];
+    $params = [$wpmlLang];
+    if ($scopePostType !== 'any') {
+      $whereParts[] = 'post_type = %s';
+      $params[] = $scopePostType;
+    }
+
+    $sql = "SELECT COUNT(*) FROM $table WHERE " . implode(' AND ', $whereParts);
+    return max(0, (int)$wpdb->get_var($wpdb->prepare($sql, $params)));
+  }
+
+  private function get_indexed_fact_count_exact_scope($scopePostType = 'any', $wpmlLang = 'all') {
     global $wpdb;
 
     if (!$this->is_indexed_datastore_ready()) {
