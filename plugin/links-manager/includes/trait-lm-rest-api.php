@@ -285,6 +285,7 @@ trait LM_REST_API_Trait {
                 'finalize_last_inbound_query_ms' => max(0, (int)($state['finalize_last_inbound_query_ms'] ?? 0)),
                 'finalize_summary_rows' => max(0, (int)($state['finalize_summary_rows'] ?? 0)),
                 'finalize_inbound_rows' => max(0, (int)($state['finalize_inbound_rows'] ?? 0)),
+                'finalize_target_only_rows_added' => max(0, (int)($state['finalize_target_only_rows_added'] ?? 0)),
               ]);
 
               if (empty($result['done'])) {
@@ -307,6 +308,7 @@ trait LM_REST_API_Trait {
               $state['finalize_inbound_chunk_size'] = $this->tune_finalize_chunk_size($finalizeChunkSize, $finalizeStepMs);
               $state['finalize_inbound_step_ms'] = $finalizeStepMs;
               $state['finalize_inbound_rows'] = max(0, (int)($result['inbound_rows'] ?? 0));
+              $state['finalize_target_only_rows_added'] = max(0, (int)($state['finalize_target_only_rows_added'] ?? 0)) + max(0, (int)($result['target_only_summary_rows'] ?? 0));
               $state['finalize_last_inbound_query_ms'] = max(0, (int)($result['inbound_query_ms'] ?? 0));
               $state['finalize_step_ms'] = $finalizeStepMs;
               $state['finalize_processed_posts'] = max(0, (int)($state['finalize_inbound_processed_posts'] ?? 0));
@@ -336,6 +338,7 @@ trait LM_REST_API_Trait {
                 'finalize_last_inbound_query_ms' => max(0, (int)($state['finalize_last_inbound_query_ms'] ?? 0)),
                 'finalize_summary_rows' => max(0, (int)($state['finalize_summary_rows'] ?? 0)),
                 'finalize_inbound_rows' => max(0, (int)($state['finalize_inbound_rows'] ?? 0)),
+                'finalize_target_only_rows_added' => max(0, (int)($state['finalize_target_only_rows_added'] ?? 0)),
               ]);
 
               if (empty($result['done'])) {
@@ -370,10 +373,11 @@ trait LM_REST_API_Trait {
                   'finalize_last_inbound_query_ms' => max(0, (int)($state['finalize_last_inbound_query_ms'] ?? 0)),
                   'finalize_summary_rows' => max(0, (int)($state['finalize_summary_rows'] ?? 0)),
                   'finalize_inbound_rows' => max(0, (int)($state['finalize_inbound_rows'] ?? 0)),
+                  'finalize_target_only_rows_added' => max(0, (int)($state['finalize_target_only_rows_added'] ?? 0)),
                 ]);
                 $state['status'] = 'done';
                 $state['message'] = '';
-                unset($state['finalize_stage'], $state['finalize_last_post_id'], $state['finalize_processed_posts'], $state['finalize_chunk_size'], $state['finalize_step_ms'], $state['finalize_summary_rows'], $state['finalize_inbound_rows'], $state['finalize_seed_last_post_id'], $state['finalize_seed_processed_posts'], $state['finalize_seed_step_ms'], $state['finalize_seed_chunk_size'], $state['finalize_inbound_last_post_id'], $state['finalize_inbound_processed_posts'], $state['finalize_inbound_step_ms'], $state['finalize_inbound_chunk_size'], $state['finalize_last_summary_query_ms'], $state['finalize_last_inbound_query_ms'], $state['normalized_backfill_last_id'], $state['normalized_backfill_processed'], $state['normalized_backfill_step_ms'], $state['normalized_backfill_chunk_size'], $state['normalized_backfill_done']);
+                unset($state['finalize_stage'], $state['finalize_last_post_id'], $state['finalize_processed_posts'], $state['finalize_chunk_size'], $state['finalize_step_ms'], $state['finalize_summary_rows'], $state['finalize_inbound_rows'], $state['finalize_target_only_rows_added'], $state['finalize_seed_last_post_id'], $state['finalize_seed_processed_posts'], $state['finalize_seed_step_ms'], $state['finalize_seed_chunk_size'], $state['finalize_inbound_last_post_id'], $state['finalize_inbound_processed_posts'], $state['finalize_inbound_step_ms'], $state['finalize_inbound_chunk_size'], $state['finalize_last_summary_query_ms'], $state['finalize_last_inbound_query_ms'], $state['normalized_backfill_last_id'], $state['normalized_backfill_processed'], $state['normalized_backfill_step_ms'], $state['normalized_backfill_chunk_size'], $state['normalized_backfill_done']);
               }
             }
           }
@@ -513,12 +517,13 @@ trait LM_REST_API_Trait {
           $state['finalize_inbound_chunk_size'] = $this->get_default_finalize_inbound_chunk_size();
           $state['finalize_last_summary_query_ms'] = 0;
           $state['finalize_last_inbound_query_ms'] = 0;
+          $state['finalize_target_only_rows_added'] = 0;
         }
       } else {
         $this->append_rows($allRows, $this->crawl_menus($enabledSources));
         $state['status'] = 'finalizing';
         $state['message'] = 'Finalizing cached rows...';
-        unset($state['finalize_stage'], $state['finalize_last_post_id'], $state['finalize_processed_posts'], $state['finalize_chunk_size'], $state['finalize_step_ms'], $state['finalize_summary_rows'], $state['finalize_inbound_rows'], $state['finalize_seed_last_post_id'], $state['finalize_seed_processed_posts'], $state['finalize_seed_step_ms'], $state['finalize_seed_chunk_size'], $state['finalize_inbound_last_post_id'], $state['finalize_inbound_processed_posts'], $state['finalize_inbound_step_ms'], $state['finalize_inbound_chunk_size'], $state['finalize_last_summary_query_ms'], $state['finalize_last_inbound_query_ms'], $state['normalized_backfill_last_id'], $state['normalized_backfill_processed'], $state['normalized_backfill_step_ms'], $state['normalized_backfill_chunk_size'], $state['normalized_backfill_done']);
+        unset($state['finalize_stage'], $state['finalize_last_post_id'], $state['finalize_processed_posts'], $state['finalize_chunk_size'], $state['finalize_step_ms'], $state['finalize_summary_rows'], $state['finalize_inbound_rows'], $state['finalize_target_only_rows_added'], $state['finalize_seed_last_post_id'], $state['finalize_seed_processed_posts'], $state['finalize_seed_step_ms'], $state['finalize_seed_chunk_size'], $state['finalize_inbound_last_post_id'], $state['finalize_inbound_processed_posts'], $state['finalize_inbound_step_ms'], $state['finalize_inbound_chunk_size'], $state['finalize_last_summary_query_ms'], $state['finalize_last_inbound_query_ms'], $state['normalized_backfill_last_id'], $state['normalized_backfill_processed'], $state['normalized_backfill_step_ms'], $state['normalized_backfill_chunk_size'], $state['normalized_backfill_done']);
       }
       if ($hitMaxPosts) {
         $state['status'] = 'partial';
@@ -526,7 +531,7 @@ trait LM_REST_API_Trait {
           'Refresh stopped at the configured post limit (%1$s posts) before all posts were scanned.',
           number_format_i18n($maxPosts)
         );
-        unset($state['finalize_stage'], $state['finalize_last_post_id'], $state['finalize_processed_posts'], $state['finalize_chunk_size'], $state['finalize_step_ms'], $state['finalize_summary_rows'], $state['finalize_inbound_rows'], $state['finalize_seed_last_post_id'], $state['finalize_seed_processed_posts'], $state['finalize_seed_step_ms'], $state['finalize_seed_chunk_size'], $state['finalize_inbound_last_post_id'], $state['finalize_inbound_processed_posts'], $state['finalize_inbound_step_ms'], $state['finalize_inbound_chunk_size'], $state['finalize_last_summary_query_ms'], $state['finalize_last_inbound_query_ms'], $state['normalized_backfill_last_id'], $state['normalized_backfill_processed'], $state['normalized_backfill_step_ms'], $state['normalized_backfill_chunk_size'], $state['normalized_backfill_done']);
+        unset($state['finalize_stage'], $state['finalize_last_post_id'], $state['finalize_processed_posts'], $state['finalize_chunk_size'], $state['finalize_step_ms'], $state['finalize_summary_rows'], $state['finalize_inbound_rows'], $state['finalize_target_only_rows_added'], $state['finalize_seed_last_post_id'], $state['finalize_seed_processed_posts'], $state['finalize_seed_step_ms'], $state['finalize_seed_chunk_size'], $state['finalize_inbound_last_post_id'], $state['finalize_inbound_processed_posts'], $state['finalize_inbound_step_ms'], $state['finalize_inbound_chunk_size'], $state['finalize_last_summary_query_ms'], $state['finalize_last_inbound_query_ms'], $state['normalized_backfill_last_id'], $state['normalized_backfill_processed'], $state['normalized_backfill_step_ms'], $state['normalized_backfill_chunk_size'], $state['normalized_backfill_done']);
       }
     } else {
       if ($partialKey !== '') {
@@ -1051,7 +1056,7 @@ trait LM_REST_API_Trait {
         }
       }
 
-      if (empty($context['rebuild_requested'])) {
+      if (empty($context['rebuild_requested']) && $this->can_use_pages_link_indexed_fastpath($filters)) {
         $indexedPagedResult = $this->get_pages_link_paged_result_from_indexed_summary($filters);
         if (is_array($indexedPagedResult)) {
           $response = [

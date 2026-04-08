@@ -367,6 +367,7 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
       'finalize_inbound_chunk_size' => max(0, (int)($state['finalize_inbound_chunk_size'] ?? 0)),
       'finalize_last_summary_query_ms' => max(0, (int)($state['finalize_last_summary_query_ms'] ?? 0)),
       'finalize_last_inbound_query_ms' => max(0, (int)($state['finalize_last_inbound_query_ms'] ?? 0)),
+      'finalize_target_only_rows_added' => max(0, (int)($state['finalize_target_only_rows_added'] ?? 0)),
       'last_error' => sanitize_text_field((string)($state['last_error'] ?? '')),
       'message' => sanitize_text_field((string)($state['message'] ?? '')),
       'poll_ms' => max(0, (int)$this->get_rebuild_poll_ms($state)),

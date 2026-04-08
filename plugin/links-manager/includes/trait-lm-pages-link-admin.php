@@ -21,12 +21,18 @@ trait LM_Pages_Link_Admin_Trait {
     $postTagOptions = $this->get_post_term_options('post_tag');
     try {
       $pagedResult = null;
-      // Pages Link counts inbound links from all source content types into the selected candidate posts.
-      // We intentionally use row-based counting here because the indexed summary fast path can undercount
-      // inbound links when the landing page has no own crawled rows or the target URL uses a variant form.
-      $all = $this->get_canonical_rows_for_scope('any', $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
-      $this->compact_rows_for_pages_link($all);
-      $pages = $this->get_pages_with_inbound_counts($all, $filters, false);
+      if ($this->can_use_pages_link_indexed_fastpath($filters)) {
+        $pagedResult = $this->get_pages_link_paged_result_from_indexed_summary($filters);
+      }
+      if (is_array($pagedResult)) {
+        $pages = array_values((array)($pagedResult['pages'] ?? []));
+      } else {
+        // Pages Link counts inbound links from all source content types into the selected candidate posts.
+        // Row-based counting remains the fallback for filters that the indexed summary fast path does not yet support.
+        $all = $this->get_canonical_rows_for_scope('any', $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
+        $this->compact_rows_for_pages_link($all);
+        $pages = $this->get_pages_with_inbound_counts($all, $filters, false);
+      }
     } catch (Throwable $e) {
       $pagedResult = null;
       $pages = [];

@@ -65,6 +65,8 @@ When the plugin is deleted from WordPress, it removes plugin options, transient 
 * Separated Refresh Diagnostics into Last Refresh Job and Current Indexed Datastore Health so refresh snapshots no longer get confused with current datastore coverage.
 * Added a Troubleshooting Pages Link Parity Audit tool to compare row-based and indexed Pages Link counts for specific post IDs.
 * Fixed indexed Pages Link inbound summaries for target-only pages that receive inbound links but have no outgoing rows of their own.
+* Added a parity-safe guard for Pages Link indexed fast paths so filtered requests automatically fall back to row-based counting when indexed filtering is not fully supported.
+* Added Refresh Diagnostics visibility for target-only summary rows created during inbound finalizing.
 
 = 4.4.3 =
 * Changed weak anchor phrase detection to exact-match rules and reduced overly generic default weak phrases.
@@ -102,7 +104,7 @@ When the plugin is deleted from WordPress, it removes plugin options, transient 
 == Upgrade Notice ==
 
 = 4.4.4 =
-Recommended update for large-dataset rebuild stability, much faster Refresh Data finalizing on big sites, classic-content editor reliability, clearer troubleshooting metrics, and more accurate indexed inbound summaries for target-only pages.
+Recommended update for large-dataset rebuild stability, much faster Refresh Data finalizing on big sites, classic-content editor reliability, clearer troubleshooting metrics, more accurate indexed inbound summaries for target-only pages, and safer Pages Link fast-path fallbacks.
 
 = 4.4.3 =
 Recommended update for improved anchor quality rules, synchronized anchor reporting, large-dataset rebuild stability, editor reliability, Pages Link accuracy, and Gutenberg link extraction.

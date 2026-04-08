@@ -900,6 +900,7 @@ trait LM_Settings_Admin_Trait {
     $finalizeInboundChunkSize = max(0, (int)($state['finalize_inbound_chunk_size'] ?? 0));
     $finalizeLastSummaryQueryMs = max(0, (int)($state['finalize_last_summary_query_ms'] ?? 0));
     $finalizeLastInboundQueryMs = max(0, (int)($state['finalize_last_inbound_query_ms'] ?? 0));
+    $finalizeTargetOnlyRowsAdded = max(0, (int)($state['finalize_target_only_rows_added'] ?? 0));
 
     $hasLiveFinalizeMetrics = ($finalizeProcessedPosts > 0 || $finalizeStepMs > 0 || $finalizeSummaryRows > 0 || $finalizeInboundRows > 0 || $finalizeSeedProcessedPosts > 0 || $finalizeInboundProcessedPosts > 0 || $normalizedBackfillProcessed > 0 || $normalizedBackfillStepMs > 0);
     if (!$hasLiveFinalizeMetrics && is_array($lastFinalizeMetrics) && !empty($lastFinalizeMetrics)) {
@@ -921,6 +922,7 @@ trait LM_Settings_Admin_Trait {
       $finalizeInboundChunkSize = max(0, (int)($lastFinalizeMetrics['finalize_inbound_chunk_size'] ?? 0));
       $finalizeLastSummaryQueryMs = max(0, (int)($lastFinalizeMetrics['finalize_last_summary_query_ms'] ?? 0));
       $finalizeLastInboundQueryMs = max(0, (int)($lastFinalizeMetrics['finalize_last_inbound_query_ms'] ?? 0));
+      $finalizeTargetOnlyRowsAdded = max(0, (int)($lastFinalizeMetrics['finalize_target_only_rows_added'] ?? 0));
     }
 
     if (is_array($lastFinalizeMetrics) && !empty($lastFinalizeMetrics)) {
@@ -996,6 +998,7 @@ trait LM_Settings_Admin_Trait {
     echo '<tr><th>' . esc_html__('Finalized summary posts', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeProcessedPosts)) . ' posts with summary rows</td></tr>';
     echo '<tr><th>' . esc_html__('Summary seed progress', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeSeedProcessedPosts)) . ' posts | ' . esc_html(number_format($finalizeSeedStepMs)) . ' ms | chunk ' . esc_html($finalizeSeedChunkSize > 0 ? number_format($finalizeSeedChunkSize) : 'auto') . '</td></tr>';
     echo '<tr><th>' . esc_html__('Inbound finalize progress', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeInboundProcessedPosts)) . ' posts | ' . esc_html(number_format($finalizeInboundStepMs)) . ' ms | chunk ' . esc_html($finalizeInboundChunkSize > 0 ? number_format($finalizeInboundChunkSize) : 'auto') . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Target-only summary rows added', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeTargetOnlyRowsAdded)) . '</td></tr>';
     echo '<tr><th>' . esc_html__('Finalizing last step', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeStepMs)) . ' ms | chunk ' . esc_html($finalizeChunkSize > 0 ? number_format($finalizeChunkSize) : 'auto') . '</td></tr>';
     echo '<tr><th>' . esc_html__('Last summary query time', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeLastSummaryQueryMs)) . ' ms</td></tr>';
     echo '<tr><th>' . esc_html__('Last inbound query time', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeLastInboundQueryMs)) . ' ms</td></tr>';

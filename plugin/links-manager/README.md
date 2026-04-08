@@ -59,6 +59,8 @@ When deleted from WordPress (not just deactivated), the plugin removes:
 - Separated Refresh Diagnostics into **Last Refresh Job** and **Current Indexed Datastore Health** so refresh snapshots no longer get confused with current datastore coverage
 - Added a Troubleshooting **Pages Link Parity Audit** tool to compare row-based and indexed Pages Link counts for specific post IDs
 - Fixed indexed Pages Link inbound summaries for target-only pages that receive inbound links but have no outgoing rows of their own
+- Added a parity-safe guard for Pages Link indexed fast paths so filtered requests automatically fall back to row-based counting when indexed filtering is not fully supported
+- Added Refresh Diagnostics visibility for target-only summary rows created during inbound finalizing
 
 ### 4.4.3
 

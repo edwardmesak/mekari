@@ -4,6 +4,62 @@
  */
 
 trait LM_Pages_Link_Analytics_Trait {
+  private function can_use_pages_link_indexed_fastpath($filters) {
+    $filters = is_array($filters) ? $filters : [];
+    if (!$this->is_indexed_datastore_ready() || !empty($filters['rebuild'])) {
+      return false;
+    }
+
+    $orderby = isset($filters['orderby']) ? (string)$filters['orderby'] : 'date';
+    if (!in_array($orderby, ['date', 'title', 'modified', 'post_id'], true)) {
+      return false;
+    }
+
+    if ((string)($filters['cursor'] ?? '') !== '') {
+      return false;
+    }
+
+    if (trim((string)($filters['search'] ?? '')) !== '') {
+      return false;
+    }
+    if (trim((string)($filters['search_url'] ?? '')) !== '') {
+      return false;
+    }
+    if ((string)($filters['status'] ?? 'any') !== 'any') {
+      return false;
+    }
+    if ((string)($filters['internal_outbound_status'] ?? 'any') !== 'any') {
+      return false;
+    }
+    if ((string)($filters['external_outbound_status'] ?? 'any') !== 'any') {
+      return false;
+    }
+
+    if ((string)($filters['location'] ?? 'any') !== 'any') {
+      return false;
+    }
+    if ((string)($filters['source_type'] ?? 'any') !== 'any') {
+      return false;
+    }
+    if ((string)($filters['link_type'] ?? 'any') !== 'any') {
+      return false;
+    }
+    if (trim((string)($filters['value_contains'] ?? '')) !== '') {
+      return false;
+    }
+    if ((string)($filters['seo_flag'] ?? 'any') !== 'any') {
+      return false;
+    }
+
+    foreach (['inbound_min', 'inbound_max', 'internal_outbound_min', 'internal_outbound_max', 'outbound_min', 'outbound_max'] as $rangeKey) {
+      if ((int)($filters[$rangeKey] ?? -1) !== -1) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   private function build_pages_link_candidate_query_args($filters, $postsPerPage = -1, $paged = 1, $withFoundRows = false) {
     $ptList = $this->get_filterable_post_types();
     $postTypes = ($filters['post_type'] === 'any') ? array_keys($ptList) : [$filters['post_type']];
