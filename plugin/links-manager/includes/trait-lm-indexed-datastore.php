@@ -32,10 +32,18 @@ trait LM_Indexed_Datastore_Trait {
   }
 
   private function get_indexed_normalized_url_health($wpmlLang = 'all') {
+    return $this->get_indexed_normalized_url_health_for_scope('any', $wpmlLang);
+  }
+
+  private function get_indexed_normalized_url_health_for_scope($scopePostType = 'any', $wpmlLang = 'all') {
     $health = [
       'schema_ready' => false,
+      'scope_post_type' => 'any',
+      'wpml_lang' => 'all',
       'rows_total' => 0,
+      'rows_actionable_total' => 0,
       'rows_missing_normalized' => 0,
+      'rows_empty_source' => 0,
     ];
 
     if (!$this->is_indexed_datastore_ready() || !$this->indexed_fact_has_normalized_url_columns()) {
@@ -44,16 +52,32 @@ trait LM_Indexed_Datastore_Trait {
 
     global $wpdb;
     $table = $wpdb->prefix . 'lm_link_fact';
+    $scopePostType = sanitize_key((string)$scopePostType);
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
     $wpmlLang = sanitize_key((string)$wpmlLang);
     if ($wpmlLang === '') {
       $wpmlLang = 'all';
     }
 
-    $whereSql = '';
+    $health['scope_post_type'] = $scopePostType;
+    $health['wpml_lang'] = $wpmlLang;
+
+    $whereParts = [];
     $params = [];
     if ($wpmlLang !== 'all') {
-      $whereSql = ' WHERE wpml_lang = %s';
+      $whereParts[] = 'wpml_lang = %s';
       $params[] = $wpmlLang;
+    }
+    if ($scopePostType !== 'any') {
+      $whereParts[] = 'post_type = %s';
+      $params[] = $scopePostType;
+    }
+
+    $whereSql = '';
+    if (!empty($whereParts)) {
+      $whereSql = ' WHERE ' . implode(' AND ', $whereParts);
     }
 
     $totalSql = "SELECT COUNT(*) FROM $table" . $whereSql;
@@ -62,13 +86,26 @@ trait LM_Indexed_Datastore_Trait {
     }
     $health['rows_total'] = max(0, (int)$wpdb->get_var($totalSql));
 
+    $actionableSql = "SELECT COUNT(*) FROM $table" . $whereSql;
+    $actionableSql .= ($whereSql === '' ? ' WHERE ' : ' AND ');
+    $actionableSql .= "(page_url <> '' OR link <> '')";
+    if (!empty($params)) {
+      $actionableSql = $wpdb->prepare($actionableSql, $params);
+    }
+    $health['rows_actionable_total'] = max(0, (int)$wpdb->get_var($actionableSql));
+
     $missingSql = "SELECT COUNT(*) FROM $table" . $whereSql;
     $missingSql .= ($whereSql === '' ? ' WHERE ' : ' AND ');
-    $missingSql .= "(normalized_page_url = '' OR normalized_link = '')";
+    $missingSql .= "(
+      (normalized_page_url = '' AND page_url <> '')
+      OR (normalized_link = '' AND link <> '')
+    )";
     if (!empty($params)) {
       $missingSql = $wpdb->prepare($missingSql, $params);
     }
     $health['rows_missing_normalized'] = max(0, (int)$wpdb->get_var($missingSql));
+
+    $health['rows_empty_source'] = max(0, $health['rows_total'] - $health['rows_actionable_total']);
     $health['schema_ready'] = true;
 
     return $health;

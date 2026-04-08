@@ -402,23 +402,8 @@ trait LM_Cache_Index_Sync_Trait {
     $limit = max(1, min(500, (int)$limit));
     $chunkStartedAt = microtime(true);
 
-    $targetRows = $wpdb->get_results(
-      $wpdb->prepare(
-        "SELECT post_id, page_url
-         FROM $summaryTable
-         WHERE wpml_lang = %s
-           AND post_id > %d
-         ORDER BY post_id ASC
-         LIMIT %d",
-        $wpml_lang,
-        $afterPostId,
-        $limit
-      ),
-      ARRAY_A
-    );
-
-    $targetRows = is_array($targetRows) ? $targetRows : [];
-    if (empty($targetRows)) {
+    $candidatePostIds = $this->query_pages_link_summary_candidate_post_ids_chunk($wpml_lang, $afterPostId, $limit);
+    if (empty($candidatePostIds)) {
       return [
         'done' => true,
         'processed_posts' => 0,
@@ -432,29 +417,37 @@ trait LM_Cache_Index_Sync_Trait {
       ];
     }
 
+    $postTypes = array_keys($this->get_filterable_post_types());
+    $postDataMap = $this->get_pages_link_post_data_map($candidatePostIds, $postTypes, true, []);
     $targetUrlMap = [];
-    $targetPostIds = [];
-    foreach ($targetRows as $row) {
-      $postId = isset($row['post_id']) ? (int)$row['post_id'] : 0;
+    $targetPostIds = array_values(array_unique(array_map('intval', $candidatePostIds)));
+    foreach ($targetPostIds as $postId) {
       if ($postId < 1) {
         continue;
       }
-      $normalizedPageUrl = sanitize_text_field($this->normalize_for_compare((string)($row['page_url'] ?? '')));
-      if ($normalizedPageUrl === '') {
+      $postData = isset($postDataMap[(string)$postId]) && is_array($postDataMap[(string)$postId]) ? $postDataMap[(string)$postId] : [];
+      $pageUrl = (string)($postData['page_url'] ?? '');
+      if ($pageUrl === '') {
         continue;
       }
-      if (!isset($targetUrlMap[$normalizedPageUrl])) {
-        $targetUrlMap[$normalizedPageUrl] = [];
+      $targetVariants = $this->build_pages_link_target_variants($pageUrl);
+      foreach ($targetVariants as $targetVariant) {
+        $targetVariant = sanitize_text_field((string)$targetVariant);
+        if ($targetVariant === '') {
+          continue;
+        }
+        if (!isset($targetUrlMap[$targetVariant])) {
+          $targetUrlMap[$targetVariant] = [];
+        }
+        $targetUrlMap[$targetVariant][] = $postId;
       }
-      $targetUrlMap[$normalizedPageUrl][] = $postId;
-      $targetPostIds[] = $postId;
     }
 
-    $lastPostId = max(array_map('intval', wp_list_pluck($targetRows, 'post_id')));
+    $lastPostId = max($targetPostIds);
     if (empty($targetUrlMap) || empty($targetPostIds)) {
       $zeroBatch = [];
-      foreach ($targetRows as $row) {
-        $postId = isset($row['post_id']) ? (int)$row['post_id'] : 0;
+      $existingSummaryIds = $this->get_existing_indexed_summary_post_ids_for_lang($wpml_lang, $candidatePostIds);
+      foreach ($existingSummaryIds as $postId) {
         if ($postId > 0) {
           $zeroBatch[] = ['wpml_lang' => $wpml_lang, 'post_id' => $postId, 'inbound' => 0];
         }
@@ -463,8 +456,8 @@ trait LM_Cache_Index_Sync_Trait {
         $this->update_indexed_summary_inbound_batch($summaryTable, $zeroBatch);
       }
       return [
-        'done' => count($targetRows) < $limit,
-        'processed_posts' => count($targetRows),
+        'done' => count($candidatePostIds) < $limit,
+        'processed_posts' => count($candidatePostIds),
         'last_post_id' => $lastPostId,
         'chunk_limit' => $limit,
         'summary_rows' => 0,
@@ -488,6 +481,11 @@ trait LM_Cache_Index_Sync_Trait {
     $sourceRows = $wpdb->get_results($wpdb->prepare($inboundSql, $inboundParams), ARRAY_A);
     $inboundQueryMs = max(0, (int)round((microtime(true) - $inboundQueryStartedAt) * 1000));
 
+    $existingSummaryIds = $this->get_existing_indexed_summary_post_ids_for_lang($wpml_lang, $candidatePostIds);
+    $existingSummaryMap = [];
+    foreach ($existingSummaryIds as $existingSummaryId) {
+      $existingSummaryMap[(int)$existingSummaryId] = true;
+    }
     $inboundCounts = [];
     foreach ($targetPostIds as $postId) {
       $inboundCounts[$postId] = 0;
@@ -506,8 +504,35 @@ trait LM_Cache_Index_Sync_Trait {
       }
     }
 
+    $targetOnlyBatch = [];
+    foreach ($inboundCounts as $postId => $inbound) {
+      if ($inbound < 1 || isset($existingSummaryMap[(int)$postId])) {
+        continue;
+      }
+      $postData = isset($postDataMap[(string)$postId]) && is_array($postDataMap[(string)$postId]) ? $postDataMap[(string)$postId] : [];
+      $targetOnlyBatch[] = [
+        'wpml_lang' => $wpml_lang,
+        'post_id' => (int)$postId,
+        'post_title' => sanitize_text_field((string)($postData['post_title'] ?? '')),
+        'post_type' => sanitize_key((string)($postData['post_type'] ?? '')),
+        'post_author' => sanitize_text_field((string)($postData['author_name'] ?? '')),
+        'post_date' => $this->normalize_db_datetime_or_null($postData['post_date'] ?? ''),
+        'post_modified' => $this->normalize_db_datetime_or_null($postData['post_modified'] ?? ''),
+        'page_url' => esc_url_raw((string)($postData['page_url'] ?? '')),
+        'inbound' => (int)$inbound,
+        'internal_outbound' => 0,
+        'outbound' => 0,
+      ];
+    }
+    if (!empty($targetOnlyBatch)) {
+      $this->insert_indexed_summary_batch($summaryTable, $targetOnlyBatch);
+    }
+
     $batch = [];
     foreach ($inboundCounts as $postId => $inbound) {
+      if (!isset($existingSummaryMap[(int)$postId])) {
+        continue;
+      }
       $batch[] = [
         'wpml_lang' => $wpml_lang,
         'post_id' => (int)$postId,
@@ -519,16 +544,84 @@ trait LM_Cache_Index_Sync_Trait {
     }
 
     return [
-      'done' => count($targetRows) < $limit,
-      'processed_posts' => count($targetRows),
+      'done' => count($candidatePostIds) < $limit,
+      'processed_posts' => count($candidatePostIds),
       'last_post_id' => $lastPostId,
       'chunk_limit' => $limit,
-      'summary_rows' => count($targetRows),
+      'summary_rows' => count($targetOnlyBatch) + count($existingSummaryIds),
       'inbound_rows' => count((array)$sourceRows),
       'summary_query_ms' => 0,
       'inbound_query_ms' => $inboundQueryMs,
       'step_ms' => max(0, (int)round((microtime(true) - $chunkStartedAt) * 1000)),
     ];
+  }
+
+  private function query_pages_link_summary_candidate_post_ids_chunk($wpml_lang = 'all', $afterPostId = 0, $limit = 100) {
+    $postTypes = array_keys($this->get_filterable_post_types());
+    $postTypes = array_values(array_unique(array_filter(array_map('sanitize_key', (array)$postTypes))));
+    if (empty($postTypes)) {
+      return [];
+    }
+
+    $afterPostId = max(0, (int)$afterPostId);
+    $limit = max(1, (int)$limit);
+
+    $queryArgs = [
+      'post_type' => $postTypes,
+      'post_status' => 'publish',
+      'posts_per_page' => $limit,
+      'fields' => 'ids',
+      'suppress_filters' => false,
+      'no_found_rows' => true,
+      'orderby' => 'ID',
+      'order' => 'ASC',
+      'update_post_meta_cache' => false,
+      'update_post_term_cache' => false,
+      'cache_results' => false,
+    ];
+
+    if ($this->is_wpml_active()) {
+      $queryArgs['lang'] = ($wpml_lang === 'all') ? '' : $wpml_lang;
+    }
+
+    $idWhereFilter = null;
+    if ($afterPostId > 0) {
+      global $wpdb;
+      $idWhereFilter = function($where) use ($wpdb, $afterPostId) {
+        return $where . $wpdb->prepare(" AND {$wpdb->posts}.ID > %d", $afterPostId);
+      };
+      add_filter('posts_where', $idWhereFilter, 10, 1);
+    }
+
+    try {
+      $query = new WP_Query($queryArgs);
+    } finally {
+      if ($idWhereFilter !== null) {
+        remove_filter('posts_where', $idWhereFilter, 10);
+      }
+    }
+
+    if (empty($query->posts)) {
+      return [];
+    }
+
+    return array_values(array_unique(array_map('intval', (array)$query->posts)));
+  }
+
+  private function get_existing_indexed_summary_post_ids_for_lang($wpml_lang, $postIds) {
+    global $wpdb;
+
+    $postIds = array_values(array_unique(array_filter(array_map('intval', (array)$postIds))));
+    if (empty($postIds)) {
+      return [];
+    }
+
+    $summaryTable = $wpdb->prefix . 'lm_link_post_summary';
+    $placeholders = implode(',', array_fill(0, count($postIds), '%d'));
+    $params = array_merge([(string)$wpml_lang], $postIds);
+    $sql = "SELECT post_id FROM $summaryTable WHERE wpml_lang = %s AND post_id IN ($placeholders)";
+    $rows = $wpdb->get_col($wpdb->prepare($sql, $params));
+    return array_values(array_unique(array_filter(array_map('intval', (array)$rows))));
   }
 
   private function insert_indexed_fact_batch($table, $batch) {

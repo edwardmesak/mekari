@@ -586,6 +586,8 @@ trait LM_Settings_Admin_Trait {
       $debugPostId = max(0, $this->request_int('lm_debug_post_id', 0));
       $debugNeedle = trim($this->request_text('lm_debug_link_search', ''));
       $debugPostResult = $debugPostId > 0 ? $this->build_post_scan_debug_result($debugPostId) : null;
+      $pagesLinkParityIdsRaw = trim($this->request_text('lm_debug_pages_link_post_ids', ''));
+      $pagesLinkParityResult = $pagesLinkParityIdsRaw !== '' ? $this->build_pages_link_parity_debug_result($pagesLinkParityIdsRaw) : null;
       $debugInspectUrlBase = admin_url('admin.php?page=links-manager-settings&lm_tab=debug');
       echo '<div style="' . esc_attr($settingsCardStyle) . '">';
       echo '<div style="font-weight:600; margin-bottom:6px;">' . esc_html__('Post Scan Debug', 'links-manager') . '</div>';
@@ -657,6 +659,59 @@ trait LM_Settings_Admin_Trait {
           echo '</table>';
         } elseif ($debugPostId > 0) {
           echo '<div class="lm-small" style="margin-top:10px;">' . esc_html__('No links were extracted from this post by crawl_post().', 'links-manager') . '</div>';
+        }
+      }
+      echo '</div>';
+
+      echo '<div style="' . esc_attr($settingsCardStyle) . '">';
+      echo '<div style="font-weight:600; margin-bottom:6px;">' . esc_html__('Pages Link Parity Audit', 'links-manager') . '</div>';
+      echo '<div class="lm-small" style="margin-bottom:8px;">' . esc_html__('Compare row-based Pages Link counts against indexed summary counts for specific post IDs before expanding indexed fast paths.', 'links-manager') . '</div>';
+      echo '<label class="lm-small" for="lm-debug-pages-link-post-ids" style="display:block; margin-bottom:4px;">' . esc_html__('Post IDs (comma-separated)', 'links-manager') . '</label>';
+      echo '<input id="lm-debug-pages-link-post-ids" type="text" value="' . esc_attr($pagesLinkParityIdsRaw) . '" placeholder="12,34,56" style="width:320px; max-width:100%; margin-right:8px;" />';
+      echo '<a href="' . esc_url($debugInspectUrlBase) . '" class="button button-secondary" id="lm-debug-pages-link-parity-link">' . esc_html__('Run Parity Audit', 'links-manager') . '</a>';
+      echo '<div class="lm-small" style="margin-top:6px;">' . esc_html__('Uses current Pages Link filters from the admin request. User-facing Pages Link screen remains row-based.', 'links-manager') . '</div>';
+      echo '<script>(function(){var idsInput=document.getElementById("lm-debug-pages-link-post-ids");var link=document.getElementById("lm-debug-pages-link-parity-link");if(!idsInput||!link)return;var sync=function(){var url=new URL(window.location.href);url.searchParams.set("page","links-manager-settings");url.searchParams.set("lm_tab","debug");var idsVal=String(idsInput.value||"").trim();if(idsVal!==""){url.searchParams.set("lm_debug_pages_link_post_ids",idsVal);}else{url.searchParams.delete("lm_debug_pages_link_post_ids");}link.href=url.toString();};idsInput.addEventListener("input",sync);idsInput.addEventListener("change",sync);sync();})();</script>';
+
+      if (is_array($pagesLinkParityResult)) {
+        $auditRows = isset($pagesLinkParityResult['rows']) && is_array($pagesLinkParityResult['rows']) ? $pagesLinkParityResult['rows'] : [];
+        echo '<table class="widefat striped" style="margin-top:8px; max-width:900px;">';
+        echo '<tbody>';
+        echo '<tr><th style="width:260px;">' . esc_html__('Requested post IDs', 'links-manager') . '</th><td>' . esc_html((string)($pagesLinkParityResult['requested_ids_label'] ?? '—')) . '</td></tr>';
+        echo '<tr><th>' . esc_html__('Matched audited posts', 'links-manager') . '</th><td>' . esc_html(number_format((int)($pagesLinkParityResult['matched_posts'] ?? 0))) . '</td></tr>';
+        echo '<tr><th>' . esc_html__('Pages Link scope used', 'links-manager') . '</th><td>' . esc_html((string)($pagesLinkParityResult['scope_label'] ?? '—')) . '</td></tr>';
+        echo '<tr><th>' . esc_html__('Posts with any delta', 'links-manager') . '</th><td>' . esc_html(number_format((int)($pagesLinkParityResult['delta_posts'] ?? 0))) . '</td></tr>';
+        echo '</tbody>';
+        echo '</table>';
+
+        if (!empty($auditRows)) {
+          echo '<table class="widefat striped" style="margin-top:8px; max-width:100%;">';
+          echo '<thead><tr>';
+          echo '<th style="width:80px;">' . esc_html__('Post ID', 'links-manager') . '</th>';
+          echo '<th>' . esc_html__('Page URL', 'links-manager') . '</th>';
+          echo '<th>' . esc_html__('Inbound', 'links-manager') . '</th>';
+          echo '<th>' . esc_html__('Indexed Inbound', 'links-manager') . '</th>';
+          echo '<th>' . esc_html__('Int. Outbound', 'links-manager') . '</th>';
+          echo '<th>' . esc_html__('Indexed Int. Outbound', 'links-manager') . '</th>';
+          echo '<th>' . esc_html__('Outbound', 'links-manager') . '</th>';
+          echo '<th>' . esc_html__('Indexed Outbound', 'links-manager') . '</th>';
+          echo '<th>' . esc_html__('Delta Flags', 'links-manager') . '</th>';
+          echo '</tr></thead><tbody>';
+          foreach ($auditRows as $auditRow) {
+            echo '<tr>';
+            echo '<td>' . esc_html((string)($auditRow['post_id'] ?? '')) . '</td>';
+            echo '<td><code>' . esc_html((string)($auditRow['page_url'] ?? '')) . '</code></td>';
+            echo '<td>' . esc_html(number_format((int)($auditRow['row_based_inbound'] ?? 0))) . '</td>';
+            echo '<td>' . esc_html(number_format((int)($auditRow['indexed_inbound'] ?? 0))) . '</td>';
+            echo '<td>' . esc_html(number_format((int)($auditRow['row_based_internal_outbound'] ?? 0))) . '</td>';
+            echo '<td>' . esc_html(number_format((int)($auditRow['indexed_internal_outbound'] ?? 0))) . '</td>';
+            echo '<td>' . esc_html(number_format((int)($auditRow['row_based_outbound'] ?? 0))) . '</td>';
+            echo '<td>' . esc_html(number_format((int)($auditRow['indexed_outbound'] ?? 0))) . '</td>';
+            echo '<td>' . esc_html((string)($auditRow['delta_flags_label'] ?? 'match')) . '</td>';
+            echo '</tr>';
+          }
+          echo '</tbody></table>';
+        } else {
+          echo '<div class="lm-small" style="margin-top:8px;">' . esc_html__('No matching candidate posts were found for the requested IDs under the current Pages Link filters.', 'links-manager') . '</div>';
         }
       }
       echo '</div>';
@@ -815,10 +870,14 @@ trait LM_Settings_Admin_Trait {
       $updatedAt = '—';
     }
 
-    $normalizedHealth = $this->get_indexed_normalized_url_health('all');
+    $lastRefreshScopePostType = $scopePostType;
+    $lastRefreshScopeWpmlLang = $wpmlLang;
+    $normalizedHealth = $this->get_indexed_normalized_url_health_for_scope('any', 'all');
     $normalizedSchemaReady = !empty($normalizedHealth['schema_ready']);
-    $normalizedMissingRows = max(0, (int)($normalizedHealth['rows_missing_normalized'] ?? 0));
     $normalizedTotalRows = max(0, (int)($normalizedHealth['rows_total'] ?? 0));
+    $normalizedActionableRows = max(0, (int)($normalizedHealth['rows_actionable_total'] ?? 0));
+    $normalizedMissingRows = max(0, (int)($normalizedHealth['rows_missing_normalized'] ?? 0));
+    $normalizedEmptySourceRows = max(0, (int)($normalizedHealth['rows_empty_source'] ?? 0));
     $lastFinalizeMetrics = $this->get_last_finalize_metrics();
 
     $normalizedBackfillDone = !empty($state['normalized_backfill_done']);
@@ -864,16 +923,30 @@ trait LM_Settings_Admin_Trait {
       $finalizeLastInboundQueryMs = max(0, (int)($lastFinalizeMetrics['finalize_last_inbound_query_ms'] ?? 0));
     }
 
+    if (is_array($lastFinalizeMetrics) && !empty($lastFinalizeMetrics)) {
+      $snapshotScopePostType = sanitize_key((string)($lastFinalizeMetrics['scope_post_type'] ?? $lastRefreshScopePostType));
+      $snapshotScopeWpmlLang = sanitize_key((string)($lastFinalizeMetrics['wpml_lang'] ?? $lastRefreshScopeWpmlLang));
+      if ($snapshotScopePostType !== '') {
+        $lastRefreshScopePostType = $snapshotScopePostType;
+      }
+      if ($snapshotScopeWpmlLang !== '') {
+        $lastRefreshScopeWpmlLang = $snapshotScopeWpmlLang;
+      }
+    }
+
+    $lastScopeHealth = $this->get_indexed_normalized_url_health_for_scope($lastRefreshScopePostType, $lastRefreshScopeWpmlLang);
+    $lastScopeActionableRows = max(0, (int)($lastScopeHealth['rows_actionable_total'] ?? 0));
+    $lastScopeMissingRows = max(0, (int)($lastScopeHealth['rows_missing_normalized'] ?? 0));
+    $lastScopeEmptySourceRows = max(0, (int)($lastScopeHealth['rows_empty_source'] ?? 0));
+
     $scopeLabel = $scopePostType . ' / ' . $wpmlLang;
     $phaseLabel = $message !== '' ? $message : __('No active refresh phase.', 'links-manager');
     $normalizedCoverage = '—';
     if ($normalizedSchemaReady) {
-      $normalizedReadyRows = max(0, $normalizedTotalRows - $normalizedMissingRows);
-      $normalizedCoverage = number_format($normalizedReadyRows) . ' / ' . number_format($normalizedTotalRows);
+      $normalizedReadyRows = max(0, $normalizedActionableRows - $normalizedMissingRows);
+      $normalizedCoverage = number_format($normalizedReadyRows) . ' / ' . number_format($normalizedActionableRows) . ' actionable rows';
     }
-    if ($status === 'done' && $normalizedSchemaReady && $normalizedMissingRows === 0) {
-      $normalizedBackfillDone = true;
-    }
+    $normalizedBackfillDone = ($normalizedSchemaReady && $normalizedMissingRows === 0);
     $lastFinalizeCapturedAt = is_array($lastFinalizeMetrics) ? (string)($lastFinalizeMetrics['captured_at'] ?? '') : '';
     if ($lastFinalizeCapturedAt === '') {
       $lastFinalizeCapturedAt = '—';
@@ -895,9 +968,18 @@ trait LM_Settings_Admin_Trait {
       $finalizeProcessedPosts = $this->get_indexed_summary_count_exact_scope($finalizeSummaryScopePostType, $finalizeSummaryScopeWpmlLang);
     }
 
+    $lastScopeCoverage = '—';
+    if (!empty($lastScopeHealth['schema_ready'])) {
+      $lastScopeReadyRows = max(0, $lastScopeActionableRows - $lastScopeMissingRows);
+      $lastScopeCoverage = number_format($lastScopeReadyRows) . ' / ' . number_format($lastScopeActionableRows) . ' actionable rows';
+    }
+
     echo '<div style="' . esc_attr($cardStyle) . '">';
     echo '<div style="font-weight:600; margin-bottom:6px;">' . esc_html__('Refresh Diagnostics', 'links-manager') . '</div>';
-    echo '<div class="lm-small" style="margin-bottom:8px;">' . esc_html__('Use these values to identify where Refresh Data spends time: crawl phase, normalized URL preparation, or summary finalizing.', 'links-manager') . '</div>';
+    echo '<div class="lm-small" style="margin-bottom:8px;">' . esc_html__('Use these values to identify whether issues come from the most recent refresh job or from the current indexed datastore health.', 'links-manager') . '</div>';
+
+    echo '<div style="font-weight:600; margin:12px 0 6px;">' . esc_html__('Last Refresh Job', 'links-manager') . '</div>';
+    echo '<div class="lm-small" style="margin-bottom:6px;">' . esc_html__('Crawl progress counts every post examined. Finalized summary posts count only posts that produced summary rows from extracted link data.', 'links-manager') . '</div>';
     echo '<table class="widefat striped" style="margin-top:8px; max-width:900px;">';
     echo '<tbody>';
     echo '<tr><th style="width:280px;">' . esc_html__('Job status', 'links-manager') . '</th><td>' . esc_html($status) . '</td></tr>';
@@ -909,14 +991,9 @@ trait LM_Settings_Admin_Trait {
     echo '<tr><th>' . esc_html__('Current crawl batch', 'links-manager') . '</th><td>' . esc_html($batchSize > 0 ? number_format($batchSize) : 'auto') . '</td></tr>';
     echo '<tr><th>' . esc_html__('Last crawl step time', 'links-manager') . '</th><td>' . esc_html(number_format($crawlStepMs)) . ' ms</td></tr>';
     echo '<tr><th>' . esc_html__('Last job update', 'links-manager') . '</th><td>' . esc_html($updatedAt) . '</td></tr>';
-    echo '<tr><th>' . esc_html__('Normalized URL schema', 'links-manager') . '</th><td>' . esc_html($normalizedSchemaReady ? __('Ready', 'links-manager') : __('Not ready', 'links-manager')) . '</td></tr>';
-    echo '<tr><th>' . esc_html__('Normalized URL coverage', 'links-manager') . '</th><td>' . esc_html($normalizedCoverage) . '</td></tr>';
-    echo '<tr><th>' . esc_html__('Rows still missing normalized data', 'links-manager') . '</th><td>' . esc_html(number_format($normalizedMissingRows)) . '</td></tr>';
-    echo '<tr><th>' . esc_html__('Normalized backfill status', 'links-manager') . '</th><td>' . esc_html($normalizedBackfillDone ? __('Done', 'links-manager') : __('Pending or running', 'links-manager')) . '</td></tr>';
-    echo '<tr><th>' . esc_html__('Normalized backfill progress', 'links-manager') . '</th><td>' . esc_html(number_format($normalizedBackfillProcessed)) . ' rows | last fact ID ' . esc_html(number_format($normalizedBackfillLastId)) . '</td></tr>';
-    echo '<tr><th>' . esc_html__('Normalized backfill step', 'links-manager') . '</th><td>' . esc_html(number_format($normalizedBackfillStepMs)) . ' ms | chunk ' . esc_html($normalizedBackfillChunkSize > 0 ? number_format($normalizedBackfillChunkSize) : 'auto') . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Last backfill step from most recent refresh', 'links-manager') . '</th><td>' . esc_html(number_format($normalizedBackfillProcessed)) . ' rows | last fact ID ' . esc_html(number_format($normalizedBackfillLastId)) . ' | ' . esc_html(number_format($normalizedBackfillStepMs)) . ' ms | chunk ' . esc_html($normalizedBackfillChunkSize > 0 ? number_format($normalizedBackfillChunkSize) : 'auto') . '</td></tr>';
     echo '<tr><th>' . esc_html__('Active finalizing stage', 'links-manager') . '</th><td>' . esc_html($finalizeStageLabel) . '</td></tr>';
-    echo '<tr><th>' . esc_html__('Finalizing overall progress', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeProcessedPosts)) . ' posts processed</td></tr>';
+    echo '<tr><th>' . esc_html__('Finalized summary posts', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeProcessedPosts)) . ' posts with summary rows</td></tr>';
     echo '<tr><th>' . esc_html__('Summary seed progress', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeSeedProcessedPosts)) . ' posts | ' . esc_html(number_format($finalizeSeedStepMs)) . ' ms | chunk ' . esc_html($finalizeSeedChunkSize > 0 ? number_format($finalizeSeedChunkSize) : 'auto') . '</td></tr>';
     echo '<tr><th>' . esc_html__('Inbound finalize progress', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeInboundProcessedPosts)) . ' posts | ' . esc_html(number_format($finalizeInboundStepMs)) . ' ms | chunk ' . esc_html($finalizeInboundChunkSize > 0 ? number_format($finalizeInboundChunkSize) : 'auto') . '</td></tr>';
     echo '<tr><th>' . esc_html__('Finalizing last step', 'links-manager') . '</th><td>' . esc_html(number_format($finalizeStepMs)) . ' ms | chunk ' . esc_html($finalizeChunkSize > 0 ? number_format($finalizeChunkSize) : 'auto') . '</td></tr>';
@@ -927,7 +1004,23 @@ trait LM_Settings_Admin_Trait {
     echo '<tr><th>' . esc_html__('Last finalizing snapshot', 'links-manager') . '</th><td>' . esc_html($lastFinalizeCapturedAt) . '</td></tr>';
     echo '</tbody>';
     echo '</table>';
-    echo '<div class="lm-small" style="margin-top:8px;">' . esc_html__('Optimization hints: if normalized missing rows stays high, the bottleneck is backfill. If backfill is done but finalizing step time remains high, the inbound summary query still needs tuning.', 'links-manager') . '</div>';
+
+    echo '<div style="font-weight:600; margin:12px 0 6px;">' . esc_html__('Current Indexed Datastore Health', 'links-manager') . '</div>';
+    echo '<div class="lm-small" style="margin-bottom:6px;">' . esc_html__('This section shows current datastore health. Needs backfill here refers to actionable rows still missing normalized values, not to the last refresh snapshot.', 'links-manager') . '</div>';
+    echo '<table class="widefat striped" style="margin-top:8px; max-width:900px;">';
+    echo '<tbody>';
+    echo '<tr><th style="width:280px;">' . esc_html__('Normalized URL schema', 'links-manager') . '</th><td>' . esc_html($normalizedSchemaReady ? __('Ready', 'links-manager') : __('Not ready', 'links-manager')) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Global normalized coverage', 'links-manager') . '</th><td>' . esc_html($normalizedCoverage) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Global rows still needing normalized backfill', 'links-manager') . '</th><td>' . esc_html(number_format($normalizedMissingRows)) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Global rows with empty source values', 'links-manager') . '</th><td>' . esc_html(number_format($normalizedEmptySourceRows)) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Global normalized backfill status', 'links-manager') . '</th><td>' . esc_html($normalizedBackfillDone ? __('Done', 'links-manager') : __('Needs backfill', 'links-manager')) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Last refresh scope health', 'links-manager') . '</th><td>' . esc_html($lastRefreshScopePostType . ' / ' . $lastRefreshScopeWpmlLang) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Last refresh scope normalized coverage', 'links-manager') . '</th><td>' . esc_html($lastScopeCoverage) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Last refresh scope rows needing normalized backfill', 'links-manager') . '</th><td>' . esc_html(number_format($lastScopeMissingRows)) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Last refresh scope rows with empty source values', 'links-manager') . '</th><td>' . esc_html(number_format($lastScopeEmptySourceRows)) . '</td></tr>';
+    echo '</tbody>';
+    echo '</table>';
+    echo '<div class="lm-small" style="margin-top:8px;">' . esc_html__('Optimization hints: actionable backfill rows only count records that still have a source URL/link to normalize. Rows with empty source values are shown separately and do not indicate a backfill failure.', 'links-manager') . '</div>';
     echo '</div>';
   }
 
@@ -1238,6 +1331,118 @@ trait LM_Settings_Admin_Trait {
       'indexed_search_rows_count' => max(0, $indexedSearchRowsCount),
       'matched_links' => $matchedLinks,
       'sample_links' => $sampleLinks,
+    ];
+  }
+
+  private function build_pages_link_parity_debug_result($postIdsRaw) {
+    $postIdsRaw = trim((string)$postIdsRaw);
+    if ($postIdsRaw === '') {
+      return null;
+    }
+
+    $requestedPostIds = array_values(array_unique(array_filter(array_map('intval', preg_split('/[\s,]+/', $postIdsRaw))))); 
+    if (empty($requestedPostIds)) {
+      return [
+        'requested_ids_label' => $postIdsRaw,
+        'matched_posts' => 0,
+        'delta_posts' => 0,
+        'scope_label' => '—',
+        'rows' => [],
+      ];
+    }
+
+    $filters = $this->get_pages_link_filters_from_request();
+    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $scopeLabel = (string)($filters['post_type'] ?? 'any') . ' / ' . $scopeWpmlLang;
+
+    $rowBasedMap = [];
+    $indexedMap = [];
+
+    try {
+      $all = $this->get_canonical_rows_for_scope('any', false, isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
+      $this->compact_rows_for_pages_link($all);
+      $rowBasedRows = $this->get_pages_with_inbound_counts($all, $filters, true);
+      foreach ((array)$rowBasedRows as $row) {
+        $pid = isset($row['post_id']) ? (int)$row['post_id'] : 0;
+        if ($pid > 0) {
+          $rowBasedMap[$pid] = $row;
+        }
+      }
+    } catch (Throwable $e) {
+      $rowBasedMap = [];
+    }
+
+    try {
+      $indexedRows = $this->get_pages_with_inbound_counts_from_indexed_summary($filters);
+      foreach ((array)$indexedRows as $row) {
+        $pid = isset($row['post_id']) ? (int)$row['post_id'] : 0;
+        if ($pid > 0) {
+          $indexedMap[$pid] = $row;
+        }
+      }
+    } catch (Throwable $e) {
+      $indexedMap = [];
+    }
+
+    $rows = [];
+    $deltaPosts = 0;
+    foreach ($requestedPostIds as $postId) {
+      $rowBased = isset($rowBasedMap[$postId]) && is_array($rowBasedMap[$postId]) ? $rowBasedMap[$postId] : null;
+      $indexed = isset($indexedMap[$postId]) && is_array($indexedMap[$postId]) ? $indexedMap[$postId] : null;
+      if (!$rowBased && !$indexed) {
+        continue;
+      }
+
+      $pageUrl = '';
+      if ($rowBased && isset($rowBased['page_url'])) {
+        $pageUrl = (string)$rowBased['page_url'];
+      } elseif ($indexed && isset($indexed['page_url'])) {
+        $pageUrl = (string)$indexed['page_url'];
+      } else {
+        $pageUrl = (string)get_permalink($postId);
+      }
+
+      $rowInbound = (int)($rowBased['inbound'] ?? 0);
+      $indexedInbound = (int)($indexed['inbound'] ?? 0);
+      $rowInternalOutbound = (int)($rowBased['internal_outbound'] ?? 0);
+      $indexedInternalOutbound = (int)($indexed['internal_outbound'] ?? 0);
+      $rowOutbound = (int)($rowBased['outbound'] ?? 0);
+      $indexedOutbound = (int)($indexed['outbound'] ?? 0);
+
+      $deltaFlags = [];
+      if ($rowInbound !== $indexedInbound) {
+        $deltaFlags[] = 'inbound';
+      }
+      if ($rowInternalOutbound !== $indexedInternalOutbound) {
+        $deltaFlags[] = 'internal_outbound';
+      }
+      if ($rowOutbound !== $indexedOutbound) {
+        $deltaFlags[] = 'outbound';
+      }
+      if (!empty($deltaFlags)) {
+        $deltaPosts++;
+      }
+
+      $rows[] = [
+        'post_id' => $postId,
+        'page_url' => $pageUrl,
+        'row_based_inbound' => $rowInbound,
+        'indexed_inbound' => $indexedInbound,
+        'row_based_internal_outbound' => $rowInternalOutbound,
+        'indexed_internal_outbound' => $indexedInternalOutbound,
+        'row_based_outbound' => $rowOutbound,
+        'indexed_outbound' => $indexedOutbound,
+        'delta_flags' => $deltaFlags,
+        'delta_flags_label' => !empty($deltaFlags) ? implode(', ', $deltaFlags) : 'match',
+      ];
+    }
+
+    return [
+      'requested_ids_label' => implode(', ', $requestedPostIds),
+      'matched_posts' => count($rows),
+      'delta_posts' => $deltaPosts,
+      'scope_label' => $scopeLabel,
+      'rows' => $rows,
     ];
   }
 

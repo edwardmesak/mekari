@@ -56,6 +56,9 @@ When deleted from WordPress (not just deactivated), the plugin removes:
 - Replaced the heaviest inbound summary finalizing query with chunked normalized-link lookups scoped to the current target batch instead of a broad fact-to-fact self join
 - Expanded **Settings > Troubleshooting** with Refresh Diagnostics details for normalized backfill, finalizing stages, query timing, and summary progress
 - Fixed finalizing diagnostics so completed refreshes report authoritative final summary row counts instead of stale stage counters
+- Separated Refresh Diagnostics into **Last Refresh Job** and **Current Indexed Datastore Health** so refresh snapshots no longer get confused with current datastore coverage
+- Added a Troubleshooting **Pages Link Parity Audit** tool to compare row-based and indexed Pages Link counts for specific post IDs
+- Fixed indexed Pages Link inbound summaries for target-only pages that receive inbound links but have no outgoing rows of their own
 
 ### 4.4.3
 

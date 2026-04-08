@@ -62,6 +62,9 @@ When the plugin is deleted from WordPress, it removes plugin options, transient 
 * Replaced the heaviest inbound summary finalizing query with chunked normalized-link lookups scoped to the current target batch instead of a broad fact-to-fact self join.
 * Expanded Settings > Troubleshooting with Refresh Diagnostics details for normalized backfill, finalizing stages, query timing, and summary progress to support future performance tuning.
 * Fixed finalizing diagnostics so completed refreshes report authoritative final summary row counts instead of stale stage counters.
+* Separated Refresh Diagnostics into Last Refresh Job and Current Indexed Datastore Health so refresh snapshots no longer get confused with current datastore coverage.
+* Added a Troubleshooting Pages Link Parity Audit tool to compare row-based and indexed Pages Link counts for specific post IDs.
+* Fixed indexed Pages Link inbound summaries for target-only pages that receive inbound links but have no outgoing rows of their own.
 
 = 4.4.3 =
 * Changed weak anchor phrase detection to exact-match rules and reduced overly generic default weak phrases.
@@ -99,7 +102,7 @@ When the plugin is deleted from WordPress, it removes plugin options, transient 
 == Upgrade Notice ==
 
 = 4.4.4 =
-Recommended update for large-dataset rebuild stability, much faster Refresh Data finalizing on big sites, classic-content editor reliability, and clearer troubleshooting metrics.
+Recommended update for large-dataset rebuild stability, much faster Refresh Data finalizing on big sites, classic-content editor reliability, clearer troubleshooting metrics, and more accurate indexed inbound summaries for target-only pages.
 
 = 4.4.3 =
 Recommended update for improved anchor quality rules, synchronized anchor reporting, large-dataset rebuild stability, editor reliability, Pages Link accuracy, and Gutenberg link extraction.
