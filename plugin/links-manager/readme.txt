@@ -4,7 +4,7 @@ Tags: seo, links, internal links, external links, link audit
 Requires at least: 5.0
 Tested up to: 6.7
 Requires PHP: 7.2
-Stable tag: 4.4.3
+Stable tag: 4.4.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -52,6 +52,13 @@ When the plugin is deleted from WordPress, it removes plugin options, transient 
 
 == Changelog ==
 
+= 4.4.4 =
+* Removed dynamic cache row caps from the main rebuild, cache persistence, and legacy cache-builder paths so large datasets are no longer cut off by memory-tier row limits.
+* Shifted Pages Link and Links Editor reads further toward indexed datastore fast paths, and kept indexed datasets in sync with refreshed cache payloads.
+* Restored Links Editor updates for content rows discovered through the classic-content fallback so edits no longer fail with "Block target changed" on classic locations.
+* Improved Links Editor export to stream indexed results when supported instead of loading the full filtered dataset into memory first.
+* Clarified All Anchor Text metrics by separating unique anchor totals from usage totals in the summary and results tables.
+
 = 4.4.3 =
 * Changed weak anchor phrase detection to exact-match rules and reduced overly generic default weak phrases.
 * Added a one-time upgrade routine to refresh legacy default weak anchor phrase settings.
@@ -87,8 +94,11 @@ When the plugin is deleted from WordPress, it removes plugin options, transient 
 
 == Upgrade Notice ==
 
+= 4.4.4 =
+Recommended update for large-dataset rebuild stability, indexed read-path improvements, classic-content editor reliability, and clearer anchor-text metrics.
+
 = 4.4.3 =
-Recommended update for improved anchor quality rules, synchronized anchor reporting, Pages Link inbound accuracy, Refresh Data stability, and Gutenberg link extraction.
+Recommended update for improved anchor quality rules, synchronized anchor reporting, large-dataset rebuild stability, editor reliability, Pages Link accuracy, and Gutenberg link extraction.
 
 = 4.4.2 =
 Recommended update for stronger edit authorization and uninstall cleanup.

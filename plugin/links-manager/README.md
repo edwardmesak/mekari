@@ -45,6 +45,14 @@ When deleted from WordPress (not just deactivated), the plugin removes:
 
 ## Changelog
 
+### 4.4.4
+
+- Removed dynamic cache row caps from the main rebuild, cache persistence, and legacy cache-builder paths so large datasets are no longer cut off by memory-tier row limits
+- Shifted Pages Link and Links Editor reads further toward indexed datastore fast paths, and kept indexed datasets in sync with refreshed cache payloads
+- Restored Links Editor updates for content rows discovered through the classic-content fallback so edits no longer fail with `Block target changed` on classic locations
+- Improved Links Editor export to stream indexed results when supported instead of loading the full filtered dataset into memory first
+- Clarified All Anchor Text metrics by separating unique anchor totals from usage totals in the summary and results tables
+
 ### 4.4.3
 
 - Changed weak anchor phrase detection to exact-match rules and reduced overly generic default weak phrases

@@ -4,7 +4,7 @@
  * Description: Manage and analyze all links across your WordPress site with precision. Edit link URLs, anchor texts, and relationship attributes in a user-friendly interface. Identify orphan pages and export link data for SEO audits.
  * Requires at least: 5.0
  * Requires PHP: 7.2
- * Version: 4.4.3
+ * Version: 4.4.4
  * Author: Edward Mesak Dua Padang
  * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
