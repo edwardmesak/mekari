@@ -58,6 +58,10 @@ When the plugin is deleted from WordPress, it removes plugin options, transient 
 * Restored Links Editor updates for content rows discovered through the classic-content fallback so edits no longer fail with "Block target changed" on classic locations.
 * Improved Links Editor export to stream indexed results when supported instead of loading the full filtered dataset into memory first.
 * Clarified All Anchor Text metrics by separating unique anchor totals from usage totals in the summary and results tables.
+* Split Refresh Data finalizing into separate summary-seed and inbound-finalize stages so large-site refreshes complete much faster and with more stable per-step timing.
+* Replaced the heaviest inbound summary finalizing query with chunked normalized-link lookups scoped to the current target batch instead of a broad fact-to-fact self join.
+* Expanded Settings > Troubleshooting with Refresh Diagnostics details for normalized backfill, finalizing stages, query timing, and summary progress to support future performance tuning.
+* Fixed finalizing diagnostics so completed refreshes report authoritative final summary row counts instead of stale stage counters.
 
 = 4.4.3 =
 * Changed weak anchor phrase detection to exact-match rules and reduced overly generic default weak phrases.
@@ -95,7 +99,7 @@ When the plugin is deleted from WordPress, it removes plugin options, transient 
 == Upgrade Notice ==
 
 = 4.4.4 =
-Recommended update for large-dataset rebuild stability, indexed read-path improvements, classic-content editor reliability, and clearer anchor-text metrics.
+Recommended update for large-dataset rebuild stability, much faster Refresh Data finalizing on big sites, classic-content editor reliability, and clearer troubleshooting metrics.
 
 = 4.4.3 =
 Recommended update for improved anchor quality rules, synchronized anchor reporting, large-dataset rebuild stability, editor reliability, Pages Link accuracy, and Gutenberg link extraction.

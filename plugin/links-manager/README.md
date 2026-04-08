@@ -52,6 +52,10 @@ When deleted from WordPress (not just deactivated), the plugin removes:
 - Restored Links Editor updates for content rows discovered through the classic-content fallback so edits no longer fail with `Block target changed` on classic locations
 - Improved Links Editor export to stream indexed results when supported instead of loading the full filtered dataset into memory first
 - Clarified All Anchor Text metrics by separating unique anchor totals from usage totals in the summary and results tables
+- Split Refresh Data finalizing into separate summary-seed and inbound-finalize stages so large-site refreshes complete much faster and with more stable per-step timing
+- Replaced the heaviest inbound summary finalizing query with chunked normalized-link lookups scoped to the current target batch instead of a broad fact-to-fact self join
+- Expanded **Settings > Troubleshooting** with Refresh Diagnostics details for normalized backfill, finalizing stages, query timing, and summary progress
+- Fixed finalizing diagnostics so completed refreshes report authoritative final summary row counts instead of stale stage counters
 
 ### 4.4.3
 
