@@ -59,10 +59,11 @@ trait LM_All_Anchor_Text_Admin_Trait {
     $offset = ($filters['paged'] - 1) * $perPage;
 
     $qualitySummary = [
-      'good' => ['total' => 0, 'inlink' => 0, 'outbound' => 0],
-      'poor' => ['total' => 0, 'inlink' => 0, 'outbound' => 0],
-      'bad' => ['total' => 0, 'inlink' => 0, 'outbound' => 0],
+      'good' => ['anchors' => 0, 'total' => 0, 'inlink' => 0, 'outbound' => 0],
+      'poor' => ['anchors' => 0, 'total' => 0, 'inlink' => 0, 'outbound' => 0],
+      'bad' => ['anchors' => 0, 'total' => 0, 'inlink' => 0, 'outbound' => 0],
     ];
+    $qualityAnchorBase = 0;
     $qualityTotalBase = 0;
     $qualityInlinkBase = 0;
     $qualityOutboundBase = 0;
@@ -70,25 +71,29 @@ trait LM_All_Anchor_Text_Admin_Trait {
       $qualityPack = isset($indexedPaged['quality_summary']) ? $indexedPaged['quality_summary'] : null;
       if (is_array($qualityPack) && isset($qualityPack['summary']) && is_array($qualityPack['summary'])) {
         $qualitySummary = $qualityPack['summary'];
+        $qualityAnchorBase = max(0, (int)($qualityPack['anchor_base'] ?? 0));
         $qualityTotalBase = max(0, (int)($qualityPack['total_base'] ?? 0));
         $qualityInlinkBase = max(0, (int)($qualityPack['inlink_base'] ?? 0));
         $qualityOutboundBase = max(0, (int)($qualityPack['outbound_base'] ?? 0));
       }
     }
-    if (!$usedIndexedPagedFastpath || ($qualityTotalBase === 0 && $qualityInlinkBase === 0 && $qualityOutboundBase === 0 && !empty($rows))) {
+    if (!$usedIndexedPagedFastpath || ($qualityAnchorBase === 0 && $qualityTotalBase === 0 && $qualityInlinkBase === 0 && $qualityOutboundBase === 0 && !empty($rows))) {
       foreach ($rows as $summaryRow) {
         $qKey = isset($summaryRow['quality']) ? (string)$summaryRow['quality'] : 'poor';
         if (!isset($qualitySummary[$qKey])) {
-          $qualitySummary[$qKey] = ['total' => 0, 'inlink' => 0, 'outbound' => 0];
+          $qualitySummary[$qKey] = ['anchors' => 0, 'total' => 0, 'inlink' => 0, 'outbound' => 0];
         }
+        $qualitySummary[$qKey]['anchors'] += 1;
         $qualitySummary[$qKey]['total'] += (int)($summaryRow['total'] ?? 0);
         $qualitySummary[$qKey]['inlink'] += (int)($summaryRow['inlink'] ?? 0);
         $qualitySummary[$qKey]['outbound'] += (int)($summaryRow['outbound'] ?? 0);
       }
+      $qualityAnchorBase = 0;
       $qualityTotalBase = 0;
       $qualityInlinkBase = 0;
       $qualityOutboundBase = 0;
       foreach ($qualitySummary as $qRow) {
+        $qualityAnchorBase += (int)($qRow['anchors'] ?? 0);
         $qualityTotalBase += (int)$qRow['total'];
         $qualityInlinkBase += (int)$qRow['inlink'];
         $qualityOutboundBase += (int)$qRow['outbound'];
@@ -226,7 +231,7 @@ trait LM_All_Anchor_Text_Admin_Trait {
     echo '</div>';
 
     echo '<div class="lm-card lm-card-full lm-stack-sm">';
-    echo '<div style="font-weight:bold;">Total: ' . esc_html((string)$total) . ' anchor texts</div>';
+    echo '<div style="font-weight:bold;">Total Unique Anchor Texts: ' . esc_html((string)$total) . '</div>';
     echo '<div class="lm-small">';
     echo '<strong>Quality rule:</strong> ';
     echo esc_html($this->get_anchor_quality_status_help_text());
@@ -255,24 +260,30 @@ trait LM_All_Anchor_Text_Admin_Trait {
     echo '<table class="widefat striped lm-table">';
     echo '<thead><tr>';
     echo '<th class="lm-col-quality">Quality</th>';
-    echo '<th class="lm-col-count">Total</th>';
+    echo '<th class="lm-col-count">Total Anchors</th>';
     echo '<th class="lm-col-count">%</th>';
-    echo '<th class="lm-col-count">Inlink</th>';
+    echo '<th class="lm-col-count">Total Uses</th>';
     echo '<th class="lm-col-count">%</th>';
-    echo '<th class="lm-col-count">Outbound</th>';
+    echo '<th class="lm-col-count">Inlink Uses</th>';
+    echo '<th class="lm-col-count">%</th>';
+    echo '<th class="lm-col-count">Outbound Uses</th>';
     echo '<th class="lm-col-count">%</th>';
     echo '</tr></thead><tbody>';
 
     foreach (['good' => 'Good', 'poor' => 'Poor', 'bad' => 'Bad'] as $qualityKey => $qualityLabel) {
+      $rowAnchors = (int)($qualitySummary[$qualityKey]['anchors'] ?? 0);
       $rowTotal = (int)($qualitySummary[$qualityKey]['total'] ?? 0);
       $rowInlink = (int)($qualitySummary[$qualityKey]['inlink'] ?? 0);
       $rowOutbound = (int)($qualitySummary[$qualityKey]['outbound'] ?? 0);
+      $pctAnchors = $qualityAnchorBase > 0 ? (($rowAnchors / $qualityAnchorBase) * 100) : 0;
       $pctTotal = $qualityTotalBase > 0 ? (($rowTotal / $qualityTotalBase) * 100) : 0;
       $pctInlink = $qualityInlinkBase > 0 ? (($rowInlink / $qualityInlinkBase) * 100) : 0;
       $pctOutbound = $qualityOutboundBase > 0 ? (($rowOutbound / $qualityOutboundBase) * 100) : 0;
 
       echo '<tr>';
       echo '<td class="lm-col-quality">' . esc_html($qualityLabel) . '</td>';
+      echo '<td class="lm-col-count" style="text-align:center;">' . esc_html((string)$rowAnchors) . '</td>';
+      echo '<td class="lm-col-count" style="text-align:center;">' . esc_html(number_format((float)$pctAnchors, 1)) . '%</td>';
       echo '<td class="lm-col-count" style="text-align:center;">' . esc_html((string)$rowTotal) . '</td>';
       echo '<td class="lm-col-count" style="text-align:center;">' . esc_html(number_format((float)$pctTotal, 1)) . '%</td>';
       echo '<td class="lm-col-count" style="text-align:center;">' . esc_html((string)$rowInlink) . '</td>';
@@ -296,9 +307,9 @@ trait LM_All_Anchor_Text_Admin_Trait {
     echo $this->table_header_with_tooltip('lm-col-postid', '#', 'Row number in current result page.', 'left');
     echo $this->table_header_with_tooltip('lm-col-anchor', 'Anchor Text', 'Visible anchor text used in links.');
     echo $this->table_header_with_tooltip('lm-col-quality', 'Quality', 'Anchor quality based on weak phrase and length rules.');
-    echo $this->table_header_with_tooltip('lm-col-count', 'Total', 'Total number of uses for this anchor text.');
-    echo $this->table_header_with_tooltip('lm-col-count', 'Inlink', 'Count where this anchor points to internal URLs.');
-    echo $this->table_header_with_tooltip('lm-col-count', 'Outbound', 'Count where this anchor points to external URLs.');
+    echo $this->table_header_with_tooltip('lm-col-count', 'Total Uses', 'Total number of uses for this anchor text.');
+    echo $this->table_header_with_tooltip('lm-col-count', 'Inlink Uses', 'Count where this anchor points to internal URLs.');
+    echo $this->table_header_with_tooltip('lm-col-count', 'Outbound Uses', 'Count where this anchor points to external URLs.');
     echo $this->table_header_with_tooltip('lm-col-count', 'Unique Source Pages', 'Number of unique source pages using this anchor.');
     echo $this->table_header_with_tooltip('lm-col-count', 'Unique Destination URLs', 'Number of unique destination URLs linked by this anchor.');
     echo $this->table_header_with_tooltip('lm-col-source', 'Source Types', 'Where links were found: content, excerpt, meta, or menu.');

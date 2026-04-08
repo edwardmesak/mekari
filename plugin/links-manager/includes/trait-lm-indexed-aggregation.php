@@ -568,10 +568,11 @@ trait LM_Indexed_Aggregation_Trait {
     $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
 
     $summary = [
-      'good' => ['total' => 0, 'inlink' => 0, 'outbound' => 0],
-      'poor' => ['total' => 0, 'inlink' => 0, 'outbound' => 0],
-      'bad' => ['total' => 0, 'inlink' => 0, 'outbound' => 0],
+      'good' => ['anchors' => 0, 'total' => 0, 'inlink' => 0, 'outbound' => 0],
+      'poor' => ['anchors' => 0, 'total' => 0, 'inlink' => 0, 'outbound' => 0],
+      'bad' => ['anchors' => 0, 'total' => 0, 'inlink' => 0, 'outbound' => 0],
     ];
+    $anchorBase = 0;
     $totalBase = 0;
     $inlinkBase = 0;
     $outboundBase = 0;
@@ -579,14 +580,16 @@ trait LM_Indexed_Aggregation_Trait {
     foreach ((array)$rows as $row) {
       $quality = $this->get_anchor_quality_label((string)($row['anchor_text'] ?? ''));
       if (!isset($summary[$quality])) {
-        $summary[$quality] = ['total' => 0, 'inlink' => 0, 'outbound' => 0];
+        $summary[$quality] = ['anchors' => 0, 'total' => 0, 'inlink' => 0, 'outbound' => 0];
       }
       $rowTotal = (int)($row['total'] ?? 0);
       $rowInlink = (int)($row['inlink'] ?? 0);
       $rowOutbound = (int)($row['outbound'] ?? 0);
+      $summary[$quality]['anchors']++;
       $summary[$quality]['total'] += $rowTotal;
       $summary[$quality]['inlink'] += $rowInlink;
       $summary[$quality]['outbound'] += $rowOutbound;
+      $anchorBase++;
       $totalBase += $rowTotal;
       $inlinkBase += $rowInlink;
       $outboundBase += $rowOutbound;
@@ -594,6 +597,7 @@ trait LM_Indexed_Aggregation_Trait {
 
     return [
       'summary' => $summary,
+      'anchor_base' => $anchorBase,
       'total_base' => $totalBase,
       'inlink_base' => $inlinkBase,
       'outbound_base' => $outboundBase,
