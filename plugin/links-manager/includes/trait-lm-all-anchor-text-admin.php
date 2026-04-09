@@ -78,26 +78,12 @@ trait LM_All_Anchor_Text_Admin_Trait {
       }
     }
     if (!$usedIndexedPagedFastpath || ($qualityAnchorBase === 0 && $qualityTotalBase === 0 && $qualityInlinkBase === 0 && $qualityOutboundBase === 0 && !empty($rows))) {
-      foreach ($rows as $summaryRow) {
-        $qKey = isset($summaryRow['quality']) ? (string)$summaryRow['quality'] : 'poor';
-        if (!isset($qualitySummary[$qKey])) {
-          $qualitySummary[$qKey] = ['anchors' => 0, 'total' => 0, 'inlink' => 0, 'outbound' => 0];
-        }
-        $qualitySummary[$qKey]['anchors'] += 1;
-        $qualitySummary[$qKey]['total'] += (int)($summaryRow['total'] ?? 0);
-        $qualitySummary[$qKey]['inlink'] += (int)($summaryRow['inlink'] ?? 0);
-        $qualitySummary[$qKey]['outbound'] += (int)($summaryRow['outbound'] ?? 0);
-      }
-      $qualityAnchorBase = 0;
-      $qualityTotalBase = 0;
-      $qualityInlinkBase = 0;
-      $qualityOutboundBase = 0;
-      foreach ($qualitySummary as $qRow) {
-        $qualityAnchorBase += (int)($qRow['anchors'] ?? 0);
-        $qualityTotalBase += (int)$qRow['total'];
-        $qualityInlinkBase += (int)$qRow['inlink'];
-        $qualityOutboundBase += (int)$qRow['outbound'];
-      }
+      $qualityPack = $this->build_anchor_quality_summary_from_summary_rows($rows);
+      $qualitySummary = (array)($qualityPack['summary'] ?? $qualitySummary);
+      $qualityAnchorBase = max(0, (int)($qualityPack['anchor_base'] ?? 0));
+      $qualityTotalBase = max(0, (int)($qualityPack['total_base'] ?? 0));
+      $qualityInlinkBase = max(0, (int)($qualityPack['inlink_base'] ?? 0));
+      $qualityOutboundBase = max(0, (int)($qualityPack['outbound_base'] ?? 0));
     }
 
     echo '<div class="wrap lm-wrap">';

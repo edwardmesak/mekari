@@ -252,14 +252,13 @@ trait LM_Dashboard_Stats_Trait {
     ];
 
     $rows = $this->build_all_anchor_text_rows($all, $summaryFilters);
-    $buckets = ['good' => 0, 'poor' => 0, 'bad' => 0];
-    foreach ((array)$rows as $row) {
-      $quality = isset($row['quality']) ? (string)$row['quality'] : 'poor';
-      if (!isset($buckets[$quality])) {
-        $buckets[$quality] = 0;
-      }
-      $buckets[$quality] += (int)($row['total'] ?? 0);
-    }
+    $qualityPack = $this->build_anchor_quality_summary_from_summary_rows($rows);
+    $qualitySummary = (array)($qualityPack['summary'] ?? []);
+    $buckets = [
+      'good' => (int)($qualitySummary['good']['anchors'] ?? 0),
+      'poor' => (int)($qualitySummary['poor']['anchors'] ?? 0),
+      'bad' => (int)($qualitySummary['bad']['anchors'] ?? 0),
+    ];
 
     return $buckets;
   }

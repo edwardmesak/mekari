@@ -648,4 +648,45 @@ trait LM_Summary_Builders_Trait {
 
     return $rows;
   }
+
+  private function build_anchor_quality_summary_from_summary_rows($rows) {
+    $summary = [
+      'good' => ['anchors' => 0, 'total' => 0, 'inlink' => 0, 'outbound' => 0],
+      'poor' => ['anchors' => 0, 'total' => 0, 'inlink' => 0, 'outbound' => 0],
+      'bad' => ['anchors' => 0, 'total' => 0, 'inlink' => 0, 'outbound' => 0],
+    ];
+
+    $anchorBase = 0;
+    $totalBase = 0;
+    $inlinkBase = 0;
+    $outboundBase = 0;
+
+    foreach ((array)$rows as $summaryRow) {
+      $quality = isset($summaryRow['quality']) ? (string)$summaryRow['quality'] : 'poor';
+      if (!isset($summary[$quality])) {
+        $summary[$quality] = ['anchors' => 0, 'total' => 0, 'inlink' => 0, 'outbound' => 0];
+      }
+
+      $rowTotal = (int)($summaryRow['total'] ?? 0);
+      $rowInlink = (int)($summaryRow['inlink'] ?? 0);
+      $rowOutbound = (int)($summaryRow['outbound'] ?? 0);
+
+      $summary[$quality]['anchors']++;
+      $summary[$quality]['total'] += $rowTotal;
+      $summary[$quality]['inlink'] += $rowInlink;
+      $summary[$quality]['outbound'] += $rowOutbound;
+      $anchorBase++;
+      $totalBase += $rowTotal;
+      $inlinkBase += $rowInlink;
+      $outboundBase += $rowOutbound;
+    }
+
+    return [
+      'summary' => $summary,
+      'anchor_base' => $anchorBase,
+      'total_base' => $totalBase,
+      'inlink_base' => $inlinkBase,
+      'outbound_base' => $outboundBase,
+    ];
+  }
 }
