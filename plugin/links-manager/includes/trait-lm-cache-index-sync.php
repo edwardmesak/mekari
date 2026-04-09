@@ -127,6 +127,7 @@ trait LM_Cache_Index_Sync_Trait {
       $postTitle = sanitize_text_field((string)($row['post_title'] ?? ''));
       $postType = sanitize_key((string)($row['post_type'] ?? ''));
       $postAuthor = sanitize_text_field((string)($row['post_author'] ?? ''));
+      $postAuthorId = isset($row['post_author_id']) ? max(0, (int)$row['post_author_id']) : 0;
       $postDate = $this->normalize_db_datetime_or_null($row['post_date'] ?? '');
       $postModified = $this->normalize_db_datetime_or_null($row['post_modified'] ?? '');
       $pageUrl = esc_url_raw((string)($row['page_url'] ?? ''));
@@ -156,6 +157,7 @@ trait LM_Cache_Index_Sync_Trait {
         'post_title' => $postTitle,
         'post_type' => $postType,
         'post_author' => $postAuthor,
+        'post_author_id' => $postAuthorId,
         'post_date' => $postDate,
         'post_modified' => $postModified,
         'page_url' => $pageUrl,
@@ -342,6 +344,7 @@ trait LM_Cache_Index_Sync_Trait {
       MAX(fact.post_title) AS post_title,
       MAX(fact.post_type) AS post_type,
       MAX(fact.post_author) AS post_author,
+      MAX(fact.post_author_id) AS post_author_id,
       MAX(fact.post_date) AS post_date,
       MAX(fact.post_modified) AS post_modified,
       MAX(fact.page_url) AS page_url,
@@ -366,6 +369,7 @@ trait LM_Cache_Index_Sync_Trait {
         'post_title' => sanitize_text_field((string)($row['post_title'] ?? '')),
         'post_type' => sanitize_key((string)($row['post_type'] ?? '')),
         'post_author' => sanitize_text_field((string)($row['post_author'] ?? '')),
+        'post_author_id' => max(0, (int)($row['post_author_id'] ?? 0)),
         'post_date' => $this->normalize_db_datetime_or_null($row['post_date'] ?? ''),
         'post_modified' => $this->normalize_db_datetime_or_null($row['post_modified'] ?? ''),
         'page_url' => esc_url_raw((string)($row['page_url'] ?? '')),
@@ -520,6 +524,7 @@ trait LM_Cache_Index_Sync_Trait {
         'post_title' => sanitize_text_field((string)($postData['post_title'] ?? '')),
         'post_type' => sanitize_key((string)($postData['post_type'] ?? '')),
         'post_author' => sanitize_text_field((string)($postData['author_name'] ?? '')),
+        'post_author_id' => max(0, (int)($postData['author_id'] ?? 0)),
         'post_date' => $this->normalize_db_datetime_or_null($postData['post_date'] ?? ''),
         'post_modified' => $this->normalize_db_datetime_or_null($postData['post_modified'] ?? ''),
         'page_url' => esc_url_raw((string)($postData['page_url'] ?? '')),
@@ -644,6 +649,7 @@ trait LM_Cache_Index_Sync_Trait {
       'post_title',
       'post_type',
       'post_author',
+      'post_author_id',
       'post_date',
       'post_modified',
       'page_url',
@@ -680,13 +686,14 @@ trait LM_Cache_Index_Sync_Trait {
     $valuesSql = [];
     $params = [];
     foreach ($batch as $row) {
-      $rowPlaceholders = ['%s','%s','%d','%s','%s','%s','%s','%s','%s'];
+      $rowPlaceholders = ['%s','%s','%d','%s','%s','%s','%d','%s','%s','%s'];
       $params[] = (string)($row['wpml_lang'] ?? 'all');
       $params[] = (string)($row['row_id'] ?? '');
       $params[] = (int)($row['post_id'] ?? 0);
       $params[] = (string)($row['post_title'] ?? '');
       $params[] = (string)($row['post_type'] ?? '');
       $params[] = (string)($row['post_author'] ?? '');
+      $params[] = (int)($row['post_author_id'] ?? 0);
       $params[] = $row['post_date'];
       $params[] = $row['post_modified'];
       $params[] = (string)($row['page_url'] ?? '');
@@ -727,6 +734,7 @@ trait LM_Cache_Index_Sync_Trait {
       'post_title=VALUES(post_title)',
       'post_type=VALUES(post_type)',
       'post_author=VALUES(post_author)',
+      'post_author_id=VALUES(post_author_id)',
       'post_date=VALUES(post_date)',
       'post_modified=VALUES(post_modified)',
       'page_url=VALUES(page_url)',
@@ -778,12 +786,13 @@ trait LM_Cache_Index_Sync_Trait {
     $valuesSql = [];
     $params = [];
     foreach ($batch as $row) {
-      $valuesSql[] = '(%s,%d,%s,%s,%s,%s,%s,%s,%d,%d,%d)';
+      $valuesSql[] = '(%s,%d,%s,%s,%s,%d,%s,%s,%s,%d,%d,%d)';
       $params[] = (string)($row['wpml_lang'] ?? 'all');
       $params[] = (int)($row['post_id'] ?? 0);
       $params[] = (string)($row['post_title'] ?? '');
       $params[] = (string)($row['post_type'] ?? '');
       $params[] = (string)($row['post_author'] ?? '');
+      $params[] = (int)($row['post_author_id'] ?? 0);
       $params[] = $row['post_date'];
       $params[] = $row['post_modified'];
       $params[] = (string)($row['page_url'] ?? '');
@@ -793,12 +802,13 @@ trait LM_Cache_Index_Sync_Trait {
     }
 
     $sql = "INSERT INTO $table (
-      wpml_lang,post_id,post_title,post_type,post_author,post_date,post_modified,page_url,inbound,internal_outbound,outbound
+      wpml_lang,post_id,post_title,post_type,post_author,post_author_id,post_date,post_modified,page_url,inbound,internal_outbound,outbound
     ) VALUES " . implode(',', $valuesSql) . "
     ON DUPLICATE KEY UPDATE
       post_title=VALUES(post_title),
       post_type=VALUES(post_type),
       post_author=VALUES(post_author),
+      post_author_id=VALUES(post_author_id),
       post_date=VALUES(post_date),
       post_modified=VALUES(post_modified),
       page_url=VALUES(page_url),

@@ -406,7 +406,7 @@ trait LM_Action_Handlers_Trait {
     $filters['value_contains'] = '';
     $filters['source_contains'] = '';
     $filters['title_contains'] = '';
-    $filters['author_contains'] = '';
+    $filters['author'] = 0;
     $filters['publish_date_from'] = '';
     $filters['publish_date_to'] = '';
     $filters['updated_date_from'] = '';

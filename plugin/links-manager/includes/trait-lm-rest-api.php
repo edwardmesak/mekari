@@ -933,7 +933,7 @@ trait LM_REST_API_Trait {
       'value_contains' => '',
       'source_contains' => '',
       'title_contains' => '',
-      'author_contains' => '',
+      'author' => 0,
       'seo_flag' => 'any',
       'search_mode' => 'contains',
     ];
@@ -995,7 +995,7 @@ trait LM_REST_API_Trait {
       foreach (array_chunk($rowIds, 500) as $chunk) {
         $placeholders = implode(',', array_fill(0, count($chunk), '%s'));
         $sql = "SELECT
-          row_id, post_id, post_title, post_type, post_author, post_date, post_modified,
+          row_id, post_id, post_title, post_type, post_author, post_author_id, post_date, post_modified,
           page_url, source, link_location, block_index, occurrence, link_type, link, anchor_text,
           alt_text, snippet, rel_raw, relationship, rel_nofollow, rel_sponsored, rel_ugc, value_type
           FROM $table
@@ -1011,6 +1011,7 @@ trait LM_REST_API_Trait {
             'post_title' => (string)($row['post_title'] ?? ''),
             'post_type' => (string)($row['post_type'] ?? ''),
             'post_author' => (string)($row['post_author'] ?? ''),
+            'post_author_id' => (string)((int)($row['post_author_id'] ?? 0)),
             'post_date' => (string)($row['post_date'] ?? ''),
             'post_modified' => (string)($row['post_modified'] ?? ''),
             'page_url' => (string)($row['page_url'] ?? ''),

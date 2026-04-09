@@ -15,6 +15,7 @@ trait LM_Cited_Domains_Admin_Trait {
     $exportUrl = $this->build_cited_domains_export_url($filters);
     $postCategoryOptions = $this->get_post_term_options('category');
     $postTagOptions = $this->get_post_term_options('post_tag');
+    $authorOptions = $this->get_scan_author_options();
 
     $rows = [];
     $total = 0;
@@ -99,7 +100,12 @@ trait LM_Cited_Domains_Admin_Trait {
     echo '<tr><th scope="row">' . esc_html__('Search Destination URL', 'links-manager') . '</th><td><input type="text" name="lm_cd_value" value="' . esc_attr($filters['value_contains']) . '" class="regular-text" placeholder="example.com / /contact" /></td></tr>';
     echo '<tr><th scope="row">' . esc_html__('Search Source URL', 'links-manager') . '</th><td><input type="text" name="lm_cd_source" value="' . esc_attr($filters['source_contains']) . '" class="regular-text" placeholder="/category /slug" /></td></tr>';
     echo '<tr><th scope="row">' . esc_html__('Search Title', 'links-manager') . '</th><td><input type="text" name="lm_cd_title" value="' . esc_attr($filters['title_contains']) . '" class="regular-text" placeholder="post title" /></td></tr>';
-    echo '<tr><th scope="row">' . esc_html__('Search Author', 'links-manager') . '</th><td><input type="text" name="lm_cd_author" value="' . esc_attr($filters['author_contains']) . '" class="regular-text" placeholder="author" /></td></tr>';
+    echo '<tr><th scope="row">' . esc_html__('Author', 'links-manager') . '</th><td><select name="lm_cd_author">';
+    echo '<option value="0"' . selected((int)($filters['author'] ?? 0), 0, false) . '>All</option>';
+    foreach ($authorOptions as $authorId => $authorLabel) {
+      echo '<option value="' . esc_attr((string)$authorId) . '"' . selected((int)($filters['author'] ?? 0), (int)$authorId, false) . '>' . esc_html((string)$authorLabel) . '</option>';
+    }
+    echo '</select></td></tr>';
     echo '<tr><th scope="row">' . esc_html__('Search Anchor Text', 'links-manager') . '</th><td><input type="text" name="lm_cd_anchor" value="' . esc_attr($filters['anchor_contains']) . '" class="regular-text" placeholder="anchor keyword" /></td></tr>';
     echo '<tr><th scope="row">' . esc_html__('Search Domain', 'links-manager') . '</th><td><input type="text" name="lm_cd_search" value="' . esc_attr($filters['search']) . '" class="regular-text" placeholder="example.com" /></td></tr>';
     echo '<tr><th scope="row">Text Search Mode</th><td><select name="lm_cd_search_mode">';

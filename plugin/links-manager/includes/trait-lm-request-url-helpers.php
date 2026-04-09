@@ -74,7 +74,7 @@ trait LM_Request_URL_Helpers_Trait {
       'value_contains' => 'lm_value',
       'source_contains' => 'lm_source',
       'title_contains' => 'lm_title',
-      'author_contains' => 'lm_author',
+      'author' => 'lm_author',
       'publish_date_from' => 'lm_publish_date_from',
       'publish_date_to' => 'lm_publish_date_to',
       'updated_date_from' => 'lm_updated_date_from',
@@ -138,7 +138,7 @@ trait LM_Request_URL_Helpers_Trait {
       'lm_value' => $filters['value_contains'],
       'lm_source' => $filters['source_contains'],
       'lm_title' => $filters['title_contains'],
-      'lm_author' => $filters['author_contains'],
+      'lm_author' => isset($filters['author']) ? (int)$filters['author'] : 0,
       'lm_publish_date_from' => isset($filters['publish_date_from']) ? $filters['publish_date_from'] : '',
       'lm_publish_date_to' => isset($filters['publish_date_to']) ? $filters['publish_date_to'] : '',
       'lm_updated_date_from' => isset($filters['updated_date_from']) ? $filters['updated_date_from'] : '',
@@ -289,7 +289,7 @@ trait LM_Request_URL_Helpers_Trait {
       'value_contains' => 'lm_cd_value',
       'source_contains' => 'lm_cd_source',
       'title_contains' => 'lm_cd_title',
-      'author_contains' => 'lm_cd_author',
+      'author' => 'lm_cd_author',
       'anchor_contains' => 'lm_cd_anchor',
       'seo_flag' => 'lm_cd_seo_flag',
       'min_cites' => 'lm_cd_min_cites',
@@ -318,7 +318,7 @@ trait LM_Request_URL_Helpers_Trait {
       'lm_cd_value' => $filters['value_contains'],
       'lm_cd_source' => $filters['source_contains'],
       'lm_cd_title' => $filters['title_contains'],
-      'lm_cd_author' => $filters['author_contains'],
+      'lm_cd_author' => isset($filters['author']) ? (int)$filters['author'] : 0,
       'lm_cd_anchor' => $filters['anchor_contains'],
       'lm_cd_seo_flag' => $filters['seo_flag'],
       'lm_cd_min_cites' => $filters['min_cites'],
@@ -350,7 +350,7 @@ trait LM_Request_URL_Helpers_Trait {
       'value_contains' => 'lm_at_value',
       'source_contains' => 'lm_at_source',
       'title_contains' => 'lm_at_title',
-      'author_contains' => 'lm_at_author',
+      'author' => 'lm_at_author',
       'seo_flag' => 'lm_at_seo_flag',
       'usage_type' => 'lm_at_usage_type',
       'quality' => 'lm_at_quality',
@@ -388,7 +388,7 @@ trait LM_Request_URL_Helpers_Trait {
       'lm_at_value' => $filters['value_contains'],
       'lm_at_source' => $filters['source_contains'],
       'lm_at_title' => $filters['title_contains'],
-      'lm_at_author' => $filters['author_contains'],
+      'lm_at_author' => isset($filters['author']) ? (int)$filters['author'] : 0,
       'lm_at_seo_flag' => $filters['seo_flag'],
       'lm_at_usage_type' => $filters['usage_type'],
       'lm_at_quality' => $filters['quality'],
@@ -621,6 +621,7 @@ trait LM_Request_URL_Helpers_Trait {
     $postCategory = $this->request_has($postCategoryParam) ? $this->sanitize_post_term_filter($this->request_raw($postCategoryParam, 0), 'category') : 0;
     $postTag = $this->request_has($postTagParam) ? $this->sanitize_post_term_filter($this->request_raw($postTagParam, 0), 'post_tag') : 0;
     $wpmlLang = $this->sanitize_wpml_lang_filter($this->get_wpml_current_language());
+    $author = $this->sanitize_author_filter_id($this->request_int($paramMap['author'], 0));
     if ($postType !== 'any' && $postType !== 'post') {
       $postCategory = 0;
       $postTag = 0;
@@ -638,7 +639,7 @@ trait LM_Request_URL_Helpers_Trait {
       'value_contains' => $this->request_text($paramMap['value_contains'], ''),
       'source_contains' => $this->request_text($paramMap['source_contains'], ''),
       'title_contains' => $this->request_text($paramMap['title_contains'], ''),
-      'author_contains' => $this->request_text($paramMap['author_contains'], ''),
+      'author' => $author,
       'publish_date_from' => $this->request_date_ymd($paramMap['publish_date_from'], ''),
       'publish_date_to' => $this->request_date_ymd($paramMap['publish_date_to'], ''),
       'updated_date_from' => $this->request_date_ymd($paramMap['updated_date_from'], ''),
@@ -704,8 +705,7 @@ trait LM_Request_URL_Helpers_Trait {
       $postTag = 0;
     }
 
-    $author = $this->request_int($paramMap['author'], 0);
-    if ($author < 0) $author = 0;
+    $author = $this->sanitize_author_filter_id($this->request_int($paramMap['author'], 0));
 
     $search = $this->request_text($paramMap['search'], '');
     $search_url = $this->request_text($paramMap['search_url'], '');
@@ -873,7 +873,7 @@ trait LM_Request_URL_Helpers_Trait {
       'value_contains' => $this->request_text($paramMap['value_contains'], ''),
       'source_contains' => $this->request_text($paramMap['source_contains'], ''),
       'title_contains' => $this->request_text($paramMap['title_contains'], ''),
-      'author_contains' => $this->request_text($paramMap['author_contains'], ''),
+      'author' => $this->sanitize_author_filter_id($this->request_int($paramMap['author'], 0)),
       'anchor_contains' => $this->request_text($paramMap['anchor_contains'], ''),
       'seo_flag' => $this->request_text($paramMap['seo_flag'], 'any'),
       'min_cites' => max(0, $this->request_int_or_default($paramMap['min_cites'], 0, 0)),
@@ -925,7 +925,7 @@ trait LM_Request_URL_Helpers_Trait {
       'value_contains' => $this->request_text($paramMap['value_contains'], ''),
       'source_contains' => $this->request_text($paramMap['source_contains'], ''),
       'title_contains' => $this->request_text($paramMap['title_contains'], ''),
-      'author_contains' => $this->request_text($paramMap['author_contains'], ''),
+      'author' => $this->sanitize_author_filter_id($this->request_int($paramMap['author'], 0)),
       'seo_flag' => $this->request_text($paramMap['seo_flag'], 'any'),
       'usage_type' => $this->request_text($paramMap['usage_type'], 'any'),
       'quality' => $this->request_text($paramMap['quality'], 'any'),

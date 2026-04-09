@@ -229,7 +229,7 @@ trait LM_Dashboard_Stats_Trait {
       'value_contains' => isset($filters['value_contains']) ? (string)$filters['value_contains'] : '',
       'source_contains' => isset($filters['source_contains']) ? (string)$filters['source_contains'] : '',
       'title_contains' => isset($filters['title_contains']) ? (string)$filters['title_contains'] : '',
-      'author_contains' => isset($filters['author_contains']) ? (string)$filters['author_contains'] : '',
+      'author' => isset($filters['author']) ? (int)$filters['author'] : 0,
       'seo_flag' => isset($filters['seo_flag']) ? (string)$filters['seo_flag'] : 'any',
       'usage_type' => 'any',
       'quality' => 'any',

@@ -40,7 +40,7 @@ trait LM_Indexed_Aggregation_Trait {
       'value_contains' => isset($filters['value_contains']) ? (string)$filters['value_contains'] : '',
       'source_contains' => isset($filters['source_contains']) ? (string)$filters['source_contains'] : '',
       'title_contains' => isset($filters['title_contains']) ? (string)$filters['title_contains'] : '',
-      'author_contains' => isset($filters['author_contains']) ? (string)$filters['author_contains'] : '',
+      'author' => isset($filters['author']) ? (int)$filters['author'] : 0,
       'anchor_contains' => isset($filters['anchor_contains'])
         ? (string)$filters['anchor_contains']
         : (isset($filters['search']) ? (string)$filters['search'] : ''),
@@ -146,8 +146,13 @@ trait LM_Indexed_Aggregation_Trait {
     $this->append_indexed_text_match_clause($whereParts, $params, 'link', (string)($filters['value_contains'] ?? ''), $textMode);
     $this->append_indexed_text_match_clause($whereParts, $params, 'page_url', (string)($filters['source_contains'] ?? ''), $textMode);
     $this->append_indexed_text_match_clause($whereParts, $params, 'post_title', (string)($filters['title_contains'] ?? ''), $textMode);
-    $this->append_indexed_text_match_clause($whereParts, $params, 'post_author', (string)($filters['author_contains'] ?? ''), $textMode);
     $this->append_indexed_text_match_clause($whereParts, $params, 'anchor_text', (string)($filters['anchor_contains'] ?? ''), $textMode);
+    $this->append_indexed_author_filter_clause(
+      $whereParts,
+      $params,
+      isset($filters['author']) ? (int)$filters['author'] : 0,
+      $this->get_author_filter_display_name(isset($filters['author']) ? (int)$filters['author'] : 0)
+    );
 
     $publishDateFrom = trim((string)($filters['publish_date_from'] ?? ''));
     $publishDateTo = trim((string)($filters['publish_date_to'] ?? ''));

@@ -110,7 +110,7 @@ trait LM_Summary_Builders_Trait {
     $anchorContains = $filters['anchor_contains'];
     $altContains = $filters['alt_contains'];
     $titleContains = isset($filters['title_contains']) ? $filters['title_contains'] : '';
-    $authorContains = isset($filters['author_contains']) ? $filters['author_contains'] : '';
+    $authorId = isset($filters['author']) ? (int)$filters['author'] : 0;
     $publishDateFrom = isset($filters['publish_date_from']) ? (string)$filters['publish_date_from'] : '';
     $publishDateTo = isset($filters['publish_date_to']) ? (string)$filters['publish_date_to'] : '';
     $updatedDateFrom = isset($filters['updated_date_from']) ? (string)$filters['updated_date_from'] : '';
@@ -130,7 +130,7 @@ trait LM_Summary_Builders_Trait {
     $hasValueContains = $valueContains !== '';
     $hasSourceContains = $sourceContains !== '';
     $hasTitleContains = $titleContains !== '';
-    $hasAuthorContains = $authorContains !== '';
+    $authorOptions = $authorId > 0 ? $this->get_scan_author_options() : null;
     $hasAnchorContains = $anchorContains !== '';
     $hasAltContains = $altContains !== '';
     $hasRelContains = $relContains !== '';
@@ -154,7 +154,7 @@ trait LM_Summary_Builders_Trait {
       if ($hasValueContains && !$this->text_matches((string)$row['link'], $valueContains, $textMode)) continue;
       if ($hasSourceContains && !$this->text_matches((string)$row['page_url'], $sourceContains, $textMode)) continue;
       if ($hasTitleContains && !$this->text_matches((string)$row['post_title'], $titleContains, $textMode)) continue;
-      if ($hasAuthorContains && !$this->text_matches((string)$row['post_author'], $authorContains, $textMode)) continue;
+      if (!$this->row_matches_author_filter($row, $authorId, $authorOptions)) continue;
 
       $postDate = substr((string)($row['post_date'] ?? ''), 0, 10);
       if ($hasPublishDateFrom && ($postDate === '' || $postDate < $publishDateFrom)) continue;
@@ -346,7 +346,7 @@ trait LM_Summary_Builders_Trait {
         if ((string)($filters['value_contains'] ?? '') !== '' && !$this->text_matches((string)($row['link'] ?? ''), (string)$filters['value_contains'], $textMode)) continue;
         if ((string)($filters['source_contains'] ?? '') !== '' && !$this->text_matches((string)($row['page_url'] ?? ''), (string)$filters['source_contains'], $textMode)) continue;
         if ((string)($filters['title_contains'] ?? '') !== '' && !$this->text_matches((string)($row['post_title'] ?? ''), (string)$filters['title_contains'], $textMode)) continue;
-        if ((string)($filters['author_contains'] ?? '') !== '' && !$this->text_matches((string)($row['post_author'] ?? ''), (string)$filters['author_contains'], $textMode)) continue;
+        if (!$this->row_matches_author_filter($row, isset($filters['author']) ? (int)$filters['author'] : 0)) continue;
         if ((string)($filters['anchor_contains'] ?? '') !== '' && !$this->text_matches((string)($row['anchor_text'] ?? ''), (string)$filters['anchor_contains'], $textMode)) continue;
 
         $seoFlag = (string)($filters['seo_flag'] ?? 'any');
@@ -496,7 +496,7 @@ trait LM_Summary_Builders_Trait {
         if ((string)($filters['value_contains'] ?? '') !== '' && !$this->text_matches((string)($row['link'] ?? ''), (string)$filters['value_contains'], $textMode)) continue;
         if ((string)($filters['source_contains'] ?? '') !== '' && !$this->text_matches((string)($row['page_url'] ?? ''), (string)$filters['source_contains'], $textMode)) continue;
         if ((string)($filters['title_contains'] ?? '') !== '' && !$this->text_matches((string)($row['post_title'] ?? ''), (string)$filters['title_contains'], $textMode)) continue;
-        if ((string)($filters['author_contains'] ?? '') !== '' && !$this->text_matches((string)($row['post_author'] ?? ''), (string)$filters['author_contains'], $textMode)) continue;
+        if (!$this->row_matches_author_filter($row, isset($filters['author']) ? (int)$filters['author'] : 0)) continue;
 
         $seoFlag = (string)($filters['seo_flag'] ?? 'any');
         if ($seoFlag !== 'any') {

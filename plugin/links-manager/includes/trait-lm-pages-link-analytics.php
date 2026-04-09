@@ -683,6 +683,7 @@ trait LM_Pages_Link_Analytics_Trait {
       $postDataMap[$pidKey] = [
         'post_title' => isset($postRow->post_title) ? (string)$postRow->post_title : '',
         'post_type' => isset($postRow->post_type) ? (string)$postRow->post_type : '',
+        'author_id' => $authorId,
         'author_name' => isset($authorMap[$authorId]) ? (string)$authorMap[$authorId] : '',
         'post_date' => isset($postRow->post_date) ? (string)$postRow->post_date : '',
         'post_modified' => isset($postRow->post_modified) ? (string)$postRow->post_modified : '',

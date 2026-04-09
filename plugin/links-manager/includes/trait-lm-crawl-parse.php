@@ -538,6 +538,7 @@ trait LM_Crawl_Parse_Trait {
       'post_date' => isset($post->post_date) ? (string)$post->post_date : '',
       'post_modified' => isset($post->post_modified) ? (string)$post->post_modified : '',
       'post_author' => (string)$author,
+      'post_author_id' => (string)((int)($post->post_author ?? 0)),
       'page_url' => (string)$pageUrl,
     ];
 
@@ -678,6 +679,7 @@ trait LM_Crawl_Parse_Trait {
       'post_date' => '',
       'post_modified' => '',
       'post_author' => '',
+      'post_author_id' => '0',
       'page_url' => '',
     ];
 

@@ -192,6 +192,69 @@ trait LM_Scan_Config_Helpers_Trait {
     return $users;
   }
 
+  private function sanitize_author_filter_id($authorId, $authorOptions = null) {
+    $authorId = (int)$authorId;
+    if ($authorId <= 0) {
+      return 0;
+    }
+
+    if (!is_array($authorOptions)) {
+      $authorOptions = $this->get_scan_author_options();
+    }
+
+    return isset($authorOptions[$authorId]) ? $authorId : 0;
+  }
+
+  private function get_author_filter_display_name($authorId, $authorOptions = null) {
+    $authorId = $this->sanitize_author_filter_id($authorId, $authorOptions);
+    if ($authorId <= 0) {
+      return '';
+    }
+
+    if (!is_array($authorOptions)) {
+      $authorOptions = $this->get_scan_author_options();
+    }
+
+    return isset($authorOptions[$authorId]) ? (string)$authorOptions[$authorId] : '';
+  }
+
+  private function append_indexed_author_filter_clause(&$whereParts, &$params, $authorId, $authorDisplayName = '') {
+    $authorId = (int)$authorId;
+    if ($authorId <= 0) {
+      return;
+    }
+
+    $authorDisplayName = trim((string)$authorDisplayName);
+    if ($authorDisplayName !== '') {
+      $whereParts[] = '(post_author_id = %d OR (post_author_id = 0 AND post_author = %s))';
+      $params[] = $authorId;
+      $params[] = $authorDisplayName;
+      return;
+    }
+
+    $whereParts[] = 'post_author_id = %d';
+    $params[] = $authorId;
+  }
+
+  private function row_matches_author_filter($row, $authorId, $authorOptions = null) {
+    $authorId = (int)$authorId;
+    if ($authorId <= 0) {
+      return true;
+    }
+
+    $rowAuthorId = isset($row['post_author_id']) ? (int)$row['post_author_id'] : 0;
+    if ($rowAuthorId > 0) {
+      return $rowAuthorId === $authorId;
+    }
+
+    $selectedDisplayName = $this->get_author_filter_display_name($authorId, $authorOptions);
+    if ($selectedDisplayName === '') {
+      return false;
+    }
+
+    return (string)($row['post_author'] ?? '') === $selectedDisplayName;
+  }
+
   private function get_scan_author_options() {
     $users = $this->get_author_users_with_edit_posts();
 

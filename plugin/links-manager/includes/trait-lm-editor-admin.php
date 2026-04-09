@@ -49,6 +49,7 @@ trait LM_Editor_Admin_Trait {
     $postTypes = $this->get_filterable_post_types();
     $postCategoryOptions = $this->get_post_term_options('category');
     $postTagOptions = $this->get_post_term_options('post_tag');
+    $authorOptions = $this->get_scan_author_options();
     $textModes = $this->get_text_match_modes();
     $exportUrl = $this->build_export_url($filters);
 
@@ -137,7 +138,7 @@ trait LM_Editor_Admin_Trait {
     foreach ($textModes as $modeKey => $modeLabel) {
       echo '<option value="' . esc_attr($modeKey) . '"' . selected($filters['text_match_mode'], $modeKey, false) . '>' . esc_html($modeLabel) . '</option>';
     }
-    echo '</select><div class="lm-small">Applies to Destination URL, Source URL, Title, Author, Anchor Text, Alt, and Rel.</div></td></tr>';
+    echo '</select><div class="lm-small">Applies to Destination URL, Source URL, Title, Anchor Text, Alt, and Rel.</div></td></tr>';
 
     echo '<tr><th scope="row">' . esc_html__('Search Source URL', 'links-manager') . '</th><td>';
     echo '<input type="text" name="lm_source" value="' . esc_attr($filters['source_contains'] ?? '') . '" class="regular-text" placeholder="page URL / /category / /slug"/>';
@@ -147,9 +148,12 @@ trait LM_Editor_Admin_Trait {
     echo '<input type="text" name="lm_title" value="' . esc_attr($filters['title_contains']) . '" class="regular-text" placeholder="article title / landing page"/>';
     echo '</td></tr>';
 
-    echo '<tr><th scope="row">' . esc_html__('Search Author', 'links-manager') . '</th><td>';
-    echo '<input type="text" name="lm_author" value="' . esc_attr($filters['author_contains']) . '" class="regular-text" placeholder="author name"/>';
-    echo '</td></tr>';
+    echo '<tr><th scope="row">' . esc_html__('Author', 'links-manager') . '</th><td><select name="lm_author">';
+    echo '<option value="0"' . selected((int)($filters['author'] ?? 0), 0, false) . '>All</option>';
+    foreach ($authorOptions as $authorId => $authorLabel) {
+      echo '<option value="' . esc_attr((string)$authorId) . '"' . selected((int)($filters['author'] ?? 0), (int)$authorId, false) . '>' . esc_html((string)$authorLabel) . '</option>';
+    }
+    echo '</select></td></tr>';
 
     echo '<tr><th scope="row">Published Date Range</th><td>';
     echo '<input type="date" name="lm_publish_date_from" value="' . esc_attr(isset($filters['publish_date_from']) ? (string)$filters['publish_date_from'] : '') . '" /> ';

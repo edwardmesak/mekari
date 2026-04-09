@@ -46,6 +46,10 @@ trait LM_Schema_Trait {
     if (version_compare($installedVersion, '5.0', '<')) {
       $this->ensure_link_fact_normalized_url_schema();
     }
+
+    if (version_compare($installedVersion, '5.1', '<')) {
+      $this->ensure_author_id_schema();
+    }
   }
 
   private function ensure_link_fact_domain_schema() {
@@ -111,6 +115,40 @@ trait LM_Schema_Trait {
     }
   }
 
+  private function ensure_author_id_schema() {
+    global $wpdb;
+
+    $factTable = $wpdb->prefix . 'lm_link_fact';
+    $factExists = (string)$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $factTable));
+    if ($factExists === $factTable) {
+      $factAuthorIdColumn = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM $factTable LIKE %s", 'post_author_id'));
+      if (empty($factAuthorIdColumn)) {
+        $wpdb->query("ALTER TABLE $factTable ADD COLUMN post_author_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 AFTER post_author");
+      }
+
+      $factAuthorIdIndex = $wpdb->get_var($wpdb->prepare("SHOW INDEX FROM $factTable WHERE Key_name = %s", 'idx_lang_post_author_id'));
+      if (empty($factAuthorIdIndex)) {
+        $wpdb->query("ALTER TABLE $factTable ADD INDEX idx_lang_post_author_id (wpml_lang, post_author_id)");
+      }
+    }
+
+    $summaryTable = $wpdb->prefix . 'lm_link_post_summary';
+    $summaryExists = (string)$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $summaryTable));
+    if ($summaryExists !== $summaryTable) {
+      return;
+    }
+
+    $summaryAuthorIdColumn = $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM $summaryTable LIKE %s", 'post_author_id'));
+    if (empty($summaryAuthorIdColumn)) {
+      $wpdb->query("ALTER TABLE $summaryTable ADD COLUMN post_author_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 AFTER post_author");
+    }
+
+    $summaryAuthorIdIndex = $wpdb->get_var($wpdb->prepare("SHOW INDEX FROM $summaryTable WHERE Key_name = %s", 'idx_lang_post_author_id'));
+    if (empty($summaryAuthorIdIndex)) {
+      $wpdb->query("ALTER TABLE $summaryTable ADD INDEX idx_lang_post_author_id (wpml_lang, post_author_id)");
+    }
+  }
+
   private function create_audit_table() {
     global $wpdb;
     $table = $wpdb->prefix . 'lm_audit_log';
@@ -171,6 +209,7 @@ trait LM_Schema_Trait {
       post_title TEXT,
       post_type VARCHAR(32) NOT NULL DEFAULT '',
       post_author VARCHAR(255) NOT NULL DEFAULT '',
+      post_author_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
       post_date DATETIME NULL,
       post_modified DATETIME NULL,
       page_url VARCHAR(1024) NOT NULL DEFAULT '',
@@ -196,6 +235,7 @@ trait LM_Schema_Trait {
       UNIQUE KEY uniq_lang_row (wpml_lang, row_id),
       KEY idx_lang_post (wpml_lang, post_id),
       KEY idx_lang_post_type (wpml_lang, post_type),
+      KEY idx_lang_post_author_id (wpml_lang, post_author_id),
       KEY idx_lang_link_type (wpml_lang, link_type),
       KEY idx_lang_post_type_date (wpml_lang, post_type, post_date),
       KEY idx_lang_post_type_modified (wpml_lang, post_type, post_modified),
@@ -237,6 +277,7 @@ trait LM_Schema_Trait {
       post_title TEXT,
       post_type VARCHAR(32) NOT NULL DEFAULT '',
       post_author VARCHAR(255) NOT NULL DEFAULT '',
+      post_author_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
       post_date DATETIME NULL,
       post_modified DATETIME NULL,
       page_url VARCHAR(1024) NOT NULL DEFAULT '',
@@ -245,6 +286,7 @@ trait LM_Schema_Trait {
       outbound INT(11) NOT NULL DEFAULT 0,
       PRIMARY KEY (wpml_lang, post_id),
       KEY idx_lang_post_type (wpml_lang, post_type),
+      KEY idx_lang_post_author_id (wpml_lang, post_author_id),
       KEY idx_lang_inbound (wpml_lang, inbound),
       KEY idx_lang_internal_outbound (wpml_lang, internal_outbound),
       KEY idx_lang_outbound (wpml_lang, outbound),

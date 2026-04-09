@@ -82,7 +82,7 @@ trait LM_Links_Target_Admin_Trait {
       'summary_value' => $this->request_text('lm_summary_value', ''),
       'summary_source' => $this->request_text('lm_summary_source', ''),
       'summary_title' => $this->request_text('lm_summary_title', ''),
-      'summary_author' => $this->request_text('lm_summary_author', ''),
+      'summary_author' => $this->sanitize_author_filter_id($this->request_int('lm_summary_author', 0)),
       'summary_seo_flag' => $summarySeoFlag,
       'summary_total_min' => $this->request_text('lm_summary_total_min', ''),
       'summary_total_max' => $this->request_text('lm_summary_total_max', ''),
@@ -112,7 +112,7 @@ trait LM_Links_Target_Admin_Trait {
       'lm_summary_value' => isset($summaryState['summary_value']) ? $summaryState['summary_value'] : '',
       'lm_summary_source' => isset($summaryState['summary_source']) ? $summaryState['summary_source'] : '',
       'lm_summary_title' => isset($summaryState['summary_title']) ? $summaryState['summary_title'] : '',
-      'lm_summary_author' => isset($summaryState['summary_author']) ? $summaryState['summary_author'] : '',
+      'lm_summary_author' => isset($summaryState['summary_author']) ? (int)$summaryState['summary_author'] : 0,
       'lm_summary_seo_flag' => isset($summaryState['summary_seo_flag']) ? $summaryState['summary_seo_flag'] : 'any',
       'lm_summary_anchor' => isset($summaryState['summary_anchor']) ? $summaryState['summary_anchor'] : '',
       'lm_summary_anchor_search' => isset($summaryState['summary_anchor_search']) ? $summaryState['summary_anchor_search'] : '',
@@ -291,7 +291,7 @@ trait LM_Links_Target_Admin_Trait {
       if (!empty($filters['value_contains']) && !$this->text_matches((string)($row['link'] ?? ''), (string)$filters['value_contains'], (string)($filters['search_mode'] ?? 'contains'))) continue;
       if (!empty($filters['source_contains']) && !$this->text_matches((string)($row['page_url'] ?? ''), (string)$filters['source_contains'], (string)($filters['search_mode'] ?? 'contains'))) continue;
       if (!empty($filters['title_contains']) && !$this->text_matches((string)($row['post_title'] ?? ''), (string)$filters['title_contains'], (string)($filters['search_mode'] ?? 'contains'))) continue;
-      if (!empty($filters['author_contains']) && !$this->text_matches((string)($row['post_author'] ?? ''), (string)$filters['author_contains'], (string)($filters['search_mode'] ?? 'contains'))) continue;
+      if (!$this->row_matches_author_filter($row, isset($filters['author']) ? (int)$filters['author'] : 0)) continue;
       if (isset($filters['seo_flag']) && (string)$filters['seo_flag'] !== 'any') {
         $nofollow = (string)($row['rel_nofollow'] ?? '0') === '1';
         $sponsored = (string)($row['rel_sponsored'] ?? '0') === '1';
@@ -496,7 +496,7 @@ trait LM_Links_Target_Admin_Trait {
       'value_contains' => '',
       'source_contains' => '',
       'title_contains' => '',
-      'author_contains' => '',
+      'author' => 0,
       'seo_flag' => 'any',
       'search_mode' => 'contains',
     ], array_keys((array)$targetsMap));
@@ -1028,7 +1028,7 @@ trait LM_Links_Target_Admin_Trait {
     $summaryValueContains = $summaryState['summary_value'];
     $summarySourceContains = $summaryState['summary_source'];
     $summaryTitleContains = $summaryState['summary_title'];
-    $summaryAuthorContains = $summaryState['summary_author'];
+    $summaryAuthor = (int)$summaryState['summary_author'];
     $summarySeoFlag = $summaryState['summary_seo_flag'];
     $summaryTotalMin = $summaryState['summary_total_min'];
     $summaryTotalMax = $summaryState['summary_total_max'];
@@ -1046,6 +1046,7 @@ trait LM_Links_Target_Admin_Trait {
     $summaryInMaxNum = $summaryInMax === '' ? null : intval($summaryInMax);
     $summaryOutMinNum = $summaryOutMin === '' ? null : intval($summaryOutMin);
     $summaryOutMaxNum = $summaryOutMax === '' ? null : intval($summaryOutMax);
+    $summaryAuthorOptions = $this->get_scan_author_options();
     $summaryExportUrl = add_query_arg(array_merge([
       'action' => 'lm_export_links_target_csv',
       self::NONCE_NAME => wp_create_nonce(self::NONCE_ACTION),
@@ -1155,8 +1156,13 @@ trait LM_Links_Target_Admin_Trait {
     echo '</div>';
 
     echo '<div class="lm-filter-field">';
-    echo '<div class="lm-small" style="margin-bottom:6px;">' . esc_html__('Search Author', 'links-manager') . '</div>';
-    echo '<input type="text" name="lm_summary_author" value="' . esc_attr($summaryAuthorContains) . '" class="regular-text" placeholder="author" />';
+    echo '<div class="lm-small" style="margin-bottom:6px;">' . esc_html__('Author', 'links-manager') . '</div>';
+    echo '<select name="lm_summary_author" class="lm-filter-select">';
+    echo '<option value="0"' . selected($summaryAuthor, 0, false) . '>All</option>';
+    foreach ($summaryAuthorOptions as $authorId => $authorLabel) {
+      echo '<option value="' . esc_attr((string)$authorId) . '"' . selected($summaryAuthor, (int)$authorId, false) . '>' . esc_html((string)$authorLabel) . '</option>';
+    }
+    echo '</select>';
     echo '</div>';
 
     echo '<div class="lm-filter-field">';
@@ -1228,7 +1234,7 @@ trait LM_Links_Target_Admin_Trait {
     echo '</div>';
 
     echo '<div class="lm-filter-field lm-filter-field-full">';
-    echo '<div class="lm-small" style="margin:0 0 6px;">Applies to Search Group Name, Search Destination URL, Search Source URL, Search Title, Search Author, and Search Anchor Text.</div>';
+    echo '<div class="lm-small" style="margin:0 0 6px;">Applies to Search Group Name, Search Destination URL, Search Source URL, Search Title, and Search Anchor Text.</div>';
     submit_button(__('Apply Filters', 'links-manager'), 'secondary', 'submit', false);
     echo ' <a class="button button-secondary" href="' . esc_url($summaryExportUrl) . '">' . esc_html__('Export CSV', 'links-manager') . '</a>';
     echo ' <a class="button" href="' . esc_url($this->admin_page_url('links-manager-target')) . '">' . esc_html__('Reset', 'links-manager') . '</a>';
@@ -1263,7 +1269,7 @@ trait LM_Links_Target_Admin_Trait {
         'value_contains' => $summaryValueContains,
         'source_contains' => $summarySourceContains,
         'title_contains' => $summaryTitleContains,
-        'author_contains' => $summaryAuthorContains,
+        'author' => $summaryAuthor,
         'seo_flag' => $summarySeoFlag,
         'search_mode' => $summarySearchMode,
       ];

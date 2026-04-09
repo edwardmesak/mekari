@@ -255,7 +255,7 @@ trait LM_Export_Handlers_Trait {
       if ((string)($filters['value_contains'] ?? '') !== '' && !$this->text_matches((string)($row['link'] ?? ''), (string)$filters['value_contains'], $textMode)) continue;
       if ((string)($filters['source_contains'] ?? '') !== '' && !$this->text_matches((string)($row['page_url'] ?? ''), (string)$filters['source_contains'], $textMode)) continue;
       if ((string)($filters['title_contains'] ?? '') !== '' && !$this->text_matches((string)($row['post_title'] ?? ''), (string)$filters['title_contains'], $textMode)) continue;
-      if ((string)($filters['author_contains'] ?? '') !== '' && !$this->text_matches((string)($row['post_author'] ?? ''), (string)$filters['author_contains'], $textMode)) continue;
+      if (!$this->row_matches_author_filter($row, isset($filters['author']) ? (int)$filters['author'] : 0)) continue;
       if ((string)($filters['anchor_contains'] ?? '') !== '' && !$this->text_matches((string)($row['anchor_text'] ?? ''), (string)$filters['anchor_contains'], $textMode)) continue;
 
       $seoFlag = (string)($filters['seo_flag'] ?? 'any');
@@ -484,7 +484,7 @@ trait LM_Export_Handlers_Trait {
     $summaryValueContains = $summaryState['summary_value'];
     $summarySourceContains = $summaryState['summary_source'];
     $summaryTitleContains = $summaryState['summary_title'];
-    $summaryAuthorContains = $summaryState['summary_author'];
+    $summaryAuthor = isset($summaryState['summary_author']) ? (int)$summaryState['summary_author'] : 0;
     $summarySeoFlag = $summaryState['summary_seo_flag'];
     $summaryTotalMin = $summaryState['summary_total_min'];
     $summaryTotalMax = $summaryState['summary_total_max'];
@@ -538,7 +538,7 @@ trait LM_Export_Handlers_Trait {
       'value_contains' => $summaryValueContains,
       'source_contains' => $summarySourceContains,
       'title_contains' => $summaryTitleContains,
-      'author_contains' => $summaryAuthorContains,
+      'author' => $summaryAuthor,
       'seo_flag' => $summarySeoFlag,
       'search_mode' => $summarySearchMode,
     ];

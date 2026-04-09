@@ -289,6 +289,9 @@ trait LM_Indexed_Datastore_Trait {
     }
 
     if (is_array($filters) && !empty($filters)) {
+      $selectedAuthorId = isset($filters['author']) ? (int)$filters['author'] : 0;
+      $selectedAuthorName = $this->get_author_filter_display_name($selectedAuthorId);
+
       $location = isset($filters['location']) ? (string)$filters['location'] : 'any';
       if ($location !== '' && $location !== 'any') {
         $whereParts[] = 'link_location = %s';
@@ -336,8 +339,8 @@ trait LM_Indexed_Datastore_Trait {
       $this->append_indexed_text_match_clause($whereParts, $params, 'link', isset($filters['value_contains']) ? $filters['value_contains'] : '', $textMode);
       $this->append_indexed_text_match_clause($whereParts, $params, 'page_url', isset($filters['source_contains']) ? $filters['source_contains'] : '', $textMode);
       $this->append_indexed_text_match_clause($whereParts, $params, 'post_title', isset($filters['title_contains']) ? $filters['title_contains'] : '', $textMode);
-      $this->append_indexed_text_match_clause($whereParts, $params, 'post_author', isset($filters['author_contains']) ? $filters['author_contains'] : '', $textMode);
       $this->append_indexed_text_match_clause($whereParts, $params, 'anchor_text', isset($filters['anchor_contains']) ? $filters['anchor_contains'] : '', $textMode);
+      $this->append_indexed_author_filter_clause($whereParts, $params, $selectedAuthorId, $selectedAuthorName);
 
       $publishDateFrom = isset($filters['publish_date_from']) ? trim((string)$filters['publish_date_from']) : '';
       $publishDateTo = isset($filters['publish_date_to']) ? trim((string)$filters['publish_date_to']) : '';
@@ -364,7 +367,7 @@ trait LM_Indexed_Datastore_Trait {
     $where = 'WHERE ' . implode(' AND ', $whereParts);
 
     $sql = "SELECT
-      row_id, post_id, post_title, post_type, post_author, post_date, post_modified,
+      row_id, post_id, post_title, post_type, post_author, post_author_id, post_date, post_modified,
       page_url, source, link_location, block_index, occurrence, link_type, link, anchor_text,
       alt_text, snippet, rel_raw, relationship, rel_nofollow, rel_sponsored, rel_ugc, value_type
       FROM $table
@@ -383,6 +386,7 @@ trait LM_Indexed_Datastore_Trait {
         'post_title' => (string)($row['post_title'] ?? ''),
         'post_type' => (string)($row['post_type'] ?? ''),
         'post_author' => (string)($row['post_author'] ?? ''),
+        'post_author_id' => (string)((int)($row['post_author_id'] ?? 0)),
         'post_date' => (string)($row['post_date'] ?? ''),
         'post_modified' => (string)($row['post_modified'] ?? ''),
         'page_url' => (string)($row['page_url'] ?? ''),
@@ -572,7 +576,7 @@ trait LM_Indexed_Datastore_Trait {
     $textMode = $this->sanitize_text_match_mode((string)($filters['text_match_mode'] ?? 'contains'));
     if ($textMode === 'regex') return false;
     $hasEditorTextSearch = false;
-    foreach (['source_contains', 'title_contains', 'author_contains', 'anchor_contains', 'rel_contains'] as $textKey) {
+    foreach (['source_contains', 'title_contains', 'anchor_contains', 'rel_contains'] as $textKey) {
       if (trim((string)($filters[$textKey] ?? '')) !== '') {
         $hasEditorTextSearch = true;
         break;
@@ -873,12 +877,14 @@ trait LM_Indexed_Datastore_Trait {
     }
 
     $textMode = $this->sanitize_text_match_mode((string)($filters['text_match_mode'] ?? 'contains'));
+    $selectedAuthorId = isset($filters['author']) ? (int)$filters['author'] : 0;
+    $selectedAuthorName = $this->get_author_filter_display_name($selectedAuthorId);
     $this->append_indexed_text_match_clause($whereParts, $params, 'link', (string)($filters['value_contains'] ?? ''), $textMode);
     $this->append_indexed_text_match_clause($whereParts, $params, 'page_url', (string)($filters['source_contains'] ?? ''), $textMode);
     $this->append_indexed_text_match_clause($whereParts, $params, 'post_title', (string)($filters['title_contains'] ?? ''), $textMode);
-    $this->append_indexed_text_match_clause($whereParts, $params, 'post_author', (string)($filters['author_contains'] ?? ''), $textMode);
     $this->append_indexed_text_match_clause($whereParts, $params, 'anchor_text', (string)($filters['anchor_contains'] ?? ''), $textMode);
     $this->append_indexed_text_match_clause($whereParts, $params, $this->get_indexed_rel_text_sql_expression(), (string)($filters['rel_contains'] ?? ''), $textMode);
+    $this->append_indexed_author_filter_clause($whereParts, $params, $selectedAuthorId, $selectedAuthorName);
 
     $this->append_indexed_quality_clause($whereParts, $params, (string)($filters['quality'] ?? 'any'));
 
@@ -975,7 +981,7 @@ trait LM_Indexed_Datastore_Trait {
     $rows = [];
     if (is_array($cursor)) {
       $dataSql = "SELECT
-        row_id, post_id, post_title, post_type, post_author, post_date, post_modified,
+        row_id, post_id, post_title, post_type, post_author, post_author_id, post_date, post_modified,
         page_url, source, link_location, block_index, occurrence, link_type, link, anchor_text,
         alt_text, snippet, rel_raw, relationship, rel_nofollow, rel_sponsored, rel_ugc, value_type
         FROM $table
@@ -1003,7 +1009,7 @@ trait LM_Indexed_Datastore_Trait {
         if (!empty($rowIds)) {
           $inPlaceholders = implode(',', array_fill(0, count($rowIds), '%s'));
           $detailSql = "SELECT
-            row_id, post_id, post_title, post_type, post_author, post_date, post_modified,
+            row_id, post_id, post_title, post_type, post_author, post_author_id, post_date, post_modified,
             page_url, source, link_location, block_index, occurrence, link_type, link, anchor_text,
             alt_text, snippet, rel_raw, relationship, rel_nofollow, rel_sponsored, rel_ugc, value_type
             FROM $table
@@ -1043,6 +1049,7 @@ trait LM_Indexed_Datastore_Trait {
         'post_title' => (string)($row['post_title'] ?? ''),
         'post_type' => (string)($row['post_type'] ?? ''),
         'post_author' => (string)($row['post_author'] ?? ''),
+        'post_author_id' => (string)((int)($row['post_author_id'] ?? 0)),
         'post_date' => (string)($row['post_date'] ?? ''),
         'post_modified' => (string)($row['post_modified'] ?? ''),
         'page_url' => (string)($row['page_url'] ?? ''),
