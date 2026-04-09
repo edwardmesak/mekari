@@ -79,11 +79,13 @@ trait LM_Cache_Index_Sync_Trait {
   private function sync_indexed_datastore_from_rows($rows, $wpml_lang = 'all') {
     $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
     $rows = is_array($rows) ? $rows : [];
-    $this->reset_indexed_datastore_for_lang($wpml_lang);
+    $this->reset_indexed_datastore_for_refresh_scope($wpml_lang);
     if (!empty($rows)) {
       $this->append_indexed_datastore_rows($rows, $wpml_lang);
     }
-    $this->rebuild_indexed_summary_for_lang($wpml_lang);
+    foreach ($this->get_indexed_summary_refresh_langs_from_rows($rows, $wpml_lang) as $lang) {
+      $this->rebuild_indexed_summary_for_lang($lang);
+    }
   }
 
   private function clear_indexed_summary_for_lang($wpml_lang = 'all') {
@@ -104,6 +106,50 @@ trait LM_Cache_Index_Sync_Trait {
     $wpdb->query($wpdb->prepare("DELETE FROM $summaryTable WHERE wpml_lang = %s", $wpml_lang));
   }
 
+  private function reset_indexed_datastore_for_refresh_scope($wpml_lang = 'all') {
+    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    if ($wpml_lang !== 'all') {
+      $this->reset_indexed_datastore_for_lang($wpml_lang);
+      return;
+    }
+
+    foreach ($this->get_indexed_datastore_refresh_langs(true) as $lang) {
+      $this->reset_indexed_datastore_for_lang($lang);
+    }
+  }
+
+  private function get_indexed_summary_refresh_langs_from_rows($rows, $wpml_lang = 'all') {
+    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    if ($wpml_lang !== 'all') {
+      return [$wpml_lang];
+    }
+
+    $langs = ['all'];
+    foreach ((array)$rows as $row) {
+      $rowLang = $this->resolve_fact_row_wpml_lang($row, $wpml_lang);
+      if ($rowLang !== '' && $rowLang !== 'all') {
+        $langs[] = $rowLang;
+      }
+    }
+
+    return array_values(array_unique(array_filter(array_map([$this, 'sanitize_wpml_lang_filter'], $langs))));
+  }
+
+  private function resolve_fact_row_wpml_lang($row, $fallbackLang = 'all') {
+    $fallbackLang = $this->get_effective_scan_wpml_lang((string)$fallbackLang);
+    if (!is_array($row)) {
+      return $fallbackLang;
+    }
+
+    $rowLang = $this->sanitize_wpml_lang_filter((string)($row['wpml_lang'] ?? ''));
+    if ($rowLang !== 'all') {
+      return $rowLang;
+    }
+
+    $postId = isset($row['post_id']) ? (int)$row['post_id'] : 0;
+    return $this->resolve_post_wpml_lang($postId, $fallbackLang);
+  }
+
   private function append_indexed_datastore_rows($rows, $wpml_lang = 'all') {
     global $wpdb;
     $factTable = $wpdb->prefix . 'lm_link_fact';
@@ -116,6 +162,7 @@ trait LM_Cache_Index_Sync_Trait {
     $factBatch = [];
     $factChunkSize = 200;
     $insertedRows = 0;
+    $processedSourceRows = 0;
 
     foreach ($rows as $row) {
       $postId = isset($row['post_id']) ? (int)$row['post_id'] : 0;
@@ -123,6 +170,9 @@ trait LM_Cache_Index_Sync_Trait {
       if ($rowId === '') {
         continue;
       }
+      $processedSourceRows++;
+
+      $rowLang = $this->resolve_fact_row_wpml_lang(is_array($row) ? $row : [], $wpml_lang);
 
       $postTitle = sanitize_text_field((string)($row['post_title'] ?? ''));
       $postType = sanitize_key((string)($row['post_type'] ?? ''));
@@ -150,8 +200,7 @@ trait LM_Cache_Index_Sync_Trait {
       $relUgc = !empty($row['rel_ugc']) ? 1 : 0;
       $valueType = sanitize_key((string)($row['value_type'] ?? ''));
 
-      $factBatch[] = [
-        'wpml_lang' => $wpml_lang,
+      $baseFactRow = [
         'row_id' => $rowId,
         'post_id' => $postId,
         'post_title' => $postTitle,
@@ -181,18 +230,24 @@ trait LM_Cache_Index_Sync_Trait {
         'value_type' => $valueType,
       ];
 
+      if ($rowLang !== '') {
+        $factBatch[] = array_merge(['wpml_lang' => $rowLang], $baseFactRow);
+      }
+      if ($wpml_lang === 'all' && $rowLang !== 'all') {
+        $factBatch[] = array_merge(['wpml_lang' => 'all'], $baseFactRow);
+      }
+
       if (count($factBatch) >= $factChunkSize) {
         $this->insert_indexed_fact_batch($factTable, $factBatch);
-        $insertedRows += count($factBatch);
         $factBatch = [];
       }
     }
 
     if (!empty($factBatch)) {
       $this->insert_indexed_fact_batch($factTable, $factBatch);
-      $insertedRows += count($factBatch);
     }
 
+    $insertedRows = $processedSourceRows;
     return $insertedRows;
   }
 

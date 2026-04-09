@@ -807,7 +807,9 @@ trait LM_Cache_Rebuild_Trait {
 
     set_transient($lockKey, '1', 5 * MINUTE_IN_SECONDS);
     try {
-      $this->build_or_get_cache($scope_post_type, false, $wpml_lang, false, true);
+      // Background refresh must bypass the warm main cache, otherwise scheduled
+      // rebuilds can devolve into cache reads and never rescan content.
+      $this->build_or_get_cache($scope_post_type, true, $wpml_lang, false, true);
     } catch (Throwable $e) {
       if (defined('WP_DEBUG') && WP_DEBUG) {
         error_log('LM background rebuild error: ' . sanitize_text_field($e->getMessage()));
@@ -829,7 +831,7 @@ trait LM_Cache_Rebuild_Trait {
 
     if (!$force_rebuild) {
       $cached = get_transient($key);
-      if (is_array($cached) && !empty($cached)) {
+      if (is_array($cached)) {
         $this->profile_end('cache_read_hit', $profileTotalStarted, [
           'rows' => count($cached),
           'scope_post_type' => (string)$scope_post_type,
@@ -841,7 +843,7 @@ trait LM_Cache_Rebuild_Trait {
 
     $backup = get_transient($backupKey);
     $lastScanGmt = (string)get_option($this->cache_scan_option_key($scope_post_type, $wpml_lang), '');
-    if (!$force_rebuild && $allow_stale_serve && is_array($backup) && !empty($backup)) {
+    if (!$force_rebuild && $allow_stale_serve && is_array($backup)) {
       $this->profile_end('cache_read_backup_stale', $profileTotalStarted, [
         'rows' => count($backup),
         'scope_post_type' => (string)$scope_post_type,

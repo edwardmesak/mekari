@@ -312,16 +312,17 @@ trait LM_Summary_Builders_Trait {
     if (!is_array($all) || empty($all)) {
       $scopePostType = isset($filters['post_type']) ? (string)$filters['post_type'] : 'any';
       $scopeWpmlLang = isset($filters['wpml_lang']) ? (string)$filters['wpml_lang'] : 'all';
-      $useIndexedSummary = !empty($filters['rebuild']) ? false : $this->indexed_dataset_has_rows($scopePostType, $scopeWpmlLang);
+      $useIndexedSummary = $this->indexed_dataset_has_rows($scopePostType, $scopeWpmlLang);
       $indexedSummaryRows = $useIndexedSummary ? $this->get_indexed_cited_domains_summary_rows($filters) : [];
       if ($useIndexedSummary && !empty($indexedSummaryRows)) {
         $rows = $indexedSummaryRows;
         $hasIndexedSummaryRows = true;
       } else {
-        $all = $this->get_canonical_rows_for_scope(
+        $all = $this->get_report_scope_rows_or_empty(
           isset($filters['post_type']) ? $filters['post_type'] : 'any',
-          !empty($filters['rebuild']),
-          isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all'
+          isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all',
+          null,
+          false
         );
       }
     }
@@ -447,16 +448,17 @@ trait LM_Summary_Builders_Trait {
     if (!is_array($all) || empty($all)) {
       $scopePostType = isset($filters['post_type']) ? (string)$filters['post_type'] : 'any';
       $scopeWpmlLang = isset($filters['wpml_lang']) ? (string)$filters['wpml_lang'] : 'all';
-      $useIndexedSummary = !empty($filters['rebuild']) ? false : $this->indexed_dataset_has_rows($scopePostType, $scopeWpmlLang);
+      $useIndexedSummary = $this->indexed_dataset_has_rows($scopePostType, $scopeWpmlLang);
       $indexedSummaryRows = $useIndexedSummary ? $this->get_indexed_all_anchor_text_summary_rows($filters) : [];
       if ($useIndexedSummary && !empty($indexedSummaryRows)) {
         $rows = $indexedSummaryRows;
         $hasIndexedSummaryRows = true;
       } else {
-        $all = $this->get_canonical_rows_for_scope(
+        $all = $this->get_report_scope_rows_or_empty(
           isset($filters['post_type']) ? $filters['post_type'] : 'any',
-          !empty($filters['rebuild']),
-          isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all'
+          isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all',
+          null,
+          false
         );
       }
     }

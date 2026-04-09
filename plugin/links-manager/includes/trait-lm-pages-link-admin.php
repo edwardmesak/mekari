@@ -14,6 +14,12 @@ trait LM_Pages_Link_Admin_Trait {
     $filters = $this->get_pages_link_filters_from_request();
     $msg = $this->request_text('lm_msg', '');
     $msgClass = $this->notice_class_for_message($msg, 'info');
+    $scopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $dataNotice = $this->get_report_data_notice($scopePostType, $scopeWpmlLang);
 
     $exportUrl = $this->build_pages_link_export_url($filters);
     $orphanPostTypes = $this->get_filterable_post_types();
@@ -23,21 +29,49 @@ trait LM_Pages_Link_Admin_Trait {
       $pagedResult = null;
       if ($this->can_use_pages_link_indexed_fastpath($filters)) {
         $pagedResult = $this->get_pages_link_paged_result_from_indexed_summary($filters);
+      } elseif ($this->can_use_pages_link_indexed_summary_path($filters)) {
+        $summaryRows = $this->get_pages_with_inbound_counts_from_indexed_summary($filters);
+        $statusSummary = ['orphan' => 0, 'low' => 0, 'standard' => 0, 'excellent' => 0];
+        $internalOutboundSummary = ['none' => 0, 'low' => 0, 'optimal' => 0, 'excessive' => 0];
+        $externalOutboundSummary = ['none' => 0, 'low' => 0, 'optimal' => 0, 'excessive' => 0];
+        foreach ((array)$summaryRows as $summaryRow) {
+          $statusKey = (string)($summaryRow['status'] ?? '');
+          $internalKey = (string)($summaryRow['internal_outbound_status'] ?? '');
+          $externalKey = (string)($summaryRow['external_outbound_status'] ?? '');
+          if (isset($statusSummary[$statusKey])) {
+            $statusSummary[$statusKey]++;
+          }
+          if (isset($internalOutboundSummary[$internalKey])) {
+            $internalOutboundSummary[$internalKey]++;
+          }
+          if (isset($externalOutboundSummary[$externalKey])) {
+            $externalOutboundSummary[$externalKey]++;
+          }
+        }
+        $pagedResult = [
+          'pages' => $summaryRows,
+          'total' => count((array)$summaryRows),
+          'per_page' => $filters['per_page'],
+          'paged' => $filters['paged'],
+          'total_pages' => max(1, (int)ceil(count((array)$summaryRows) / max(1, (int)$filters['per_page']))),
+          'status_summary' => $statusSummary,
+          'internal_outbound_summary' => $internalOutboundSummary,
+          'external_outbound_summary' => $externalOutboundSummary,
+        ];
       }
       if (is_array($pagedResult)) {
         $pages = array_values((array)($pagedResult['pages'] ?? []));
       } else {
         // Pages Link counts inbound links from all source content types into the selected candidate posts.
         // Row-based counting remains the fallback for filters that the indexed summary fast path does not yet support.
-        $all = $this->get_canonical_rows_for_scope('any', $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
-        $this->compact_rows_for_pages_link($all);
+        $all = $this->get_pages_link_runtime_rows($filters, isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', false);
         $pages = $this->get_pages_with_inbound_counts($all, $filters, false);
       }
     } catch (Throwable $e) {
       $pagedResult = null;
       $pages = [];
       if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('LM Pages Link error.');
+        error_log('LM Pages Link error: ' . sanitize_text_field($e->getMessage()));
       }
     }
 
@@ -132,6 +166,7 @@ trait LM_Pages_Link_Admin_Trait {
     );
 
     if ($msg !== '') echo '<div class="notice notice-' . esc_attr($msgClass) . '"><p>' . esc_html($msg) . '</p></div>';
+    if ($dataNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($dataNotice) . '</p></div>';
 
     echo '<div class="lm-grid">';
     echo '<div class="lm-card lm-card-full lm-card-grouping">';
@@ -139,7 +174,7 @@ trait LM_Pages_Link_Admin_Trait {
       __('Filter', 'links-manager'),
       __('Filter by content type, author, dates, and link characteristics to focus on the pages that need attention.', 'links-manager')
     );
-    echo '<form method="get" action="">';
+    echo '<form id="lm-pages-link-filter-form" method="get" action="" onsubmit="var b=this.querySelector(\'button[type=submit],input[type=submit]\');if(b){b.disabled=true;if(\'value\' in b){b.value=\'Applying...\';}else{b.textContent=\'Applying...\';}}">';
     echo '<input type="hidden" name="page" value="links-manager-pages-link"/>';
     foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
       echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
@@ -300,10 +335,6 @@ trait LM_Pages_Link_Admin_Trait {
     echo '<option value="optimal"' . selected(isset($filters['external_outbound_status']) ? $filters['external_outbound_status'] : 'any', 'optimal', false) . '>Optimal</option>';
     echo '<option value="excessive"' . selected(isset($filters['external_outbound_status']) ? $filters['external_outbound_status'] : 'any', 'excessive', false) . '>Excessive</option>';
     echo '</select>';
-    echo '</td></tr>';
-
-    echo '<tr><th scope="row">' . esc_html__('Cache', 'links-manager') . '</th><td>';
-    echo '<label><input type="checkbox" name="lm_pages_link_rebuild" value="1"' . checked($filters['rebuild'] ? '1' : '0', '1', false) . '> ' . esc_html__('Rebuild cache', 'links-manager') . '</label>';
     echo '</td></tr>';
 
     echo '<tr><th scope="row">' . esc_html__('Per Page', 'links-manager') . '</th><td>';

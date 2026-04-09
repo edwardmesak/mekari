@@ -115,14 +115,18 @@ trait LM_REST_API_Trait {
       : (in_array($scopePostType, $enabledPostTypes, true) ? [$scopePostType] : []);
 
     $currentState = $this->recover_stale_rebuild_job($this->get_rebuild_job_state(), 1800);
-    if (!empty($currentState) && (string)($currentState['status'] ?? '') === 'running') {
+    if (!empty($currentState) && in_array((string)($currentState['status'] ?? ''), ['running', 'finalizing'], true)) {
       $runningScope = sanitize_key((string)($currentState['scope_post_type'] ?? 'any'));
       $runningLang = $this->get_effective_scan_wpml_lang((string)($currentState['wpml_lang'] ?? 'all'));
       if ($runningScope === $scopePostType && $runningLang === $wpmlLang) {
-        $currentState['message'] = 'Rebuild job is already running. Continuing existing job.';
+        $currentState['message'] = ((string)($currentState['status'] ?? '') === 'finalizing')
+          ? 'Rebuild job is still finalizing. Continuing existing job.'
+          : 'Rebuild job is already running. Continuing existing job.';
         return rest_ensure_response($this->get_public_rebuild_job_state($currentState));
       }
-      $currentState['message'] = 'Another rebuild job is currently running. Please wait until it finishes.';
+      $currentState['message'] = ((string)($currentState['status'] ?? '') === 'finalizing')
+        ? 'Another rebuild job is still finalizing. Please wait until it finishes.'
+        : 'Another rebuild job is currently running. Please wait until it finishes.';
       return rest_ensure_response($this->get_public_rebuild_job_state($currentState));
     }
 
@@ -155,8 +159,18 @@ trait LM_REST_API_Trait {
 
     $job['scan_modified_after_gmt'] = $this->get_scan_modified_after_gmt('');
     $job['total_posts'] = $this->count_cache_post_ids($postTypes, $wpmlLang, $job['scan_modified_after_gmt']);
+    if ((int)$job['total_posts'] < 1) {
+      $rows = $this->crawl_menus($this->get_enabled_scan_source_types());
+      $this->persist_cache_payload($scopePostType, $wpmlLang, $rows);
+      $this->schedule_rest_list_prewarm($scopePostType, $wpmlLang, 2);
+      $job['status'] = 'done';
+      $job['rows_count'] = count((array)$rows);
+      $this->save_rebuild_job_state($job);
+      return rest_ensure_response($this->get_public_rebuild_job_state($job));
+    }
+
     if ((string)$job['storage_mode'] === 'indexed_stream') {
-      $this->reset_indexed_datastore_for_lang($wpmlLang);
+      $this->reset_indexed_datastore_for_refresh_scope($wpmlLang);
       $this->clear_cache_payload($scopePostType, $wpmlLang);
     } else {
       set_transient($this->rebuild_job_partial_rows_key($scopePostType, $wpmlLang), [], self::CACHE_TTL);
@@ -660,14 +674,12 @@ trait LM_REST_API_Trait {
     }
 
     $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
-    $rebuildRequested = !empty($filters['rebuild']);
-    $cacheStamp = (string)get_option($this->cache_scan_option_key($scopePostType, $scopeWpmlLang), '');
+    $cacheStamp = (string)$this->get_dataset_cache_version();
 
     return [
       'namespace' => sanitize_key((string)$namespace),
       'scope_post_type' => $scopePostType,
       'scope_wpml_lang' => $scopeWpmlLang,
-      'rebuild_requested' => $rebuildRequested,
       'cache_stamp' => $cacheStamp,
       'cache_key' => $this->build_rest_response_cache_key($namespace, [
         'filters' => $filters,
@@ -690,50 +702,12 @@ trait LM_REST_API_Trait {
   }
 
   private function load_pages_link_rest_summary_rows($filters, $context) {
-    $rebuildRequested = !empty($context['rebuild_requested']);
-    $all = null;
-    $usedExistingCache = false;
-    $usedIndexedAuthority = false;
-    $usedRebuild = false;
-
-    if (!$rebuildRequested) {
-      // Pages Link summaries need all source rows so inbound counts still include links from other post types.
-      $all = $this->get_existing_cache_rows_for_rest('any', $context['scope_wpml_lang'], true);
-      if (is_array($all)) {
-        if ($this->is_indexed_datastore_ready()) {
-          $usedIndexedAuthority = true;
-        } else {
-          $usedExistingCache = true;
-        }
-      }
-    }
-
-    if (!is_array($all)) {
-      $all = $this->get_canonical_rows_for_scope(
-        'any',
-        $rebuildRequested,
-        $context['scope_wpml_lang'],
-        $filters
-      );
-      $usedRebuild = $rebuildRequested;
-    }
-
-    $this->compact_rows_for_pages_link($all);
+    $all = $this->get_pages_link_runtime_rows($filters, $context['scope_wpml_lang'], true);
     $pages = $this->get_pages_with_inbound_counts($all, $filters, false);
-
-    if ($usedRebuild) {
-      $executionMode = 'rebuild_cache_scan';
-    } elseif ($usedIndexedAuthority) {
-      $executionMode = 'indexed_prefilter_php';
-    } elseif ($usedExistingCache) {
-      $executionMode = 'cache_scan';
-    } else {
-      $executionMode = 'cache_scan_fallback';
-    }
 
     return [
       'pages' => is_array($pages) ? $pages : [],
-      'execution_mode' => $executionMode,
+      'execution_mode' => $this->is_indexed_datastore_ready() ? 'indexed_lightweight_rows' : 'cache_scan_fallback',
     ];
   }
 
@@ -806,50 +780,41 @@ trait LM_REST_API_Trait {
   }
 
   private function load_editor_rest_rows($filters, $context) {
-    $rebuildRequested = !empty($context['rebuild_requested']);
-
-    if (!$rebuildRequested) {
-      $indexedFastResponse = $this->get_indexed_editor_list_fastpath_response($context['scope_post_type'], $context['scope_wpml_lang'], $filters);
-      if (is_array($indexedFastResponse)
-        && isset($indexedFastResponse['items'])
-        && isset($indexedFastResponse['pagination'])
-        && is_array($indexedFastResponse['items'])
-        && is_array($indexedFastResponse['pagination'])) {
-        return [
-          'response' => $indexedFastResponse,
-          'execution_mode' => 'indexed_sql_fastpath',
-        ];
-      }
+    $indexedFastResponse = $this->get_indexed_editor_list_fastpath_response($context['scope_post_type'], $context['scope_wpml_lang'], $filters);
+    if (is_array($indexedFastResponse)
+      && isset($indexedFastResponse['items'])
+      && isset($indexedFastResponse['pagination'])
+      && is_array($indexedFastResponse['items'])
+      && is_array($indexedFastResponse['pagination'])) {
+      return [
+        'response' => $indexedFastResponse,
+        'execution_mode' => 'indexed_sql_fastpath',
+      ];
     }
 
     $all = null;
     $executionMode = 'cache_scan_fallback';
     $usedExistingCache = false;
-    $usedRebuild = false;
 
     if (!is_array($all)) {
       $all = null;
     }
-    if (empty($all) && !$rebuildRequested) {
+    if (empty($all)) {
       $all = $this->get_existing_cache_rows_for_rest($context['scope_post_type'], $context['scope_wpml_lang'], false);
       if (is_array($all)) {
         $usedExistingCache = true;
       }
     }
     if (!is_array($all)) {
-      $all = $this->get_canonical_rows_for_scope(
+      $all = $this->get_report_scope_rows_or_empty(
         $context['scope_post_type'],
-        $rebuildRequested,
         $context['scope_wpml_lang'],
         $filters,
         false
       );
-      $usedRebuild = $rebuildRequested;
     }
 
-    if ($usedRebuild) {
-      $executionMode = 'rebuild_cache_scan';
-    } elseif ($usedExistingCache) {
+    if ($usedExistingCache) {
       $executionMode = 'cache_scan';
     }
 
@@ -1036,7 +1001,7 @@ trait LM_REST_API_Trait {
     };
 
     $fetchRows($wpmlLang);
-    if ($allowAnyAllFallback && count($result) < count($rowIds) && $wpmlLang !== 'all') {
+    if ($allowAnyAllFallback && !$this->has_exact_language_scope($wpmlLang) && count($result) < count($rowIds) && $wpmlLang !== 'all') {
       $fetchRows('all');
     }
 
@@ -1049,15 +1014,13 @@ trait LM_REST_API_Trait {
       $filters = $this->get_pages_link_filters_from_request();
       $context = $this->build_rest_endpoint_context('pages_link_list', $filters);
 
-      if (empty($context['rebuild_requested'])) {
-        $cachedResponse = $this->get_valid_rest_cached_response($context['cache_key']);
-        if (is_array($cachedResponse)) {
-          $cachedResponse = $this->attach_rest_execution_meta($cachedResponse, 'pages_link_list', 'response_cache_hit', true);
-          return $this->enrich_pages_link_rest_response($cachedResponse, $filters);
-        }
+      $cachedResponse = $this->get_valid_rest_cached_response($context['cache_key']);
+      if (is_array($cachedResponse)) {
+        $cachedResponse = $this->attach_rest_execution_meta($cachedResponse, 'pages_link_list', 'response_cache_hit', true);
+        return $this->enrich_pages_link_rest_response($cachedResponse, $filters);
       }
 
-      if (empty($context['rebuild_requested']) && $this->can_use_pages_link_indexed_fastpath($filters)) {
+      if ($this->can_use_pages_link_indexed_fastpath($filters)) {
         $indexedPagedResult = $this->get_pages_link_paged_result_from_indexed_summary($filters);
         if (is_array($indexedPagedResult)) {
           $response = [
@@ -1077,15 +1040,39 @@ trait LM_REST_API_Trait {
           $this->set_rest_response_cache($context['cache_key'], $response);
           return $this->enrich_pages_link_rest_response($response, $filters);
         }
+      } elseif ($this->can_use_pages_link_indexed_summary_path($filters)) {
+        $indexedRows = $this->get_pages_with_inbound_counts_from_indexed_summary($filters);
+        $statusSummary = ['orphan' => 0, 'low' => 0, 'standard' => 0, 'excellent' => 0];
+        $internalOutboundSummary = ['none' => 0, 'low' => 0, 'optimal' => 0, 'excessive' => 0];
+        $externalOutboundSummary = ['none' => 0, 'low' => 0, 'optimal' => 0, 'excessive' => 0];
+        foreach ((array)$indexedRows as $indexedRow) {
+          $statusKey = (string)($indexedRow['status'] ?? '');
+          $internalKey = (string)($indexedRow['internal_outbound_status'] ?? '');
+          $externalKey = (string)($indexedRow['external_outbound_status'] ?? '');
+          if (isset($statusSummary[$statusKey])) {
+            $statusSummary[$statusKey]++;
+          }
+          if (isset($internalOutboundSummary[$internalKey])) {
+            $internalOutboundSummary[$internalKey]++;
+          }
+          if (isset($externalOutboundSummary[$externalKey])) {
+            $externalOutboundSummary[$externalKey]++;
+          }
+        }
+        $response = $this->paginate_pages_link_rest_response((array)$indexedRows, $filters);
+        $response['status_summary'] = $statusSummary;
+        $response['internal_outbound_summary'] = $internalOutboundSummary;
+        $response['external_outbound_summary'] = $externalOutboundSummary;
+        $response = $this->attach_rest_execution_meta($response, 'pages_link_list', 'indexed_summary_filtered', false);
+        $this->set_rest_response_cache($context['cache_key'], $response);
+        return $this->enrich_pages_link_rest_response($response, $filters);
       }
 
       $pagesResult = $this->load_pages_link_rest_summary_rows($filters, $context);
       $response = $this->paginate_pages_link_rest_response((array)($pagesResult['pages'] ?? []), $filters);
       $response = $this->attach_rest_execution_meta($response, 'pages_link_list', (string)($pagesResult['execution_mode'] ?? 'cache_scan_fallback'), false);
 
-      if (empty($context['rebuild_requested'])) {
-        $this->set_rest_response_cache($context['cache_key'], $response);
-      }
+      $this->set_rest_response_cache($context['cache_key'], $response);
 
       return $this->enrich_pages_link_rest_response($response, $filters);
     }));
@@ -1097,12 +1084,10 @@ trait LM_REST_API_Trait {
       $filters = $this->get_filters_from_request();
       $context = $this->build_rest_endpoint_context('editor_list', $filters);
 
-      if (empty($context['rebuild_requested'])) {
-        $cachedResponse = $this->get_valid_rest_cached_response($context['cache_key']);
-        if (is_array($cachedResponse)) {
-          $cachedResponse = $this->attach_rest_execution_meta($cachedResponse, 'editor_list', 'response_cache_hit', true);
-          return $this->enrich_editor_rest_response($cachedResponse, $filters);
-        }
+      $cachedResponse = $this->get_valid_rest_cached_response($context['cache_key']);
+      if (is_array($cachedResponse)) {
+        $cachedResponse = $this->attach_rest_execution_meta($cachedResponse, 'editor_list', 'response_cache_hit', true);
+        return $this->enrich_editor_rest_response($cachedResponse, $filters);
       }
 
       $editorResult = $this->load_editor_rest_rows($filters, $context);
@@ -1113,9 +1098,7 @@ trait LM_REST_API_Trait {
         $response = $this->attach_rest_execution_meta($response, 'editor_list', (string)($editorResult['execution_mode'] ?? 'cache_scan_fallback'), false);
       }
 
-      if (empty($context['rebuild_requested'])) {
-        $this->set_rest_response_cache($context['cache_key'], $response);
-      }
+      $this->set_rest_response_cache($context['cache_key'], $response);
 
       return $this->enrich_editor_rest_response($response, $filters);
     }));

@@ -16,6 +16,7 @@ trait LM_Schema_Trait {
 
     $this->run_schema_migrations($installedVersion);
     update_option('lm_db_version', self::DB_VERSION, false);
+    $this->finalize_schema_upgrade($installedVersion);
   }
 
   public function maybe_create_audit_table() {
@@ -49,6 +50,25 @@ trait LM_Schema_Trait {
 
     if (version_compare($installedVersion, '5.1', '<')) {
       $this->ensure_author_id_schema();
+    }
+  }
+
+  private function finalize_schema_upgrade($installedVersion) {
+    $installedVersion = (string)$installedVersion;
+
+    // Drop volatile rebuild state so upgraded code never resumes an older job shape.
+    $this->clear_rebuild_job_state();
+    $this->release_rebuild_job_lock();
+    delete_option($this->rebuild_last_finalize_metrics_option_key());
+
+    // Invalidate cached report payloads and indexed summaries so upgraded readers only
+    // see fresh data generated with the latest schema/logic.
+    $this->clear_cache_all();
+
+    // Fresh installs can remain empty until the first manual refresh; upgrades should
+    // self-heal and repopulate data automatically in the background.
+    if ($installedVersion !== '0') {
+      $this->schedule_background_rebuild('any', 'all', 2);
     }
   }
 

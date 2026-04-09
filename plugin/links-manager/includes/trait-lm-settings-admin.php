@@ -340,17 +340,27 @@ trait LM_Settings_Admin_Trait {
       $readinessScopeLabel = sprintf(__('all scopes / language: %s', 'links-manager'), $langLabel);
     }
 
-    $indexedRowsCount = $this->get_indexed_fact_count_exact_scope('any', $readinessWpmlLang);
-    $effectiveCacheRowsCount = $indexedRowsCount;
+    $scopedRowsCount = $this->get_indexed_fact_count_exact_scope('any', $readinessWpmlLang);
+    $globalRowsCount = $this->get_indexed_fact_count_exact_scope('any', 'all');
+    if ($globalRowsCount < 1) {
+      $globalRowsCount = max(0, (int)($restState['rows_count'] ?? 0));
+    }
+    $effectiveCacheRowsCount = $scopedRowsCount;
 
     $restRecommendation = __('Data looks ready. Manual refresh is optional.', 'links-manager');
     $restRecommendationClass = 'ok';
     if ($restStatus === 'running') {
       $restRecommendation = __('A refresh is currently running. No manual trigger is needed right now.', 'links-manager');
       $restRecommendationClass = 'warn';
-    } elseif ($effectiveCacheRowsCount === 0 || $lastScanLabel === 'Never') {
+    } elseif ($lastScanLabel === 'Never') {
       $restRecommendation = __('No recent data is available. Recommended: run a manual refresh.', 'links-manager');
       $restRecommendationClass = 'bad';
+    } elseif ($effectiveCacheRowsCount === 0 && $readinessWpmlLang !== 'all' && $globalRowsCount > 0) {
+      $restRecommendation = __('Refresh completed successfully. This language scope currently has 0 rows, but the global dataset is available.', 'links-manager');
+      $restRecommendationClass = 'warn';
+    } elseif ($effectiveCacheRowsCount === 0) {
+      $restRecommendation = __('Refresh completed successfully, but no link rows were found in the current scope.', 'links-manager');
+      $restRecommendationClass = 'warn';
     } elseif ($cacheAgeHours >= 24) {
       $restRecommendation = __('Data is older than 24 hours. Consider a manual refresh if you need the latest scan.', 'links-manager');
       $restRecommendationClass = 'warn';
@@ -373,6 +383,9 @@ trait LM_Settings_Admin_Trait {
     echo '<table class="widefat striped" style="margin-top:8px; max-width:760px;">';
     echo '<tbody>';
     echo '<tr><th style="width:260px;">' . esc_html__('Available report rows', 'links-manager') . '</th><td>' . esc_html(number_format($effectiveCacheRowsCount)) . '</td></tr>';
+    if ($readinessWpmlLang !== 'all') {
+      echo '<tr><th>' . esc_html__('Available global rows', 'links-manager') . '</th><td>' . esc_html(number_format($globalRowsCount)) . '</td></tr>';
+    }
     echo '<tr><th>' . esc_html__('Last successful refresh', 'links-manager') . '</th><td>' . esc_html($lastScanLabel) . '</td></tr>';
     echo '<tr><th>' . esc_html__('Last global refresh job update', 'links-manager') . '</th><td>' . esc_html($restUpdatedAt) . '</td></tr>';
     if ($restStatus === 'running') {

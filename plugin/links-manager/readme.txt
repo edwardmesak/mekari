@@ -4,7 +4,7 @@ Tags: seo, links, internal links, external links, link audit
 Requires at least: 5.0
 Tested up to: 6.7
 Requires PHP: 7.2
-Stable tag: 4.4.5
+Stable tag: 4.4.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -59,6 +59,18 @@ Links Manager includes Statistics, Links Editor, Pages Link, Cited External Doma
 When the plugin is deleted from WordPress, it removes plugin options, transient caches, scheduled events, and plugin database tables.
 
 == Changelog ==
+
+= 4.4.6 =
+* Migrated report pages fully to the Refresh Data workflow so report screens no longer depend on the old per-page rebuild cache flow.
+* Added admin-ajax fallback for Refresh Data when custom REST routes are unavailable, and blocked overlapping refresh starts while a job is still finalizing.
+* Treated empty refresh datasets as valid results, improved first-run empty states, and prevented fresh-install report screens from triggering critical errors before a dataset exists.
+* Expanded uninstall cleanup to remove additional refresh/cache runtime options and rebuild state left behind by previous installs.
+* Fixed WPML indexed datastore writes so global Refresh Data stores exact per-post language rows dynamically instead of collapsing everything into `all`.
+* Aligned report pages with scoped WPML datasets, clarified scoped vs global row counts in Settings, and improved zero-row messaging for valid language scopes.
+* Hardened Pages Link, Links Target, Cited Domains, and All Anchor Text against heavy filter requests by preferring safer indexed or lightweight row paths and keeping correctness-first fallbacks where needed.
+* Fixed All Anchor Text indexed filtering for quality, usage type, group, min/max thresholds, and sorting so filtered results stay consistent with fallback builders.
+* Improved Statistics cache invalidation to refresh snapshot data after new Refresh Data runs and avoid stale scoped statistics.
+* Added active-filter highlighting and active-filter counts in report forms, while excluding modifier-only controls such as sort, pagination, and text-search mode from the active-filter summary.
 
 = 4.4.5 =
 * Replaced deprecated author lookups with capability-based user queries to remove WordPress "Doing it wrong" warnings.
@@ -119,6 +131,9 @@ When the plugin is deleted from WordPress, it removes plugin options, transient 
 * Versions prior to 4.4.0 are not documented in this repository's current changelog history.
 
 == Upgrade Notice ==
+
+= 4.4.6 =
+Recommended update for the new Refresh Data-only workflow, safer first-run behavior after reinstall, stronger WPML language scoping, more stable report filtering, and clearer active-filter UI across report pages.
 
 = 4.4.5 =
 Recommended update for cleaner WordPress compatibility, exact author filtering via dropdowns across admin reports, and indexed author-ID support for more reliable filtering.

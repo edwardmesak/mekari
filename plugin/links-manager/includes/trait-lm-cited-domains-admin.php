@@ -13,6 +13,12 @@ trait LM_Cited_Domains_Admin_Trait {
 
     $filters = $this->get_cited_domains_filters_from_request();
     $exportUrl = $this->build_cited_domains_export_url($filters);
+    $scopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $dataNotice = $this->get_report_data_notice($scopePostType, $scopeWpmlLang);
     $postCategoryOptions = $this->get_post_term_options('category');
     $postTagOptions = $this->get_post_term_options('post_tag');
     $authorOptions = $this->get_scan_author_options();
@@ -24,27 +30,29 @@ trait LM_Cited_Domains_Admin_Trait {
     $pageRows = [];
 
     $usedIndexedPagedFastpath = false;
-    if (empty($filters['rebuild'])) {
-      $indexedPaged = $this->get_indexed_cited_domains_paged_result($filters);
-      if (is_array($indexedPaged)
-        && isset($indexedPaged['items'])
-        && isset($indexedPaged['pagination'])
-        && is_array($indexedPaged['items'])
-        && is_array($indexedPaged['pagination'])
-        && (!empty($indexedPaged['items']) || (int)($indexedPaged['pagination']['total'] ?? 0) > 0)) {
-        $usedIndexedPagedFastpath = true;
-        $pageRows = array_values((array)$indexedPaged['items']);
-        $pagination = (array)$indexedPaged['pagination'];
-        $total = max(0, (int)($pagination['total'] ?? 0));
-        $perPage = max(10, (int)($pagination['per_page'] ?? $perPage));
-        $filters['per_page'] = $perPage;
-        $filters['paged'] = max(1, (int)($pagination['paged'] ?? $filters['paged']));
-        $totalPages = max(1, (int)($pagination['total_pages'] ?? 1));
-      }
+    $indexedPaged = $this->get_indexed_cited_domains_paged_result($filters);
+    if (is_array($indexedPaged)
+      && isset($indexedPaged['items'])
+      && isset($indexedPaged['pagination'])
+      && is_array($indexedPaged['items'])
+      && is_array($indexedPaged['pagination'])
+      && (!empty($indexedPaged['items']) || (int)($indexedPaged['pagination']['total'] ?? 0) > 0)) {
+      $usedIndexedPagedFastpath = true;
+      $pageRows = array_values((array)$indexedPaged['items']);
+      $pagination = (array)$indexedPaged['pagination'];
+      $total = max(0, (int)($pagination['total'] ?? 0));
+      $perPage = max(10, (int)($pagination['per_page'] ?? $perPage));
+      $filters['per_page'] = $perPage;
+      $filters['paged'] = max(1, (int)($pagination['paged'] ?? $filters['paged']));
+      $totalPages = max(1, (int)($pagination['total_pages'] ?? 1));
     }
 
     if (!$usedIndexedPagedFastpath) {
-      $rows = $this->build_cited_domains_summary_rows([], $filters);
+      $rows = $this->get_indexed_cited_domains_summary_rows($filters);
+      if (empty($rows)) {
+        $scopeRows = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
+        $rows = $this->build_cited_domains_summary_rows($scopeRows, $filters);
+      }
       $total = count($rows);
       $perPage = $filters['per_page'];
       $filters['per_page'] = $perPage;
@@ -60,13 +68,14 @@ trait LM_Cited_Domains_Admin_Trait {
       __('Links Manager - Cited External Domains', 'links-manager'),
       __('Review the domains most often referenced from your content and refine outbound linking with faster filters.', 'links-manager')
     );
+    if ($dataNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($dataNotice) . '</p></div>';
 
     echo '<div class="lm-card lm-card-full">';
     $this->render_admin_section_intro(
       __('Filter', 'links-manager'),
       __('Narrow the report by post scope, source, SEO flags, and citation thresholds.', 'links-manager')
     );
-    echo '<form method="get" action="' . esc_url(admin_url('admin.php')) . '">';
+    echo '<form method="get" action="' . esc_url(admin_url('admin.php')) . '" onsubmit="var b=this.querySelector(\'button[type=submit],input[type=submit]\');if(b){b.disabled=true;if(\'value\' in b){b.value=\'Applying...\';}else{b.textContent=\'Applying...\';}}">';
     echo '<input type="hidden" name="page" value="links-manager-cited-domains"/>';
     foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
       echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
@@ -120,8 +129,10 @@ trait LM_Cited_Domains_Admin_Trait {
     echo '<option value="sponsored"' . selected($filters['seo_flag'], 'sponsored', false) . '>Sponsored</option>';
     echo '<option value="ugc"' . selected($filters['seo_flag'], 'ugc', false) . '>UGC</option>';
     echo '</select></td></tr>';
-    echo '<tr><th scope="row">Min Cited Count</th><td><input type="number" name="lm_cd_min_cites" min="0" value="' . esc_attr((string)$filters['min_cites']) . '" style="width:90px;" /></td></tr>';
-    echo '<tr><th scope="row">Min Unique Source Pages</th><td><input type="number" name="lm_cd_min_pages" min="0" value="' . esc_attr((string)$filters['min_pages']) . '" style="width:90px;" /></td></tr>';
+    $minCitesVal = (int)$filters['min_cites'] > 0 ? (string)$filters['min_cites'] : '';
+    $minPagesVal = (int)$filters['min_pages'] > 0 ? (string)$filters['min_pages'] : '';
+    echo '<tr><th scope="row">Min Cited Count</th><td><input type="number" name="lm_cd_min_cites" min="0" value="' . esc_attr($minCitesVal) . '" style="width:90px;" /></td></tr>';
+    echo '<tr><th scope="row">Min Unique Source Pages</th><td><input type="number" name="lm_cd_min_pages" min="0" value="' . esc_attr($minPagesVal) . '" style="width:90px;" /></td></tr>';
     $maxCitesVal = (int)$filters['max_cites'] >= 0 ? (string)$filters['max_cites'] : '';
     $maxPagesVal = (int)$filters['max_pages'] >= 0 ? (string)$filters['max_pages'] : '';
     echo '<tr><th scope="row">Max Cited Count</th><td><input type="number" name="lm_cd_max_cites" min="0" value="' . esc_attr($maxCitesVal) . '" style="width:90px;" /></td></tr>';
@@ -138,7 +149,6 @@ trait LM_Cited_Domains_Admin_Trait {
     echo '<option value="ASC"' . selected($filters['order'], 'ASC', false) . '>ASC</option>';
     echo '</select>';
     echo '</td></tr>';
-    echo '<tr><th scope="row">' . esc_html__('Cache', 'links-manager') . '</th><td><label><input type="checkbox" name="lm_cd_rebuild" value="1"' . checked($filters['rebuild'] ? '1' : '0', '1', false) . '> ' . esc_html__('Rebuild cache', 'links-manager') . '</label></td></tr>';
     echo '<tr><th scope="row">' . esc_html__('Per Page', 'links-manager') . '</th><td><input type="number" name="lm_cd_per_page" min="10" max="500" value="' . esc_attr((string)$filters['per_page']) . '" style="width:90px;" /></td></tr>';
     echo '<tr><th scope="row">' . esc_html__('Export', 'links-manager') . '</th><td><a class="button button-secondary" href="' . esc_url($exportUrl) . '">' . esc_html__('Export CSV', 'links-manager') . '</a><div class="lm-small">' . esc_html__('Export includes all filtered results and keeps source page + anchor text.', 'links-manager') . '</div></td></tr>';
     echo '</tbody></table>';

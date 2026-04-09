@@ -229,4 +229,65 @@ trait LM_WPML_Scan_Helpers_Trait {
     $current = $this->sanitize_wpml_lang_filter($current);
     return $current === '' ? 'all' : $current;
   }
+
+  private function get_indexed_datastore_refresh_langs($includeAll = true) {
+    $langs = [];
+    if ($includeAll) {
+      $langs[] = 'all';
+    }
+
+    if ($this->is_wpml_active()) {
+      $langs = array_merge($langs, array_keys($this->get_wpml_languages_map()));
+    }
+
+    $langs = array_values(array_unique(array_filter(array_map([$this, 'sanitize_wpml_lang_filter'], $langs))));
+    if (empty($langs)) {
+      return ['all'];
+    }
+
+    return $langs;
+  }
+
+  private function resolve_post_wpml_lang($postId, $fallbackLang = 'all') {
+    $fallbackLang = $this->sanitize_wpml_lang_filter($fallbackLang);
+    $postId = (int)$postId;
+    if ($postId < 1 || !$this->is_wpml_active()) {
+      return $fallbackLang;
+    }
+
+    $languageCode = '';
+
+    $details = $this->safe_wpml_apply_filters('wpml_post_language_details', null, $postId);
+    if (is_array($details)) {
+      $languageCode = sanitize_key((string)($details['language_code'] ?? ''));
+    } elseif (is_object($details)) {
+      $languageCode = sanitize_key((string)($details->language_code ?? ''));
+    }
+
+    if ($languageCode === '') {
+      $postType = get_post_type($postId);
+      if (is_string($postType) && $postType !== '') {
+        $elementArgs = [
+          'element_id' => $postId,
+          'element_type' => 'post_' . sanitize_key($postType),
+        ];
+        $details = $this->safe_wpml_apply_filters('wpml_element_language_details', null, $elementArgs);
+        if (is_array($details)) {
+          $languageCode = sanitize_key((string)($details['language_code'] ?? ''));
+        } elseif (is_object($details)) {
+          $languageCode = sanitize_key((string)($details->language_code ?? ''));
+        }
+
+        if ($languageCode === '') {
+          $code = $this->safe_wpml_apply_filters('wpml_element_language_code', null, $elementArgs);
+          if (is_string($code)) {
+            $languageCode = sanitize_key($code);
+          }
+        }
+      }
+    }
+
+    $resolved = $this->sanitize_wpml_lang_filter($languageCode);
+    return $resolved === 'all' ? $fallbackLang : $resolved;
+  }
 }

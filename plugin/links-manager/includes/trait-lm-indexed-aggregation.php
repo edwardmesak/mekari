@@ -58,7 +58,7 @@ trait LM_Indexed_Aggregation_Trait {
     if (!empty($rows)) {
       return $rows;
     }
-    if ($scopePostType !== 'any' || $wpmlLang !== 'all') {
+    if (!$this->has_exact_language_scope($wpmlLang) && ($scopePostType !== 'any' || $wpmlLang !== 'all')) {
       return $this->get_indexed_fact_rows('any', 'all', $factFilters);
     }
 
@@ -79,7 +79,7 @@ trait LM_Indexed_Aggregation_Trait {
     }
     $wpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
 
-    $resolvedScope = $this->resolve_indexed_datastore_scope($scopePostType, $wpmlLang);
+    $resolvedScope = $this->resolve_indexed_datastore_scope($scopePostType, $wpmlLang, !$this->has_exact_language_scope($wpmlLang));
     if (!is_array($resolvedScope)) {
       return null;
     }
@@ -386,6 +386,25 @@ trait LM_Indexed_Aggregation_Trait {
       return [];
     }
 
+    $anchorToGroups = [];
+    foreach ($this->get_anchor_groups() as $g) {
+      $groupName = trim((string)($g['name'] ?? ''));
+      if ($groupName === '') {
+        continue;
+      }
+      foreach ((array)($g['anchors'] ?? []) as $anchorValue) {
+        $anchorValue = trim((string)$anchorValue);
+        if ($anchorValue === '') {
+          continue;
+        }
+        $anchorKey = strtolower($anchorValue);
+        if (!isset($anchorToGroups[$anchorKey])) {
+          $anchorToGroups[$anchorKey] = [];
+        }
+        $anchorToGroups[$anchorKey][$groupName] = true;
+      }
+    }
+
     $out = [];
     foreach ($rows as $row) {
       $anchor = $this->normalize_anchor_text_value((string)($row['anchor_text'] ?? ''), true);
@@ -426,7 +445,106 @@ trait LM_Indexed_Aggregation_Trait {
       ];
     }
 
-    return $out;
+    $filteredRows = [];
+    $qualityWanted = (string)($filters['quality'] ?? 'any');
+    $usageTypeWanted = (string)($filters['usage_type'] ?? 'any');
+    $selectedGroup = (string)($filters['group'] ?? 'any');
+    $minTotal = max(0, (int)($filters['min_total'] ?? 0));
+    $maxTotal = (int)($filters['max_total'] ?? -1);
+    $minInlink = max(0, (int)($filters['min_inlink'] ?? 0));
+    $maxInlink = (int)($filters['max_inlink'] ?? -1);
+    $minOutbound = max(0, (int)($filters['min_outbound'] ?? 0));
+    $maxOutbound = (int)($filters['max_outbound'] ?? -1);
+    $minPages = max(0, (int)($filters['min_pages'] ?? 0));
+    $maxPages = (int)($filters['max_pages'] ?? -1);
+    $minDestinations = max(0, (int)($filters['min_destinations'] ?? 0));
+    $maxDestinations = (int)($filters['max_destinations'] ?? -1);
+
+    foreach ($out as $summaryRow) {
+      if ($qualityWanted !== 'any' && (string)($summaryRow['quality'] ?? '') !== $qualityWanted) {
+        continue;
+      }
+      if ($usageTypeWanted !== 'any' && (string)($summaryRow['usage_type'] ?? '') !== $usageTypeWanted) {
+        continue;
+      }
+      if ((int)($summaryRow['total'] ?? 0) < $minTotal) {
+        continue;
+      }
+      if ($maxTotal >= 0 && (int)($summaryRow['total'] ?? 0) > $maxTotal) {
+        continue;
+      }
+      if ((int)($summaryRow['inlink'] ?? 0) < $minInlink) {
+        continue;
+      }
+      if ($maxInlink >= 0 && (int)($summaryRow['inlink'] ?? 0) > $maxInlink) {
+        continue;
+      }
+      if ((int)($summaryRow['outbound'] ?? 0) < $minOutbound) {
+        continue;
+      }
+      if ($maxOutbound >= 0 && (int)($summaryRow['outbound'] ?? 0) > $maxOutbound) {
+        continue;
+      }
+      if ((int)($summaryRow['source_pages'] ?? 0) < $minPages) {
+        continue;
+      }
+      if ($maxPages >= 0 && (int)($summaryRow['source_pages'] ?? 0) > $maxPages) {
+        continue;
+      }
+      if ((int)($summaryRow['destinations'] ?? 0) < $minDestinations) {
+        continue;
+      }
+      if ($maxDestinations >= 0 && (int)($summaryRow['destinations'] ?? 0) > $maxDestinations) {
+        continue;
+      }
+
+      if ($selectedGroup !== 'any') {
+        $anchorKey = strtolower($this->normalize_anchor_text_value((string)($summaryRow['anchor_text'] ?? ''), true));
+        $groupsForAnchor = isset($anchorToGroups[$anchorKey]) ? array_keys($anchorToGroups[$anchorKey]) : [];
+        if ($selectedGroup === 'no_group') {
+          if (!empty($groupsForAnchor)) {
+            continue;
+          }
+        } elseif (!in_array($selectedGroup, $groupsForAnchor, true)) {
+          continue;
+        }
+      }
+
+      $filteredRows[] = $summaryRow;
+    }
+
+    usort($filteredRows, function($a, $b) use ($filters) {
+      $dir = ((string)($filters['order'] ?? 'DESC') === 'ASC') ? 1 : -1;
+      $ord = (string)($filters['orderby'] ?? 'total');
+
+      if ($ord === 'anchor') {
+        $cmp = strcmp((string)($a['anchor_text'] ?? ''), (string)($b['anchor_text'] ?? ''));
+      } elseif ($ord === 'quality') {
+        $cmp = strcmp((string)($a['quality'] ?? ''), (string)($b['quality'] ?? ''));
+      } elseif ($ord === 'usage_type') {
+        $cmp = strcmp((string)($a['usage_type'] ?? ''), (string)($b['usage_type'] ?? ''));
+      } elseif ($ord === 'pages') {
+        $cmp = ((int)($a['source_pages'] ?? 0) <=> (int)($b['source_pages'] ?? 0));
+      } elseif ($ord === 'destinations') {
+        $cmp = ((int)($a['destinations'] ?? 0) <=> (int)($b['destinations'] ?? 0));
+      } elseif ($ord === 'inlink') {
+        $cmp = ((int)($a['inlink'] ?? 0) <=> (int)($b['inlink'] ?? 0));
+      } elseif ($ord === 'outbound') {
+        $cmp = ((int)($a['outbound'] ?? 0) <=> (int)($b['outbound'] ?? 0));
+      } elseif ($ord === 'source_types') {
+        $cmp = strcmp((string)($a['source_types'] ?? ''), (string)($b['source_types'] ?? ''));
+      } else {
+        $cmp = ((int)($a['total'] ?? 0) <=> (int)($b['total'] ?? 0));
+      }
+
+      if ($cmp === 0) {
+        $cmp = strcmp((string)($a['anchor_text'] ?? ''), (string)($b['anchor_text'] ?? ''));
+      }
+
+      return $cmp * $dir;
+    });
+
+    return $filteredRows;
   }
 
   private function can_use_indexed_all_anchor_text_paged_fastpath($filters) {

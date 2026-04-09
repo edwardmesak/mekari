@@ -170,6 +170,9 @@ trait LM_Indexed_Datastore_Trait {
     $attempted[$attemptKey] = true;
 
     foreach ($langsToTry as $lang) {
+      if ($lang !== 'all') {
+        continue;
+      }
       $mainRows = get_transient($this->cache_key('any', $lang));
       if (is_array($mainRows) && !empty($mainRows)) {
         $this->sync_indexed_datastore_from_rows($mainRows, $lang);
@@ -222,6 +225,10 @@ trait LM_Indexed_Datastore_Trait {
     }
 
     return null;
+  }
+
+  private function has_exact_language_scope($wpmlLang = 'all') {
+    return $this->get_requested_view_wpml_lang((string)$wpmlLang) !== 'all';
   }
 
   private function append_indexed_text_match_clause(&$whereParts, &$params, $column, $needle, $mode) {
@@ -433,6 +440,10 @@ trait LM_Indexed_Datastore_Trait {
 
     $sql = "SELECT post_id, inbound, internal_outbound, outbound FROM $table WHERE " . implode(' AND ', $whereParts);
     $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+    if ((!is_array($rows) || empty($rows)) && $wpmlLang !== 'all' && $this->get_indexed_fact_count_exact_scope($scopePostType, $wpmlLang) > 0) {
+      $this->rebuild_indexed_summary_for_lang($wpmlLang);
+      $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+    }
     if (!is_array($rows) || empty($rows)) {
       return [];
     }
@@ -482,28 +493,7 @@ trait LM_Indexed_Datastore_Trait {
   }
 
   private function get_indexed_fact_count($scopePostType = 'any', $wpmlLang = 'all') {
-    global $wpdb;
-
-    if (!$this->is_indexed_datastore_ready()) {
-      return 0;
-    }
-
-    $table = $wpdb->prefix . 'lm_link_fact';
-    $scopePostType = sanitize_key((string)$scopePostType);
-    if ($scopePostType === '') {
-      $scopePostType = 'any';
-    }
-    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
-
-    $whereParts = ['wpml_lang = %s'];
-    $params = [$wpmlLang];
-    if ($scopePostType !== 'any') {
-      $whereParts[] = 'post_type = %s';
-      $params[] = $scopePostType;
-    }
-
-    $sql = "SELECT COUNT(*) FROM $table WHERE " . implode(' AND ', $whereParts);
-    return max(0, (int)$wpdb->get_var($wpdb->prepare($sql, $params)));
+    return $this->get_indexed_fact_count_exact_scope($scopePostType, $wpmlLang);
   }
 
   private function get_indexed_fact_count_exact_scope($scopePostType = 'any', $wpmlLang = 'all') {
@@ -1165,28 +1155,104 @@ trait LM_Indexed_Datastore_Trait {
     $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
 
     $main = get_transient($this->cache_key($scopePostType, $wpmlLang));
-    if (is_array($main) && !empty($main)) {
+    if (is_array($main)) {
       return $main;
     }
 
     $backup = get_transient($this->cache_backup_key($scopePostType, $wpmlLang));
-    if (is_array($backup) && !empty($backup)) {
+    if (is_array($backup)) {
       return $backup;
     }
 
     if ($allowAnyAllFallback && ($scopePostType !== 'any' || $wpmlLang !== 'all')) {
       $mainAnyAll = get_transient($this->cache_key('any', 'all'));
-      if (is_array($mainAnyAll) && !empty($mainAnyAll)) {
+      if (is_array($mainAnyAll)) {
         return $mainAnyAll;
       }
 
       $backupAnyAll = get_transient($this->cache_backup_key('any', 'all'));
-      if (is_array($backupAnyAll) && !empty($backupAnyAll)) {
+      if (is_array($backupAnyAll)) {
         return $backupAnyAll;
       }
     }
 
     return null;
+  }
+
+  private function has_refresh_dataset_for_scope($scopePostType = 'any', $wpmlLang = 'all', $allowAnyAllFallback = true) {
+    $scopePostType = sanitize_key((string)$scopePostType);
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
+
+    if ($this->is_indexed_datastore_ready() && $this->indexed_dataset_has_rows($scopePostType, $wpmlLang)) {
+      return true;
+    }
+
+    $cacheRows = $this->get_existing_cache_rows_for_rest($scopePostType, $wpmlLang, $allowAnyAllFallback);
+    if (is_array($cacheRows)) {
+      return true;
+    }
+
+    $mainStamp = get_option($this->cache_scan_option_key($scopePostType, $wpmlLang), '');
+    if ((string)$mainStamp !== '') {
+      return true;
+    }
+
+    if ($allowAnyAllFallback && ($scopePostType !== 'any' || $wpmlLang !== 'all')) {
+      $fallbackStamp = get_option($this->cache_scan_option_key('any', 'all'), '');
+      if ((string)$fallbackStamp !== '') {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private function has_nonempty_refresh_dataset_for_scope($scopePostType = 'any', $wpmlLang = 'all', $allowAnyAllFallback = true) {
+    $scopePostType = sanitize_key((string)$scopePostType);
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
+
+    if ($this->is_indexed_datastore_ready() && $this->get_indexed_fact_count_exact_scope($scopePostType, $wpmlLang) > 0) {
+      return true;
+    }
+
+    $cacheRows = $this->get_existing_cache_rows_for_rest($scopePostType, $wpmlLang, $allowAnyAllFallback);
+    if (is_array($cacheRows) && !empty($cacheRows)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private function get_report_data_notice($scopePostType = 'any', $wpmlLang = 'all') {
+    $state = $this->get_rebuild_job_state();
+    $status = sanitize_key((string)($state['status'] ?? ''));
+    if (in_array($status, ['running', 'finalizing'], true)) {
+      return __('Refresh Data is still running. Report data will appear automatically when the refresh completes.', 'links-manager');
+    }
+
+    if (!$this->has_nonempty_refresh_dataset_for_scope('any', 'all', false) && !$this->has_refresh_dataset_for_scope('any', 'all', false)) {
+      return __('No refreshed dataset is available yet. Run Refresh Data first to load report data.', 'links-manager');
+    }
+
+    if (!$this->has_nonempty_refresh_dataset_for_scope($scopePostType, $wpmlLang, false) && !$this->has_refresh_dataset_for_scope($scopePostType, $wpmlLang, false)) {
+      return __('No rows are available yet for the current scope. Run Refresh Data or switch to another language scope.', 'links-manager');
+    }
+
+    return '';
+  }
+
+  private function get_report_scope_rows_or_empty($scopePostType = 'any', $wpmlLang = 'all', $filters = null, $allowAnyAllFallback = true) {
+    if (!$this->has_refresh_dataset_for_scope($scopePostType, $wpmlLang, $allowAnyAllFallback)) {
+      return [];
+    }
+
+    return $this->get_canonical_rows_for_scope($scopePostType, false, $wpmlLang, $filters, $allowAnyAllFallback);
   }
 
   private function get_canonical_rows_for_scope($scopePostType = 'any', $forceRebuild = false, $wpmlLang = 'all', $filters = null, $allowAnyAllFallback = true) {
@@ -1201,7 +1267,7 @@ trait LM_Indexed_Datastore_Trait {
       if (!empty($indexedRows)) {
         return $indexedRows;
       }
-      if ($allowAnyAllFallback && ($scopePostType !== 'any' || $wpmlLang !== 'all')) {
+      if ($allowAnyAllFallback && !$this->has_exact_language_scope($wpmlLang) && ($scopePostType !== 'any' || $wpmlLang !== 'all')) {
         $indexedRowsAnyAll = $this->get_indexed_fact_rows('any', 'all', is_array($filters) ? $filters : null);
         if (is_array($indexedRowsAnyAll) && !empty($indexedRowsAnyAll)) {
           return $indexedRowsAnyAll;
@@ -1229,7 +1295,7 @@ trait LM_Indexed_Datastore_Trait {
       return true;
     }
 
-    if ($scopePostType !== 'any' || $wpmlLang !== 'all') {
+    if (!$this->has_exact_language_scope($wpmlLang) && ($scopePostType !== 'any' || $wpmlLang !== 'all')) {
       if ($this->get_indexed_fact_count('any', 'all') > 0) {
         return true;
       }

@@ -20,16 +20,14 @@ trait LM_Editor_Admin_Trait {
       $scopePostType = 'any';
     }
     $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $dataNotice = $this->get_report_data_notice($scopePostType, $scopeWpmlLang);
 
     $perPage = $filters['per_page'];
     $paged = $filters['paged'];
     $locations = $this->get_indexed_editor_location_options($scopePostType, $scopeWpmlLang);
     if (!is_array($locations)) {
       $locations = ['any' => 'All'];
-      $locationRows = null;
-      if (!$filters['rebuild']) {
-        $locationRows = $this->get_existing_cache_rows_for_rest($scopePostType, $scopeWpmlLang, false);
-      }
+      $locationRows = $this->get_existing_cache_rows_for_rest($scopePostType, $scopeWpmlLang, false);
       foreach ((array)$locationRows as $r) {
         $locationKey = isset($r['link_location']) ? (string)$r['link_location'] : '';
         if ($locationKey === '') {
@@ -68,6 +66,7 @@ trait LM_Editor_Admin_Trait {
     );
 
     if ($msg !== '') echo '<div class="notice notice-' . esc_attr($msgClass) . '"><p>' . esc_html($msg) . '</p></div>';
+    if ($dataNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($dataNotice) . '</p></div>';
 
     echo '<div class="lm-grid">';
 
@@ -76,7 +75,7 @@ trait LM_Editor_Admin_Trait {
       __('Filter', 'links-manager'),
       __('Search by destination, source, metadata, and quality signals before editing or exporting results.', 'links-manager')
     );
-    echo '<form method="get" action="">';
+    echo '<form method="get" action="" onsubmit="var b=this.querySelector(\'button[type=submit],input[type=submit]\');if(b){b.disabled=true;if(\'value\' in b){b.value=\'Applying...\';}else{b.textContent=\'Applying...\';}}">';
     echo '<input type="hidden" name="page" value="' . esc_attr(self::PAGE_SLUG) . '"/>';
     foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
       echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
@@ -215,11 +214,6 @@ trait LM_Editor_Admin_Trait {
     echo '</select>';
     echo '</td></tr>';
 
-    echo '<tr><th scope="row">' . esc_html__('Cache', 'links-manager') . '</th><td>';
-    echo '<label><input type="checkbox" name="lm_rebuild" value="1"' . checked($filters['rebuild'] ? '1' : '0', '1', false) . '> ' . esc_html__('Rebuild cache', 'links-manager') . '</label>';
-    echo '<div class="lm-small">' . esc_html__('Cache is used to keep this page fast.', 'links-manager') . '</div>';
-    echo '</td></tr>';
-
     echo '<tr><th scope="row">' . esc_html__('Per Page', 'links-manager') . '</th><td>';
     echo '<input type="number" name="lm_per_page" value="' . esc_attr((string)$perPage) . '" min="10" max="500" />';
     echo '</td></tr>';
@@ -351,43 +345,38 @@ trait LM_Editor_Admin_Trait {
       $scopePostType = 'any';
     }
     $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
-    $rebuildRequested = !empty($filters['rebuild']);
     $all = null;
     $usedExistingCache = false;
-    $indexedFastResponse = null;
-
-    if (!$rebuildRequested) {
-      $indexedFastResponse = $this->get_indexed_editor_list_fastpath_response($scopePostType, $scopeWpmlLang, $filters);
-      if (
-        is_array($indexedFastResponse)
-        && isset($indexedFastResponse['items'])
-        && isset($indexedFastResponse['pagination'])
-        && is_array($indexedFastResponse['items'])
-        && is_array($indexedFastResponse['pagination'])
-      ) {
-        $pagination = (array)$indexedFastResponse['pagination'];
-        return [
-          'items' => array_values((array)$indexedFastResponse['items']),
-          'total' => max(0, (int)($pagination['total'] ?? 0)),
-          'per_page' => max(10, (int)($pagination['per_page'] ?? ($filters['per_page'] ?? 25))),
-          'paged' => max(1, (int)($pagination['paged'] ?? ($filters['paged'] ?? 1))),
-          'total_pages' => max(1, (int)($pagination['total_pages'] ?? 1)),
-          'data_source' => 'indexed_fastpath',
-        ];
-      }
+    $indexedFastResponse = $this->get_indexed_editor_list_fastpath_response($scopePostType, $scopeWpmlLang, $filters);
+    if (
+      is_array($indexedFastResponse)
+      && isset($indexedFastResponse['items'])
+      && isset($indexedFastResponse['pagination'])
+      && is_array($indexedFastResponse['items'])
+      && is_array($indexedFastResponse['pagination'])
+    ) {
+      $pagination = (array)$indexedFastResponse['pagination'];
+      return [
+        'items' => array_values((array)$indexedFastResponse['items']),
+        'total' => max(0, (int)($pagination['total'] ?? 0)),
+        'per_page' => max(10, (int)($pagination['per_page'] ?? ($filters['per_page'] ?? 25))),
+        'paged' => max(1, (int)($pagination['paged'] ?? ($filters['paged'] ?? 1))),
+        'total_pages' => max(1, (int)($pagination['total_pages'] ?? 1)),
+        'data_source' => 'indexed_fastpath',
+      ];
     }
 
     if (!is_array($all)) {
       $all = null;
     }
-    if (empty($all) && !$rebuildRequested) {
+    if (empty($all)) {
       $all = $this->get_existing_cache_rows_for_rest($scopePostType, $scopeWpmlLang, false);
       if (is_array($all)) {
         $usedExistingCache = true;
       }
     }
     if (!is_array($all)) {
-      $all = $this->get_canonical_rows_for_scope($scopePostType, $rebuildRequested, $scopeWpmlLang, $filters, false);
+      $all = $this->get_report_scope_rows_or_empty($scopePostType, $scopeWpmlLang, $filters, false);
     }
 
     $rows = $this->apply_filters_and_group($all, $filters);

@@ -266,11 +266,11 @@ trait LM_Links_Target_Admin_Trait {
       return $counts;
     }
 
-    $all = $this->get_canonical_rows_for_scope(
+    $all = $this->get_report_scope_rows_or_empty(
       isset($filters['post_type']) ? (string)$filters['post_type'] : 'any',
-      false,
       isset($filters['wpml_lang']) ? (string)$filters['wpml_lang'] : $this->sanitize_wpml_lang_filter($this->get_wpml_current_language()),
-      $filters
+      $filters,
+      false
     );
 
     $allowedSummaryPostIds = $this->get_post_ids_by_post_terms(
@@ -735,7 +735,7 @@ trait LM_Links_Target_Admin_Trait {
       __('Anchor Text Target Grouping', 'links-manager'),
       __('Review grouped anchors, total usage, and internal versus outbound usage before editing or exporting groups. Anchors assigned to multiple groups are counted in each selected group.', 'links-manager')
     );
-    echo '<form method="get" action="" style="margin:0 0 8px;">';
+    echo '<form method="get" action="" style="margin:0 0 8px;" onsubmit="var b=this.querySelector(\'button[type=submit],input[type=submit]\');if(b){b.disabled=true;if(\'value\' in b){b.value=\'Applying...\';}else{b.textContent=\'Applying...\';}}">';
     echo '<input type="hidden" name="page" value="links-manager-target"/>';
     foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
       echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
@@ -1054,7 +1054,7 @@ trait LM_Links_Target_Admin_Trait {
     echo '<div style="margin:8px 0 10px; padding:12px; border:1px solid #dcdcde; border-radius:8px; background:#fff; box-shadow:inset 0 1px 0 rgba(255,255,255,0.6);">';
     echo '<div style="font-weight:600; margin-bottom:4px;">' . esc_html__('Filter Results', 'links-manager') . '</div>';
     echo '<div class="lm-small" style="margin-bottom:10px;">' . esc_html__('Use these filters to narrow the target summary table. These controls do not update or delete groups.', 'links-manager') . '</div>';
-    echo '<form method="get" action="" style="margin:0;">';
+    echo '<form method="get" action="" style="margin:0;" onsubmit="var b=this.querySelector(\'button[type=submit],input[type=submit]\');if(b){b.disabled=true;if(\'value\' in b){b.value=\'Applying...\';}else{b.textContent=\'Applying...\';}}">';
     echo '<input type="hidden" name="page" value="links-manager-target"/>';
     foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
       echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
@@ -1274,7 +1274,14 @@ trait LM_Links_Target_Admin_Trait {
         'search_mode' => $summarySearchMode,
       ];
 
-      $counts = $this->get_links_target_anchor_usage_map($summaryFilters, array_keys($summaryTargetsMap));
+      try {
+        $counts = $this->get_links_target_anchor_usage_map($summaryFilters, array_keys($summaryTargetsMap));
+      } catch (Throwable $e) {
+        $counts = [];
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+          error_log('LM Links Target summary error: ' . sanitize_text_field($e->getMessage()));
+        }
+      }
 
       $anchorToGroups = [];
       foreach ($groups as $g) {

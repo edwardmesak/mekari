@@ -13,6 +13,12 @@ trait LM_All_Anchor_Text_Admin_Trait {
 
     $filters = $this->get_all_anchor_text_filters_from_request();
     $exportUrl = $this->build_all_anchor_text_export_url($filters);
+    $scopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $dataNotice = $this->get_report_data_notice($scopePostType, $scopeWpmlLang);
     $postCategoryOptions = $this->get_post_term_options('category');
     $postTagOptions = $this->get_post_term_options('post_tag');
     $authorOptions = $this->get_scan_author_options();
@@ -30,26 +36,28 @@ trait LM_All_Anchor_Text_Admin_Trait {
     $pageRows = [];
 
     $usedIndexedPagedFastpath = false;
-    if (empty($filters['rebuild'])) {
-      $indexedPaged = $this->get_indexed_all_anchor_text_paged_result($filters);
-      if (is_array($indexedPaged)
-        && isset($indexedPaged['items'])
-        && isset($indexedPaged['pagination'])
-        && is_array($indexedPaged['items'])
-        && is_array($indexedPaged['pagination'])
-        && (!empty($indexedPaged['items']) || (int)($indexedPaged['pagination']['total'] ?? 0) > 0)) {
-        $usedIndexedPagedFastpath = true;
-        $pageRows = array_values((array)$indexedPaged['items']);
-        $pagination = (array)$indexedPaged['pagination'];
-        $total = max(0, (int)($pagination['total'] ?? 0));
-        $perPage = max(10, (int)($pagination['per_page'] ?? $perPage));
-        $filters['paged'] = max(1, (int)($pagination['paged'] ?? $filters['paged']));
-        $totalPages = max(1, (int)($pagination['total_pages'] ?? 1));
-      }
+    $indexedPaged = $this->get_indexed_all_anchor_text_paged_result($filters);
+    if (is_array($indexedPaged)
+      && isset($indexedPaged['items'])
+      && isset($indexedPaged['pagination'])
+      && is_array($indexedPaged['items'])
+      && is_array($indexedPaged['pagination'])
+      && (!empty($indexedPaged['items']) || (int)($indexedPaged['pagination']['total'] ?? 0) > 0)) {
+      $usedIndexedPagedFastpath = true;
+      $pageRows = array_values((array)$indexedPaged['items']);
+      $pagination = (array)$indexedPaged['pagination'];
+      $total = max(0, (int)($pagination['total'] ?? 0));
+      $perPage = max(10, (int)($pagination['per_page'] ?? $perPage));
+      $filters['paged'] = max(1, (int)($pagination['paged'] ?? $filters['paged']));
+      $totalPages = max(1, (int)($pagination['total_pages'] ?? 1));
     }
 
     if (!$usedIndexedPagedFastpath) {
-      $rows = $this->build_all_anchor_text_rows([], $filters);
+      $rows = $this->get_indexed_all_anchor_text_summary_rows($filters);
+      if (empty($rows)) {
+        $scopeRows = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
+        $rows = $this->build_all_anchor_text_rows($scopeRows, $filters);
+      }
       $total = count($rows);
       $perPage = $filters['per_page'];
       $totalPages = max(1, (int)ceil($total / $perPage));
@@ -92,13 +100,14 @@ trait LM_All_Anchor_Text_Admin_Trait {
       __('Links Manager - All Anchor Text', 'links-manager'),
       __('Explore anchor text usage across internal and external links, then spot overused, weak, or missing patterns more quickly.', 'links-manager')
     );
+    if ($dataNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($dataNotice) . '</p></div>';
 
     echo '<div class="lm-card lm-card-full">';
     $this->render_admin_section_intro(
       __('Filter', 'links-manager'),
       __('Filter by scope, quality, group, and usage type to focus on the anchor patterns that matter.', 'links-manager')
     );
-    echo '<form method="get" action="">';
+    echo '<form method="get" action="" onsubmit="var b=this.querySelector(\'button[type=submit],input[type=submit]\');if(b){b.disabled=true;if(\'value\' in b){b.value=\'Applying...\';}else{b.textContent=\'Applying...\';}}">';
     echo '<input type="hidden" name="page" value="links-manager-all-anchor-text"/>';
     foreach ($this->get_wpml_admin_lang_url_args() as $langKey => $langValue) {
       echo '<input type="hidden" name="' . esc_attr((string)$langKey) . '" value="' . esc_attr((string)$langValue) . '"/>';
@@ -174,24 +183,29 @@ trait LM_All_Anchor_Text_Admin_Trait {
     echo '<option value="sponsored"' . selected($filters['seo_flag'], 'sponsored', false) . '>Sponsored</option>';
     echo '<option value="ugc"' . selected($filters['seo_flag'], 'ugc', false) . '>UGC</option>';
     echo '</select></td></tr>';
+    $minTotalVal = (int)$filters['min_total'] > 0 ? (string)$filters['min_total'] : '';
+    $minInlinkVal = (int)$filters['min_inlink'] > 0 ? (string)$filters['min_inlink'] : '';
+    $minOutboundVal = (int)$filters['min_outbound'] > 0 ? (string)$filters['min_outbound'] : '';
+    $minPagesVal = (int)$filters['min_pages'] > 0 ? (string)$filters['min_pages'] : '';
+    $minDestinationsVal = (int)$filters['min_destinations'] > 0 ? (string)$filters['min_destinations'] : '';
     echo '<tr><th scope="row">Total (Min/Max)</th><td>';
-    echo '<input type="number" name="lm_at_min_total" min="0" value="' . esc_attr((string)$filters['min_total']) . '" placeholder="Min" style="width:120px; margin-right:8px;" />';
+    echo '<input type="number" name="lm_at_min_total" min="0" value="' . esc_attr($minTotalVal) . '" placeholder="Min" style="width:120px; margin-right:8px;" />';
     echo '<input type="number" name="lm_at_max_total" min="0" value="' . esc_attr($filters['max_total'] >= 0 ? (string)$filters['max_total'] : '') . '" placeholder="Max" style="width:120px;" />';
     echo '</td></tr>';
     echo '<tr><th scope="row">Inlink (Min/Max)</th><td>';
-    echo '<input type="number" name="lm_at_min_inlink" min="0" value="' . esc_attr((string)$filters['min_inlink']) . '" placeholder="Min" style="width:120px; margin-right:8px;" />';
+    echo '<input type="number" name="lm_at_min_inlink" min="0" value="' . esc_attr($minInlinkVal) . '" placeholder="Min" style="width:120px; margin-right:8px;" />';
     echo '<input type="number" name="lm_at_max_inlink" min="0" value="' . esc_attr($filters['max_inlink'] >= 0 ? (string)$filters['max_inlink'] : '') . '" placeholder="Max" style="width:120px;" />';
     echo '</td></tr>';
     echo '<tr><th scope="row">Outbound (Min/Max)</th><td>';
-    echo '<input type="number" name="lm_at_min_outbound" min="0" value="' . esc_attr((string)$filters['min_outbound']) . '" placeholder="Min" style="width:120px; margin-right:8px;" />';
+    echo '<input type="number" name="lm_at_min_outbound" min="0" value="' . esc_attr($minOutboundVal) . '" placeholder="Min" style="width:120px; margin-right:8px;" />';
     echo '<input type="number" name="lm_at_max_outbound" min="0" value="' . esc_attr($filters['max_outbound'] >= 0 ? (string)$filters['max_outbound'] : '') . '" placeholder="Max" style="width:120px;" />';
     echo '</td></tr>';
     echo '<tr><th scope="row">Unique Source Pages (Min/Max)</th><td>';
-    echo '<input type="number" name="lm_at_min_pages" min="0" value="' . esc_attr((string)$filters['min_pages']) . '" placeholder="Min" style="width:120px; margin-right:8px;" />';
+    echo '<input type="number" name="lm_at_min_pages" min="0" value="' . esc_attr($minPagesVal) . '" placeholder="Min" style="width:120px; margin-right:8px;" />';
     echo '<input type="number" name="lm_at_max_pages" min="0" value="' . esc_attr($filters['max_pages'] >= 0 ? (string)$filters['max_pages'] : '') . '" placeholder="Max" style="width:120px;" />';
     echo '</td></tr>';
     echo '<tr><th scope="row">Unique Destination URLs (Min/Max)</th><td>';
-    echo '<input type="number" name="lm_at_min_destinations" min="0" value="' . esc_attr((string)$filters['min_destinations']) . '" placeholder="Min" style="width:120px; margin-right:8px;" />';
+    echo '<input type="number" name="lm_at_min_destinations" min="0" value="' . esc_attr($minDestinationsVal) . '" placeholder="Min" style="width:120px; margin-right:8px;" />';
     echo '<input type="number" name="lm_at_max_destinations" min="0" value="' . esc_attr($filters['max_destinations'] >= 0 ? (string)$filters['max_destinations'] : '') . '" placeholder="Max" style="width:120px;" />';
     echo '</td></tr>';
     echo '<tr><th scope="row">' . esc_html__('Order By', 'links-manager') . '</th><td>';
@@ -211,7 +225,6 @@ trait LM_All_Anchor_Text_Admin_Trait {
     echo '<option value="ASC"' . selected($filters['order'], 'ASC', false) . '>ASC</option>';
     echo '</select>';
     echo '</td></tr>';
-    echo '<tr><th scope="row">' . esc_html__('Cache', 'links-manager') . '</th><td><label><input type="checkbox" name="lm_at_rebuild" value="1"' . checked($filters['rebuild'] ? '1' : '0', '1', false) . '> ' . esc_html__('Rebuild cache', 'links-manager') . '</label></td></tr>';
     echo '<tr><th scope="row">' . esc_html__('Per Page', 'links-manager') . '</th><td><input type="number" name="lm_at_per_page" min="10" max="500" value="' . esc_attr((string)$filters['per_page']) . '" style="width:90px;" /></td></tr>';
     echo '<tr><th scope="row">' . esc_html__('Export', 'links-manager') . '</th><td><a class="button button-secondary" href="' . esc_url($exportUrl) . '">' . esc_html__('Export CSV', 'links-manager') . '</a><div class="lm-small">' . esc_html__('Export includes all filtered results.', 'links-manager') . '</div></td></tr>';
     echo '</tbody></table>';

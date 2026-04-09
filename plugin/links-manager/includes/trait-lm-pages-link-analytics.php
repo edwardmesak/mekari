@@ -4,9 +4,41 @@
  */
 
 trait LM_Pages_Link_Analytics_Trait {
+  private function can_use_pages_link_indexed_summary_path($filters) {
+    $filters = is_array($filters) ? $filters : [];
+    if (!$this->is_indexed_datastore_ready()) {
+      return false;
+    }
+
+    if ((string)($filters['cursor'] ?? '') !== '') {
+      return false;
+    }
+
+    // These filters operate at the individual link-row level. Pages Link aggregates
+    // counts per target post, so keep them on the proven row-based path until the
+    // indexed implementation can match row parity exactly.
+    if ((string)($filters['location'] ?? 'any') !== 'any') {
+      return false;
+    }
+    if ((string)($filters['source_type'] ?? 'any') !== 'any') {
+      return false;
+    }
+    if ((string)($filters['link_type'] ?? 'any') !== 'any') {
+      return false;
+    }
+    if (trim((string)($filters['value_contains'] ?? '')) !== '') {
+      return false;
+    }
+    if ((string)($filters['seo_flag'] ?? 'any') !== 'any') {
+      return false;
+    }
+
+    return true;
+  }
+
   private function can_use_pages_link_indexed_fastpath($filters) {
     $filters = is_array($filters) ? $filters : [];
-    if (!$this->is_indexed_datastore_ready() || !empty($filters['rebuild'])) {
+    if (!$this->can_use_pages_link_indexed_summary_path($filters)) {
       return false;
     }
 
@@ -58,6 +90,266 @@ trait LM_Pages_Link_Analytics_Trait {
     }
 
     return true;
+  }
+
+  private function get_pages_link_runtime_rows($filters, $scopeWpmlLang, $allowAnyAllFallback = false) {
+    $rows = $this->get_pages_link_lightweight_indexed_rows($filters, $scopeWpmlLang, $allowAnyAllFallback);
+    if (is_array($rows)) {
+      return $rows;
+    }
+
+    $rows = $this->get_report_scope_rows_or_empty('any', $scopeWpmlLang, $filters, $allowAnyAllFallback);
+    $this->compact_rows_for_pages_link($rows);
+    return is_array($rows) ? $rows : [];
+  }
+
+  private function get_pages_link_lightweight_indexed_rows($filters, $scopeWpmlLang, $allowAnyAllFallback = false) {
+    global $wpdb;
+
+    if (!$this->is_indexed_datastore_ready()) {
+      return null;
+    }
+
+    $resolvedScope = $this->resolve_indexed_datastore_scope('any', $scopeWpmlLang, $allowAnyAllFallback);
+    if (!is_array($resolvedScope)) {
+      return null;
+    }
+
+    $resolvedLang = $this->get_requested_view_wpml_lang((string)($resolvedScope['wpml_lang'] ?? $scopeWpmlLang));
+    if ($resolvedLang === '') {
+      $resolvedLang = 'all';
+    }
+
+    if ($this->get_indexed_fact_count_exact_scope('any', $resolvedLang) < 1) {
+      return [];
+    }
+
+    $table = $wpdb->prefix . 'lm_link_fact';
+    $whereParts = ['wpml_lang = %s'];
+    $params = [$resolvedLang];
+
+    $location = (string)($filters['location'] ?? 'any');
+    if ($location !== '' && $location !== 'any') {
+      $whereParts[] = 'link_location = %s';
+      $params[] = $location;
+    }
+
+    $sourceType = (string)($filters['source_type'] ?? 'any');
+    if ($sourceType !== '' && $sourceType !== 'any') {
+      $whereParts[] = 'source = %s';
+      $params[] = $sourceType;
+    }
+
+    $linkType = (string)($filters['link_type'] ?? 'any');
+    if ($linkType !== '' && $linkType !== 'any') {
+      $whereParts[] = 'link_type = %s';
+      $params[] = $linkType;
+    }
+
+    $seoFlag = (string)($filters['seo_flag'] ?? 'any');
+    if ($seoFlag === 'dofollow') {
+      $whereParts[] = 'rel_nofollow = 0 AND rel_sponsored = 0 AND rel_ugc = 0';
+    } elseif ($seoFlag === 'nofollow') {
+      $whereParts[] = 'rel_nofollow = 1';
+    } elseif ($seoFlag === 'sponsored') {
+      $whereParts[] = 'rel_sponsored = 1';
+    } elseif ($seoFlag === 'ugc') {
+      $whereParts[] = 'rel_ugc = 1';
+    }
+
+    $textMode = $this->sanitize_text_match_mode((string)($filters['search_mode'] ?? 'contains'));
+    $this->append_indexed_text_match_clause($whereParts, $params, 'link', (string)($filters['value_contains'] ?? ''), $textMode);
+
+    $sql = "SELECT
+      post_id,
+      page_url,
+      source,
+      link_type,
+      link,
+      link_location,
+      rel_nofollow,
+      rel_sponsored,
+      rel_ugc
+      FROM $table
+      WHERE " . implode(' AND ', $whereParts);
+
+    $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+    if (!is_array($rows)) {
+      return [];
+    }
+
+    foreach ($rows as &$row) {
+      $row = [
+        'post_id' => (string)($row['post_id'] ?? ''),
+        'page_url' => (string)($row['page_url'] ?? ''),
+        'source' => (string)($row['source'] ?? ''),
+        'link_type' => (string)($row['link_type'] ?? ''),
+        'link' => (string)($row['link'] ?? ''),
+        'link_location' => (string)($row['link_location'] ?? ''),
+        'rel_nofollow' => !empty($row['rel_nofollow']) ? '1' : '0',
+        'rel_sponsored' => !empty($row['rel_sponsored']) ? '1' : '0',
+        'rel_ugc' => !empty($row['rel_ugc']) ? '1' : '0',
+      ];
+    }
+    unset($row);
+
+    return $rows;
+  }
+
+  private function get_pages_link_filtered_indexed_summary_map($candidatePostIds, $postDataMap, $scopeWpmlLang, $filters) {
+    global $wpdb;
+
+    $candidatePostIds = array_values(array_unique(array_filter(array_map('intval', (array)$candidatePostIds), function($postId) {
+      return $postId > 0;
+    })));
+    if (empty($candidatePostIds) || !$this->is_indexed_datastore_ready()) {
+      return [];
+    }
+
+    $linkType = (string)($filters['link_type'] ?? 'any');
+    $seoFlag = (string)($filters['seo_flag'] ?? 'any');
+    if ($linkType === 'any' && $seoFlag === 'any') {
+      return $this->get_indexed_summary_map('any', $scopeWpmlLang);
+    }
+
+    $factTable = $wpdb->prefix . 'lm_link_fact';
+    $summaryMap = [];
+    foreach ($candidatePostIds as $postId) {
+      $summaryMap[(string)$postId] = [
+        'inbound' => 0,
+        'internal_outbound' => 0,
+        'outbound' => 0,
+      ];
+    }
+
+    $targetUrlMap = [];
+    foreach ($candidatePostIds as $postId) {
+      $pidKey = (string)$postId;
+      $postData = isset($postDataMap[$pidKey]) && is_array($postDataMap[$pidKey]) ? $postDataMap[$pidKey] : [];
+      $pageUrl = (string)($postData['page_url'] ?? '');
+      if ($pageUrl === '') {
+        $pageUrl = (string)get_permalink($postId);
+      }
+      if ($pageUrl === '') {
+        continue;
+      }
+      foreach ($this->build_pages_link_target_variants($pageUrl) as $variant) {
+        if (!isset($targetUrlMap[$variant])) {
+          $targetUrlMap[$variant] = [];
+        }
+        $targetUrlMap[$variant][$postId] = true;
+      }
+    }
+
+    $whereParts = ['wpml_lang = %s'];
+    $params = [$scopeWpmlLang];
+    $location = (string)($filters['location'] ?? 'any');
+    if ($location !== '' && $location !== 'any') {
+      $whereParts[] = 'link_location = %s';
+      $params[] = $location;
+    }
+    $sourceType = (string)($filters['source_type'] ?? 'any');
+    if ($sourceType !== '' && $sourceType !== 'any') {
+      $whereParts[] = 'source = %s';
+      $params[] = $sourceType;
+    }
+    if ($linkType !== 'any') {
+      $whereParts[] = 'link_type = %s';
+      $params[] = $linkType;
+    }
+    if ($seoFlag === 'dofollow') {
+      $whereParts[] = 'rel_nofollow = 0 AND rel_sponsored = 0 AND rel_ugc = 0';
+    } elseif ($seoFlag === 'nofollow') {
+      $whereParts[] = 'rel_nofollow = 1';
+    } elseif ($seoFlag === 'sponsored') {
+      $whereParts[] = 'rel_sponsored = 1';
+    } elseif ($seoFlag === 'ugc') {
+      $whereParts[] = 'rel_ugc = 1';
+    }
+    $textMode = isset($filters['search_mode']) ? (string)$filters['search_mode'] : 'contains';
+    $this->append_indexed_text_match_clause($whereParts, $params, 'link', (string)($filters['value_contains'] ?? ''), $textMode);
+
+    $candidatePlaceholders = implode(',', array_fill(0, count($candidatePostIds), '%d'));
+
+    if ($linkType !== 'exlink' && !empty($targetUrlMap)) {
+      $normalizedUrls = array_keys($targetUrlMap);
+      $urlPlaceholders = implode(',', array_fill(0, count($normalizedUrls), '%s'));
+      $inboundWhereParts = $whereParts;
+      $inboundParams = $params;
+      $inboundWhereParts[] = "link_type = 'inlink'";
+      $inboundWhereParts[] = 'normalized_link <> %s';
+      $inboundParams[] = '';
+      $inboundWhereParts[] = "normalized_link IN ($urlPlaceholders)";
+      foreach ($normalizedUrls as $normalizedUrl) {
+        $inboundParams[] = $normalizedUrl;
+      }
+
+      $inboundSql = "SELECT normalized_link, post_id
+        FROM $factTable
+        WHERE " . implode(' AND ', $inboundWhereParts);
+      $sourceRows = $wpdb->get_results($wpdb->prepare($inboundSql, $inboundParams), ARRAY_A);
+      foreach ((array)$sourceRows as $row) {
+        $normalizedLink = sanitize_text_field((string)($row['normalized_link'] ?? ''));
+        $sourcePostId = isset($row['post_id']) ? (int)$row['post_id'] : 0;
+        if ($normalizedLink === '' || !isset($targetUrlMap[$normalizedLink])) {
+          continue;
+        }
+        foreach (array_keys($targetUrlMap[$normalizedLink]) as $targetPostId) {
+          if ((int)$targetPostId === $sourcePostId) {
+            continue;
+          }
+          $summaryMap[(string)$targetPostId]['inbound']++;
+        }
+      }
+    }
+
+    if ($linkType !== 'inlink' || $linkType === 'any') {
+      $outboundWhereParts = $whereParts;
+      $outboundParams = $params;
+      $outboundWhereParts[] = "post_id IN ($candidatePlaceholders)";
+      foreach ($candidatePostIds as $candidatePostId) {
+        $outboundParams[] = (int)$candidatePostId;
+      }
+
+      $selectSql = "SELECT
+        post_id,
+        SUM(CASE WHEN link_type = 'inlink' THEN 1 ELSE 0 END) AS internal_outbound,
+        SUM(CASE WHEN link_type = 'exlink' THEN 1 ELSE 0 END) AS outbound
+        FROM $factTable
+        WHERE " . implode(' AND ', $outboundWhereParts) . "
+        GROUP BY post_id";
+
+      $outboundRows = $wpdb->get_results($wpdb->prepare($selectSql, $outboundParams), ARRAY_A);
+      foreach ((array)$outboundRows as $row) {
+        $postId = isset($row['post_id']) ? (int)$row['post_id'] : 0;
+        if ($postId < 1 || !isset($summaryMap[(string)$postId])) {
+          continue;
+        }
+        $summaryMap[(string)$postId]['internal_outbound'] = (int)($row['internal_outbound'] ?? 0);
+        $summaryMap[(string)$postId]['outbound'] = (int)($row['outbound'] ?? 0);
+      }
+    } else {
+      $outboundWhereParts = $whereParts;
+      $outboundParams = $params;
+      $outboundWhereParts[] = "post_id IN ($candidatePlaceholders)";
+      foreach ($candidatePostIds as $candidatePostId) {
+        $outboundParams[] = (int)$candidatePostId;
+      }
+      $internalSql = "SELECT post_id, COUNT(*) AS internal_outbound
+        FROM $factTable
+        WHERE " . implode(' AND ', $outboundWhereParts) . "
+        GROUP BY post_id";
+      $internalRows = $wpdb->get_results($wpdb->prepare($internalSql, $outboundParams), ARRAY_A);
+      foreach ((array)$internalRows as $row) {
+        $postId = isset($row['post_id']) ? (int)$row['post_id'] : 0;
+        if ($postId < 1 || !isset($summaryMap[(string)$postId])) {
+          continue;
+        }
+        $summaryMap[(string)$postId]['internal_outbound'] = (int)($row['internal_outbound'] ?? 0);
+      }
+    }
+
+    return $summaryMap;
   }
 
   private function build_pages_link_candidate_query_args($filters, $postsPerPage = -1, $paged = 1, $withFoundRows = false) {
@@ -209,15 +501,11 @@ trait LM_Pages_Link_Analytics_Trait {
     $pageQuery = new WP_Query($pageQueryArgs);
     $candidatePostIds = !empty($pageQuery->posts) ? array_values(array_unique(array_map('intval', (array)$pageQuery->posts))) : [];
 
-    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
-    // Pages Link counts must include links coming from any source post type into the selected candidate posts.
-    $summaryMap = $this->get_indexed_summary_map('any', $scopeWpmlLang);
-    if (empty($summaryMap) && $scopeWpmlLang !== 'all') {
-      $summaryMap = $this->get_indexed_summary_map('any', 'all');
-    }
-
     $needAllPageUrls = ((string)($filters['orderby'] ?? 'date') === 'page_url') || !empty($filters['search_url']);
     $postDataMap = $this->get_pages_link_post_data_map($candidatePostIds, $postTypes, $needAllPageUrls, []);
+    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    // Pages Link counts must include links coming from any source post type into the selected candidate posts.
+    $summaryMap = $this->get_pages_link_filtered_indexed_summary_map($candidatePostIds, $postDataMap, $scopeWpmlLang, $filters);
 
     $rows = [];
     foreach ($candidatePostIds as $postId) {
@@ -465,16 +753,12 @@ trait LM_Pages_Link_Analytics_Trait {
       return [];
     }
 
-    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
-    // Pages Link counts must include links coming from any source post type into the selected candidate posts.
-    $summaryMap = $this->get_indexed_summary_map('any', $scopeWpmlLang);
-    if (empty($summaryMap) && $scopeWpmlLang !== 'all') {
-      $summaryMap = $this->get_indexed_summary_map('any', 'all');
-    }
-
     $candidatePostIds = array_values(array_unique(array_map('intval', (array)$q->posts)));
     $needAllPageUrls = ((string)$orderby === 'page_url') || !empty($filters['search_url']);
     $postDataMap = $this->get_pages_link_post_data_map($candidatePostIds, $postTypes, $needAllPageUrls, []);
+    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    // Pages Link counts must include links coming from any source post type into the selected candidate posts.
+    $summaryMap = $this->get_pages_link_filtered_indexed_summary_map($candidatePostIds, $postDataMap, $scopeWpmlLang, $filters);
 
     $rows = [];
     $internalOutboundThresholds = $this->get_internal_outbound_status_thresholds();

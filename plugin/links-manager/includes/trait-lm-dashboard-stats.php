@@ -32,9 +32,6 @@ trait LM_Dashboard_Stats_Trait {
 
     $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
     if (!is_array($rows) || empty($rows)) {
-      if (($scopePostType !== 'any' || $wpmlLang !== 'all') && $this->indexed_dataset_has_rows('any', 'all')) {
-        return $this->get_lightweight_indexed_stats_rows('any', 'all');
-      }
       return [];
     }
 
@@ -248,7 +245,7 @@ trait LM_Dashboard_Stats_Trait {
       'order' => 'DESC',
       'per_page' => 25,
       'paged' => 1,
-      'rebuild' => !empty($filters['rebuild']),
+      'rebuild' => false,
     ];
 
     $rows = $this->build_all_anchor_text_rows($all, $summaryFilters);
@@ -266,10 +263,11 @@ trait LM_Dashboard_Stats_Trait {
   private function stats_snapshot_key($filters, $includeOrphanPages) {
     $version = (int)get_option('lm_stats_snapshot_version', 1);
     $schemaVersion = 3;
+    $datasetVersion = (int)$this->get_dataset_cache_version();
     $scope = (string)($filters['post_type'] ?? 'any');
     $lang = (string)($filters['wpml_lang'] ?? 'all');
     $orphanFlag = $includeOrphanPages ? '1' : '0';
-    return 'lm_stats_snapshot_' . md5($scope . '|' . $lang . '|' . $orphanFlag . '|' . get_current_blog_id() . '|' . $version . '|schema_' . $schemaVersion);
+    return 'lm_stats_snapshot_' . md5($scope . '|' . $lang . '|' . $orphanFlag . '|' . get_current_blog_id() . '|' . $version . '|dataset_' . $datasetVersion . '|schema_' . $schemaVersion);
   }
 
   private function build_stats_snapshot_payload($all, $filters, $includeOrphanPages) {

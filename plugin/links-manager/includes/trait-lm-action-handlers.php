@@ -8,6 +8,64 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Action_Handlers_Trait {
+  private function send_ajax_rebuild_response($response) {
+    if (is_wp_error($response)) {
+      $status = (int)$response->get_error_data('status');
+      if ($status < 100) {
+        $status = 400;
+      }
+      wp_send_json_error([
+        'message' => $response->get_error_message(),
+        'last_error' => $response->get_error_message(),
+      ], $status);
+    }
+
+    if ($response instanceof WP_REST_Response) {
+      $status = (int)$response->get_status();
+      if ($status < 100) {
+        $status = 200;
+      }
+      wp_send_json_success($response->get_data(), $status);
+    }
+
+    wp_send_json_success(is_array($response) ? $response : []);
+  }
+
+  private function verify_rebuild_ajax_access() {
+    if (!$this->current_user_can_access_plugin()) {
+      wp_send_json_error(['message' => $this->unauthorized_message()], 403);
+    }
+
+    $nonce = $this->request_text('lm_ajax_nonce', '');
+    if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) {
+      wp_send_json_error(['message' => $this->invalid_nonce_message()], 403);
+    }
+  }
+
+  public function handle_rebuild_start_ajax() {
+    $this->verify_rebuild_ajax_access();
+
+    $request = new WP_REST_Request('POST', '/links-manager/v1/rebuild/start');
+    $request->set_param('post_type', $this->request_text('post_type', ''));
+    $request->set_param('wpml_lang', $this->request_text('wpml_lang', ''));
+    $this->send_ajax_rebuild_response($this->rest_rebuild_start($request));
+  }
+
+  public function handle_rebuild_status_ajax() {
+    $this->verify_rebuild_ajax_access();
+
+    $request = new WP_REST_Request('GET', '/links-manager/v1/rebuild/status');
+    $this->send_ajax_rebuild_response($this->rest_rebuild_status($request));
+  }
+
+  public function handle_rebuild_step_ajax() {
+    $this->verify_rebuild_ajax_access();
+
+    $request = new WP_REST_Request('POST', '/links-manager/v1/rebuild/step');
+    $request->set_param('batch', $this->request_int('batch', 0));
+    $this->send_ajax_rebuild_response($this->rest_rebuild_step($request));
+  }
+
   private function get_selected_anchor_group_names_from_request($fieldName, $legacyFieldName = '') {
     $rawGroups = $this->request_array($fieldName);
     if (empty($rawGroups) && $legacyFieldName !== '' && $this->request_has($legacyFieldName)) {
@@ -87,7 +145,7 @@ trait LM_Action_Handlers_Trait {
         $msg = __('Failed: no changes provided.', 'links-manager');
       }
       if ($row_id === '' && $post_id > 0 && $old_link !== '') {
-        $msg .= ' ' . __('Cache needs rebuild. Check "Rebuild cache" and click "Apply Filters".', 'links-manager');
+        $msg .= ' ' . __('Data is not synchronized yet. Run Refresh Data, then reload this page and try again.', 'links-manager');
       }
       $this->safe_redirect_back($filters, ['lm_msg' => $msg]);
     }
@@ -95,13 +153,12 @@ trait LM_Action_Handlers_Trait {
     $rowIdPostId = $isMenuSource ? '' : (string)$post_id;
     $expected = $this->row_id($rowIdPostId, $source, $location, $block_index, $occurrence, $this->normalize_for_compare($old_link));
     if ($expected !== $row_id) {
-      $this->safe_redirect_back($filters, ['lm_msg' => __('Failed: Row ID mismatch (data changed). Rebuild & try again.', 'links-manager')]);
+      $this->safe_redirect_back($filters, ['lm_msg' => __('Failed: Row ID mismatch (data changed). Run Refresh Data and try again.', 'links-manager')]);
     }
 
     $res = $this->update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $effective_new_link, $new_rel, $new_anchor);
 
     $this->clear_cache_all();
-    $filters['rebuild'] = true;
 
     $old_rel = $this->request_text('old_rel', '');
     $this->log_audit_trail(
@@ -392,7 +449,6 @@ trait LM_Action_Handlers_Trait {
     }
 
     $this->clear_cache_all();
-    $filters['rebuild'] = true;
 
     $filters['post_type'] = 'any';
     $filters['post_category'] = 0;

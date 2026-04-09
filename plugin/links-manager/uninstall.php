@@ -18,9 +18,12 @@ $options_to_delete = [
   'lm_settings',
   'lm_anchor_groups',
   'lm_anchor_targets',
+  'lm_anchor_config_version',
   'lm_stats_last_date',
+  'lm_last_stats_snapshot_at',
   'lm_maintenance_last_date',
   'lm_stats_snapshot_version',
+  'lm_dataset_cache_version',
   'lm_last_wpml_lang_context',
   'lm_last_fatal_diagnostic',
   'lm_last_runtime_profile',
@@ -40,6 +43,15 @@ $cleanup_blog = static function() use ($wpdb, $options_to_delete) {
 
   $wpdb->query(
     "DELETE FROM {$wpdb->options} WHERE option_name LIKE 'lm_cache_scan_%'"
+  );
+  $wpdb->query(
+    "DELETE FROM {$wpdb->options} WHERE option_name LIKE 'lm_rebuild_job_state_%'"
+  );
+  $wpdb->query(
+    "DELETE FROM {$wpdb->options} WHERE option_name LIKE 'lm_rebuild_last_finalize_metrics_%'"
+  );
+  $wpdb->query(
+    "DELETE FROM {$wpdb->options} WHERE option_name LIKE 'lm_rebuild_job_lock_%'"
   );
 
   $transients = $wpdb->get_results(

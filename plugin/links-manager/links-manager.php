@@ -4,7 +4,7 @@
  * Description: Manage and analyze all links across your WordPress site with precision. Edit link URLs, anchor texts, and relationship attributes in a user-friendly interface. Identify orphan pages and export link data for SEO audits.
  * Requires at least: 5.0
  * Requires PHP: 7.2
- * Version: 4.4.5
+ * Version: 4.4.6
  * Author: Edward Mesak Dua Padang
  * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -141,6 +141,9 @@ class LM_Links_Manager {
     add_action('admin_post_lm_download_bulk_update_template', [$this, 'handle_download_bulk_update_template']);
     add_action('admin_post_lm_update_link', [$this, 'handle_update_link']);
     add_action('wp_ajax_lm_update_link_ajax', [$this, 'handle_update_link_ajax']);
+    add_action('wp_ajax_lm_rebuild_start_ajax', [$this, 'handle_rebuild_start_ajax']);
+    add_action('wp_ajax_lm_rebuild_status_ajax', [$this, 'handle_rebuild_status_ajax']);
+    add_action('wp_ajax_lm_rebuild_step_ajax', [$this, 'handle_rebuild_step_ajax']);
     add_action('admin_post_lm_bulk_update', [$this, 'handle_bulk_update']);
     add_action('admin_post_lm_save_settings', [$this, 'handle_save_settings']);
     add_action('admin_post_lm_clear_diagnostics', [$this, 'handle_clear_diagnostics']);
@@ -577,6 +580,35 @@ class LM_Links_Manager {
         linear-gradient(to right, #bfd3e6, #bfd3e6);
     }
     .lm-filter-actions{display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:16px; padding-top:4px;}
+    .lm-filter-active-summary{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-top:14px;
+      padding:10px 12px;
+      border:1px solid #dbe5ed;
+      border-radius:12px;
+      background:linear-gradient(135deg, #f9fbfd 0%, #f4f8fc 100%);
+    }
+    .lm-filter-active-summary.is-empty{
+      background:linear-gradient(135deg, #fbfcfd 0%, #f7f9fb 100%);
+      border-color:#e5ebf1;
+    }
+    .lm-filter-active-summary__count{
+      font-size:12px;
+      font-weight:700;
+      color:#0f172a;
+    }
+    .lm-filter-active-summary.is-empty .lm-filter-active-summary__count{
+      color:#475569;
+      font-weight:600;
+    }
+    .lm-filter-active-summary__hint{
+      font-size:11px;
+      color:#64748b;
+    }
     .lm-filter-summary{
       display:flex;
       flex-wrap:wrap;
@@ -606,10 +638,46 @@ class LM_Links_Manager {
     .lm-filter-table td{display:block; width:auto; padding:0; margin:0;}
     .lm-filter-table td > * + *{margin-top:8px;}
     .lm-filter-table tr.lm-filter-full{grid-column:1 / -1;}
+    .lm-filter-table tr{
+      position:relative;
+      padding:10px 12px 12px;
+      border:1px solid transparent;
+      border-radius:14px;
+      background:linear-gradient(180deg, rgba(255,255,255,.92) 0%, rgba(248,251,255,.82) 100%);
+      transition:border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+    }
+    .lm-filter-table tr.lm-filter-row-active{
+      border-color:#b7d4ea;
+      background:linear-gradient(180deg, #f8fbff 0%, #eef6fd 100%);
+      box-shadow:0 8px 22px rgba(34,113,177,.08);
+    }
+    .lm-filter-table tr.lm-filter-row-active th{
+      color:#0f5d92;
+    }
+    .lm-filter-table tr.lm-filter-row-active th::after{
+      content:'Active';
+      display:inline-flex;
+      align-items:center;
+      margin-left:8px;
+      padding:2px 8px;
+      border-radius:999px;
+      background:#e6f2fb;
+      color:#0f5d92;
+      font-size:10px;
+      font-weight:700;
+      letter-spacing:.03em;
+      text-transform:uppercase;
+      vertical-align:middle;
+    }
     .lm-filter-table input[type=text],
     .lm-filter-table input[type=number],
     .lm-filter-table select{width:100%; max-width:none;}
     .lm-filter-table .regular-text{width:100%; max-width:none;}
+    .lm-filter-table .lm-filter-control-active{
+      border-color:#2271b1 !important;
+      background:#f8fbff !important;
+      box-shadow:0 0 0 1px #2271b1 !important;
+    }
     .lm-table-wrap + .tablenav,
     .tablenav + .lm-table-wrap{margin-top:14px;}
     .lm-wrap .tablenav{
@@ -1169,6 +1237,92 @@ class LM_Links_Manager {
             lastSearchRow.after(textModeRow);
           }
         }
+
+        const isIgnoredControl = (control) => {
+          const name = String(control.name || '');
+          if (!name) return true;
+          if (control.type === 'hidden') return true;
+          return /(\\[?page\\]?|paged|cursor|orderby|order|per_page|search_mode|text_mode|text_match_mode)$/i.test(name);
+        };
+
+        const isActiveControl = (control) => {
+          if (!control || control.disabled || isIgnoredControl(control)) return false;
+
+          const tag = (control.tagName || '').toLowerCase();
+          const type = (control.type || '').toLowerCase();
+
+          if (tag === 'select') {
+            const value = String(control.value || '').trim().toLowerCase();
+            return !['', 'any', '0', '-1'].includes(value);
+          }
+
+          if (type === 'checkbox' || type === 'radio') {
+            return !!control.checked && !control.defaultChecked;
+          }
+
+          if (['text', 'search', 'url', 'date', 'number'].includes(type) || tag === 'textarea') {
+            return String(control.value || '').trim() !== '';
+          }
+
+          return false;
+        };
+
+        const refreshRowState = (row) => {
+          const controls = Array.from(row.querySelectorAll('input, select, textarea'));
+          let hasActive = false;
+          controls.forEach(control => {
+            const active = isActiveControl(control);
+            control.classList.toggle('lm-filter-control-active', active);
+            if (active) hasActive = true;
+          });
+          row.classList.toggle('lm-filter-row-active', hasActive);
+          return hasActive;
+        };
+
+        const form = tbody.closest('form');
+        let activeSummary = null;
+        if (form) {
+          const actions = form.querySelector('.lm-filter-actions');
+          activeSummary = document.createElement('div');
+          activeSummary.className = 'lm-filter-active-summary is-empty';
+          activeSummary.innerHTML = ''
+            + '<div class=\"lm-filter-active-summary__count\">No active filters</div>'
+            + '<div class=\"lm-filter-active-summary__hint\">Results are showing the full current scope.</div>';
+          if (actions && actions.parentNode === form) {
+            form.insertBefore(activeSummary, actions);
+          } else if (tbody.parentNode && tbody.parentNode.parentNode === form) {
+            form.appendChild(activeSummary);
+          }
+        }
+
+        const refreshSummaryState = () => {
+          const activeCount = rows.reduce((count, row) => count + (refreshRowState(row) ? 1 : 0), 0);
+          if (!activeSummary) return;
+          const countEl = activeSummary.querySelector('.lm-filter-active-summary__count');
+          const hintEl = activeSummary.querySelector('.lm-filter-active-summary__hint');
+          activeSummary.classList.toggle('is-empty', activeCount === 0);
+          if (countEl) {
+            countEl.textContent = activeCount === 0
+              ? 'No active filters'
+              : activeCount === 1
+                ? '1 active filter'
+                : activeCount + ' active filters';
+          }
+          if (hintEl) {
+            hintEl.textContent = activeCount === 0
+              ? 'Results are showing the full current scope.'
+              : 'Only results matching the highlighted filters are shown.';
+          }
+        };
+
+        rows.forEach(row => {
+          refreshRowState(row);
+          row.querySelectorAll('input, select, textarea').forEach(control => {
+            control.addEventListener('change', refreshSummaryState);
+            control.addEventListener('input', refreshSummaryState);
+          });
+        });
+        refreshSummaryState();
       });
 
       const rebuildRoot = document.getElementById('lm-rest-rebuild-controls');
@@ -1233,8 +1387,48 @@ class LM_Links_Manager {
           }
         };
 
-        const apiCall = (path, method, body) => {
-          if (!config || !config.base || !config.nonce) {
+        const ajaxActionMap = {
+          start: 'lm_rebuild_start_ajax',
+          status: 'lm_rebuild_status_ajax',
+          step: 'lm_rebuild_step_ajax',
+        };
+
+        const ajaxFallbackCall = (endpointKey, body) => {
+          if (!config || !config.ajax_url || !config.ajax_nonce || !ajaxActionMap[endpointKey]) {
+            return Promise.reject(new Error('AJAX fallback unavailable.'));
+          }
+
+          const formData = new window.FormData();
+          formData.set('action', ajaxActionMap[endpointKey]);
+          formData.set('lm_ajax_nonce', String(config.ajax_nonce));
+          if (body && typeof body === 'object') {
+            Object.keys(body).forEach((key) => {
+              const value = body[key];
+              if (value !== undefined && value !== null) {
+                formData.set(String(key), String(value));
+              }
+            });
+          }
+
+          return fetch(String(config.ajax_url), {
+            method: 'POST',
+            body: formData,
+            credentials: 'same-origin',
+          }).then(r => {
+            return r.json().catch(() => null).then(payload => {
+              if (!r.ok || !payload || payload.success === false) {
+                const message = payload && payload.data
+                  ? (payload.data.last_error || payload.data.message || payload.data.msg || JSON.stringify(payload.data))
+                  : ('HTTP ' + r.status);
+                throw new Error(message);
+              }
+              return payload && payload.data ? payload.data : {};
+            });
+          });
+        };
+
+        const apiCall = (endpointKey, requestUrl, method, body) => {
+          if (!config || !requestUrl || !config.nonce) {
             return Promise.reject(new Error('REST config unavailable.'));
           }
 
@@ -1252,19 +1446,31 @@ class LM_Links_Manager {
             opts.body = JSON.stringify(body);
           }
 
-          return fetch(String(config.base).replace(/\/$/, '') + path, opts)
+          return fetch(String(requestUrl), opts)
             .then(r => {
               if (!r.ok) {
                 return r.text().then(t => {
-                  throw new Error(t || ('HTTP ' + r.status));
+                  const text = t || ('HTTP ' + r.status);
+                  const lowered = text.toLowerCase();
+                  if (r.status === 404 || lowered.indexOf('rest_no_route') !== -1) {
+                    return ajaxFallbackCall(endpointKey, body);
+                  }
+                  throw new Error(text);
                 });
               }
               return r.json();
+            })
+            .catch(err => {
+              const message = String((err && err.message) ? err.message : err);
+              if (message.toLowerCase().indexOf('rest_no_route') !== -1) {
+                return ajaxFallbackCall(endpointKey, body);
+              }
+              throw err;
             });
         };
 
         const refreshStatus = () => {
-          return apiCall('/rebuild/status', 'GET')
+          return apiCall('status', config.status_url, 'GET')
             .then(state => {
               updateProgress(state || {});
               const status = String((state && state.status) ? state.status : 'idle');
@@ -1293,7 +1499,7 @@ class LM_Links_Manager {
           setRunningUi(true);
 
           const iterate = () => {
-            apiCall('/rebuild/step', 'POST', {})
+            apiCall('step', config.step_url, 'POST', {})
               .then(state => {
                 updateProgress(state || {});
                 const status = String((state && state.status) ? state.status : 'idle');
@@ -1347,7 +1553,7 @@ class LM_Links_Manager {
               wpml_lang: scopeWpmlLang,
             };
 
-            apiCall('/rebuild/start', 'POST', startPayload)
+            apiCall('start', config.start_url, 'POST', startPayload)
               .then(state => {
                 updateProgress(state || {});
                 const status = String((state && state.status) ? state.status : 'idle');
@@ -1410,8 +1616,13 @@ class LM_Links_Manager {
     $rebuildScopePostType = 'any';
     $rebuildScopeLabel = __('all scopes / all languages', 'links-manager');
     wp_add_inline_script('lm-admin-js', 'window.LM_REBUILD_REST = ' . wp_json_encode([
-      'base' => esc_url_raw(rest_url('links-manager/v1')),
+      'base' => esc_url_raw(rest_url('/links-manager/v1/')),
+      'start_url' => esc_url_raw(rest_url('/links-manager/v1/rebuild/start')),
+      'status_url' => esc_url_raw(rest_url('/links-manager/v1/rebuild/status')),
+      'step_url' => esc_url_raw(rest_url('/links-manager/v1/rebuild/step')),
       'nonce' => wp_create_nonce('wp_rest'),
+      'ajax_url' => esc_url_raw(admin_url('admin-ajax.php')),
+      'ajax_nonce' => wp_create_nonce(self::NONCE_ACTION),
       'scope_post_type' => $rebuildScopePostType,
       'scope_wpml_lang' => $rebuildScopeWpmlLang,
       'scope_label' => $rebuildScopeLabel,

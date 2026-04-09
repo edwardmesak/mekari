@@ -39,7 +39,7 @@ Use this checklist before publishing a new Links Manager release to GitHub.
 ## 5. GitHub Release
 
 - [ ] Commit all changes with a clear message
-- [ ] Tag release (example: `v4.4.5`)
+- [ ] Tag release (example: `v4.4.6`)
 - [ ] Push branch and tag to GitHub
 - [ ] Create GitHub Release notes from changelog
 - [ ] Attach plugin ZIP asset if you distribute binaries

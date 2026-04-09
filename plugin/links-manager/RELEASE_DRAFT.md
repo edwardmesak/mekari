@@ -1,12 +1,12 @@
-# Release Draft: v4.4.5
+# Release Draft: v4.4.6
 
 ## Title
 
-Links Manager v4.4.5
+Links Manager v4.4.6
 
 ## Tag
 
-`v4.4.5`
+`v4.4.6`
 
 ## Summary
 
@@ -31,7 +31,7 @@ This is a recommended update for cleaner WordPress compatibility and more reliab
 
 ## Full Changelog
 
-### 4.4.5
+### 4.4.6
 
 - Replaced deprecated author lookups with capability-based user queries to remove WordPress "Doing it wrong" warnings.
 - Converted Author filters across Links Editor, Cited Domains, All Anchor Text, and Links Target to dropdowns backed by author IDs.

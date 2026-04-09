@@ -118,8 +118,7 @@ trait LM_Export_Handlers_Trait {
     $filters = $this->get_pages_link_filters_from_request();
     // Pages Link export must count links from all source post types into the selected candidate posts.
     // Use row-based counting so export stays consistent with the editor rows and does not undercount inbound.
-    $all = $this->get_canonical_rows_for_scope('any', $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
-    $this->compact_rows_for_pages_link($all);
+    $all = $this->get_pages_link_runtime_rows($filters, isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', false);
     $rows = $this->get_pages_with_inbound_counts($all, $filters, true);
 
     $filename = 'links-manager-pages-link-export-' . date('Y-m-d-His') . '.csv';
@@ -194,11 +193,17 @@ trait LM_Export_Handlers_Trait {
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $filters = $this->get_cited_domains_filters_from_request();
+    $summaryRows = [];
     $all = $this->get_indexed_rows_for_custom_aggregation($filters, 'exlink');
     if (empty($all)) {
-      $all = $this->get_canonical_rows_for_scope('any', $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
+      $summaryRows = $this->get_indexed_cited_domains_summary_rows($filters);
+      if (!empty($summaryRows)) {
+        $all = [];
+      } else {
+        $all = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
+      }
     }
-    $summaryRows = $this->build_cited_domains_summary_rows($all, $filters);
+    $summaryRows = !empty($summaryRows) ? $summaryRows : $this->build_cited_domains_summary_rows($all, $filters);
 
     $allowedDomains = [];
     $domainStats = [];
@@ -542,7 +547,14 @@ trait LM_Export_Handlers_Trait {
       'seo_flag' => $summarySeoFlag,
       'search_mode' => $summarySearchMode,
     ];
-    $counts = $this->get_links_target_anchor_usage_map($summaryFilters, array_keys($summaryTargetsMap));
+    try {
+      $counts = $this->get_links_target_anchor_usage_map($summaryFilters, array_keys($summaryTargetsMap));
+    } catch (Throwable $e) {
+      $counts = [];
+      if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('LM Links Target export summary error: ' . sanitize_text_field($e->getMessage()));
+      }
+    }
 
     $targetIndexByKey = [];
     foreach ($targets as $i => $t) {
@@ -627,7 +639,8 @@ trait LM_Export_Handlers_Trait {
     if (!empty($indexedRows)) {
       $rows = $indexedRows;
     } else {
-      $rows = $this->build_all_anchor_text_rows([], $filters);
+      $scopeRows = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
+      $rows = $this->build_all_anchor_text_rows($scopeRows, $filters);
     }
 
     $filename = 'links-manager-all-anchor-text-export-' . date('Y-m-d-His') . '.csv';
@@ -694,12 +707,12 @@ trait LM_Export_Handlers_Trait {
       'link_type', 'relationship', 'value_type', 'count'
     ]);
 
-    if (empty($filters['rebuild']) && $this->is_indexed_datastore_ready() && $this->stream_indexed_editor_export_rows($out, $filters)) {
+    if ($this->is_indexed_datastore_ready() && $this->stream_indexed_editor_export_rows($out, $filters)) {
       fclose($out);
       exit;
     }
 
-    $all = $this->get_canonical_rows_for_scope($filters['post_type'], $filters['rebuild'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
+    $all = $this->get_report_scope_rows_or_empty($filters['post_type'], isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
     $rows = $this->apply_filters_and_group($all, $filters);
 
     foreach ($rows as $r) {

@@ -89,7 +89,6 @@ trait LM_Request_URL_Helpers_Trait {
       'order' => 'lm_order',
       'per_page' => 'lm_per_page',
       'paged' => 'lm_paged',
-      'rebuild' => 'lm_rebuild',
     ];
   }
 
@@ -119,7 +118,6 @@ trait LM_Request_URL_Helpers_Trait {
       'orderby' => 'lm_orderby',
       'order' => 'lm_order',
       'cursor' => 'lm_cursor',
-      'rebuild' => 'lm_rebuild',
       'paged' => 'lm_paged',
       'per_page' => 'lm_per_page',
     ];
@@ -154,7 +152,6 @@ trait LM_Request_URL_Helpers_Trait {
       'lm_order' => $filters['order'],
       'lm_per_page' => $filters['per_page'],
       'lm_paged' => $filters['paged'],
-      'lm_rebuild' => $filters['rebuild'] ? '1' : '0',
     ];
     foreach ($override as $k => $v) {
       $args[$k] = $v;
@@ -194,7 +191,6 @@ trait LM_Request_URL_Helpers_Trait {
       'status' => 'lm_pages_link_status',
       'internal_outbound_status' => 'lm_pages_link_internal_outbound_status',
       'external_outbound_status' => 'lm_pages_link_external_outbound_status',
-      'rebuild' => 'lm_pages_link_rebuild',
     ];
   }
 
@@ -229,7 +225,6 @@ trait LM_Request_URL_Helpers_Trait {
       'internal_outbound_status' => 'lm_pages_link_internal_outbound_status',
       'external_outbound_status' => 'lm_pages_link_external_outbound_status',
       'cursor' => 'lm_pages_link_cursor',
-      'rebuild' => 'lm_pages_link_rebuild',
       'paged' => 'lm_pages_link_paged',
       'per_page' => 'lm_pages_link_per_page',
     ];
@@ -269,7 +264,6 @@ trait LM_Request_URL_Helpers_Trait {
       'lm_pages_link_status' => $filters['status'],
       'lm_pages_link_internal_outbound_status' => isset($filters['internal_outbound_status']) ? $filters['internal_outbound_status'] : 'any',
       'lm_pages_link_external_outbound_status' => isset($filters['external_outbound_status']) ? $filters['external_outbound_status'] : 'any',
-      'lm_pages_link_rebuild' => $filters['rebuild'] ? '1' : '0',
     ];
     foreach ($override as $k => $v) {
       $args[$k] = $v;
@@ -300,7 +294,6 @@ trait LM_Request_URL_Helpers_Trait {
       'order' => 'lm_cd_order',
       'per_page' => 'lm_cd_per_page',
       'paged' => 'lm_cd_paged',
-      'rebuild' => 'lm_cd_rebuild',
     ];
   }
 
@@ -329,7 +322,6 @@ trait LM_Request_URL_Helpers_Trait {
       'lm_cd_order' => $filters['order'],
       'lm_cd_per_page' => $filters['per_page'],
       'lm_cd_paged' => $filters['paged'],
-      'lm_cd_rebuild' => $filters['rebuild'] ? '1' : '0',
     ];
     foreach ($override as $k => $v) {
       $args[$k] = $v;
@@ -369,7 +361,6 @@ trait LM_Request_URL_Helpers_Trait {
       'order' => 'lm_at_order',
       'per_page' => 'lm_at_per_page',
       'paged' => 'lm_at_paged',
-      'rebuild' => 'lm_at_rebuild',
     ];
   }
 
@@ -407,7 +398,6 @@ trait LM_Request_URL_Helpers_Trait {
       'lm_at_order' => $filters['order'],
       'lm_at_per_page' => $filters['per_page'],
       'lm_at_paged' => $filters['paged'],
-      'lm_at_rebuild' => $filters['rebuild'] ? '1' : '0',
     ];
     foreach ($override as $k => $v) {
       $args[$k] = $v;
@@ -654,7 +644,7 @@ trait LM_Request_URL_Helpers_Trait {
       'order' => strtoupper($this->request_text($paramMap['order'], 'DESC')),
       'per_page' => $this->request_int($paramMap['per_page'], 25),
       'paged' => $this->request_int($paramMap['paged'], 1),
-      'rebuild' => $this->request_bool_flag($paramMap['rebuild']),
+      'rebuild' => false,
       'group' => $this->request_text('lm_group', '0'),
     ];
 
@@ -770,8 +760,6 @@ trait LM_Request_URL_Helpers_Trait {
       'any'
     );
 
-    $rebuild = $this->request_bool_flag($paramMap['rebuild']);
-
     return [
       'post_type' => $postType,
       'post_category' => $postCategory,
@@ -804,7 +792,7 @@ trait LM_Request_URL_Helpers_Trait {
       'status' => $status,
       'internal_outbound_status' => $internalOutboundStatus,
       'external_outbound_status' => $externalOutboundStatus,
-      'rebuild' => $rebuild,
+      'rebuild' => false,
     ];
   }
 
@@ -884,7 +872,7 @@ trait LM_Request_URL_Helpers_Trait {
       'order' => strtoupper($this->request_text($paramMap['order'], 'DESC')),
       'per_page' => $this->request_int($paramMap['per_page'], 25),
       'paged' => $this->request_int($paramMap['paged'], 1),
-      'rebuild' => $this->request_bool_flag($paramMap['rebuild']),
+      'rebuild' => false,
     ];
 
     if ($filters['location'] === '') $filters['location'] = 'any';
@@ -944,7 +932,7 @@ trait LM_Request_URL_Helpers_Trait {
       'order' => strtoupper($this->request_text($paramMap['order'], 'DESC')),
       'per_page' => $this->request_int($paramMap['per_page'], 25),
       'paged' => $this->request_int($paramMap['paged'], 1),
-      'rebuild' => $this->request_bool_flag($paramMap['rebuild']),
+      'rebuild' => false,
     ];
 
     if ((string)$filters['location'] === '') $filters['location'] = 'any';
