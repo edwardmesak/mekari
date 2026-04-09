@@ -177,9 +177,9 @@ trait LM_Scan_Config_Helpers_Trait {
     return isset($enabledValueTypesMap[$valueType]);
   }
 
-  private function get_scan_author_options() {
+  private function get_author_users_with_edit_posts() {
     $users = get_users([
-      'who' => 'authors',
+      'capability' => 'edit_posts',
       'fields' => ['ID', 'display_name'],
       'orderby' => 'display_name',
       'order' => 'ASC',
@@ -188,6 +188,12 @@ trait LM_Scan_Config_Helpers_Trait {
     if (empty($users) || !is_array($users)) {
       return [];
     }
+
+    return $users;
+  }
+
+  private function get_scan_author_options() {
+    $users = $this->get_author_users_with_edit_posts();
 
     $options = [];
     foreach ($users as $user) {

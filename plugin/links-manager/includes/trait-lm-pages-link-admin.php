@@ -170,7 +170,7 @@ trait LM_Pages_Link_Admin_Trait {
 
     echo '<tr><th scope="row">Author</th><td><select name="lm_pages_link_author">';
     echo '<option value="0"' . selected($filters['author'], 0, false) . '>All</option>';
-    $authors = get_users(['who' => 'authors']);
+    $authors = $this->get_author_users_with_edit_posts();
     foreach ($authors as $u) {
       echo '<option value="' . esc_attr((string)$u->ID) . '"' . selected($filters['author'], $u->ID, false) . '>' . esc_html($u->display_name) . '</option>';
     }
