@@ -12,6 +12,7 @@ Use this checklist before publishing a new Links Manager release to GitHub.
 
 - [ ] Activate plugin on a clean WordPress install
 - [ ] Confirm plugin loads with no PHP warnings/fatal errors
+- [ ] If the release includes a schema bump, confirm the upgrade runs successfully on load and affected screens still work after rebuild
 - [ ] Test key workflows:
   - [ ] Scan links
   - [ ] Edit a link
@@ -32,12 +33,13 @@ Use this checklist before publishing a new Links Manager release to GitHub.
 - [ ] Review plugin header metadata in [links-manager.php](links-manager.php)
 - [ ] Review WordPress directory readme in [readme.txt](readme.txt)
 - [ ] Review GitHub readme in [README.md](README.md)
+- [ ] Review release draft in [RELEASE_DRAFT.md](RELEASE_DRAFT.md)
 - [ ] Confirm license references point to [LICENSE](LICENSE)
 
 ## 5. GitHub Release
 
 - [ ] Commit all changes with a clear message
-- [ ] Tag release (example: `v4.4.3`)
+- [ ] Tag release (example: `v4.4.5`)
 - [ ] Push branch and tag to GitHub
 - [ ] Create GitHub Release notes from changelog
 - [ ] Attach plugin ZIP asset if you distribute binaries

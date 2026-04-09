@@ -4,24 +4,28 @@ Tags: seo, links, internal links, external links, link audit
 Requires at least: 5.0
 Tested up to: 6.7
 Requires PHP: 7.2
-Stable tag: 4.4.4
+Stable tag: 4.4.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Manage and analyze links across your WordPress site. Edit links, review anchor text, find orphan pages, and export SEO data.
+Manage and analyze links across your WordPress site. Edit links, review anchor text, inspect cited domains, find orphan pages, manage target groups, and export SEO data.
 
 == Description ==
 
-Links Manager helps you audit, edit, and monitor links across your WordPress site from one admin interface.
+Links Manager helps you audit, edit, and monitor links across your WordPress site from one admin interface with dedicated admin screens for editing, page-level analysis, anchor summaries, cited domains, target management, and troubleshooting.
 
 Main capabilities:
 
+* Review a Statistics dashboard for internal vs external links, rel distribution, and anchor quality.
 * Scan published content and menus for internal and external links.
-* Edit link URL, anchor text, and rel attributes.
+* Edit link URL, anchor text, and rel attributes in Links Editor.
+* Analyze page-level internal-link coverage in Pages Link, including orphan and low-link detection.
+* Review Cited External Domains and All Anchor Text reports with exportable SEO datasets.
+* Manage Links Target anchor targets and multi-group assignments for internal-link strategy.
 * Run bulk link updates using CSV import.
-* Find pages with low or zero inbound internal links.
-* Review dashboard stats and link-change audit logs.
-* Manage anchor target lists and grouping for internal linking strategy.
+* Export filtered report datasets as CSV for audits and content workflows.
+* Use Settings tabs for access control, scan scope, performance tuning, data quality rules, and troubleshooting tools.
+* Run troubleshooting tools such as Automated REST Self-Test, Post Scan Debug, Pages Link Parity Audit, and Refresh Diagnostics.
 
 WPML compatibility:
 
@@ -46,11 +50,21 @@ Administrators always have full access. Additional roles can be allowed from Set
 
 Only CSV (`.csv`) files are supported. Use the plugin export format as the import template.
 
+= What reports and tools are included? =
+
+Links Manager includes Statistics, Links Editor, Pages Link, Cited External Domains, All Anchor Text, Links Target, and a Settings area with troubleshooting tools such as REST self-test, scan debug, parity checks, and refresh diagnostics.
+
 = What happens on uninstall? =
 
 When the plugin is deleted from WordPress, it removes plugin options, transient caches, scheduled events, and plugin database tables.
 
 == Changelog ==
+
+= 4.4.5 =
+* Replaced deprecated author lookups with capability-based user queries to remove WordPress "Doing it wrong" warnings.
+* Converted Author filters across Links Editor, Cited Domains, All Anchor Text, and Links Target to dropdowns backed by author IDs.
+* Added indexed datastore and summary support for `post_author_id`, including schema upgrades and compatibility fallbacks for older cached rows.
+* Kept Text Search Mode copy aligned with the new Author dropdown behavior so author selection is no longer described as a text filter.
 
 = 4.4.4 =
 * Removed dynamic cache row caps from the main rebuild, cache persistence, and legacy cache-builder paths so large datasets are no longer cut off by memory-tier row limits.
@@ -101,7 +115,13 @@ When the plugin is deleted from WordPress, it removes plugin options, transient 
 = 4.4.0 =
 * Internal improvements and maintenance updates.
 
+= Earlier versions =
+* Versions prior to 4.4.0 are not documented in this repository's current changelog history.
+
 == Upgrade Notice ==
+
+= 4.4.5 =
+Recommended update for cleaner WordPress compatibility, exact author filtering via dropdowns across admin reports, and indexed author-ID support for more reliable filtering.
 
 = 4.4.4 =
 Recommended update for large-dataset rebuild stability, much faster Refresh Data finalizing on big sites, classic-content editor reliability, clearer troubleshooting metrics, more accurate indexed inbound summaries for target-only pages, and safer Pages Link fast-path fallbacks.

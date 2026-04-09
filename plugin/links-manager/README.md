@@ -2,18 +2,19 @@
 
 Manage and analyze links across your WordPress site from one admin interface.
 
-Links Manager helps you audit, edit, and monitor internal and external links with practical SEO workflows, including bulk updates, anchor text management, and orphan-page discovery.
+Links Manager helps you audit, edit, and monitor internal and external links with practical SEO workflows across dedicated admin screens for editing, page-level analysis, anchor summaries, cited domains, target management, and troubleshooting.
 
 ## Features
 
-- Scan published content and menus for internal and external links
-- Edit link URL, anchor text, and `rel` attributes
-- Bulk update links using CSV import
-- Export link and anchor datasets for SEO audits
-- Identify pages with low or zero inbound internal links
-- Review link-change audit logs and dashboard stats
-- Manage anchor targets and grouping for internal-link strategy
-- WPML-aware language filtering and cache separation
+- Review sitewide link health from a `Statistics` dashboard with internal vs external, rel, and anchor-quality summaries
+- Audit and update individual links in `Links Editor`, including URL, anchor text, and `rel` attributes
+- Analyze page-level internal-link coverage in `Pages Link`, including orphan, low-link, and inbound-link reporting
+- Review `Cited External Domains` and `All Anchor Text` reports with exportable SEO datasets
+- Manage `Links Target` anchor targets and multi-group assignments for internal-link strategy
+- Run bulk link updates through CSV import and export filtered report datasets as CSV
+- Use `Settings` tabs for access control, scan scope, performance tuning, data quality rules, and troubleshooting
+- Run troubleshooting tools such as Automated REST Self-Test, Post Scan Debug, Pages Link Parity Audit, and Refresh Diagnostics
+- Filter scans and reports with WPML-aware language context and separate language caches
 
 ## Requirements
 
@@ -31,6 +32,8 @@ Links Manager helps you audit, edit, and monitor internal and external links wit
 
 - Administrators always have full access.
 - Additional roles can be granted from **Settings > Access Control**.
+- **Settings > Performance** controls scan scope, authors, post types, WPML languages, and rebuild-related behavior.
+- **Settings > Troubleshooting** includes REST self-test, crawl/index debug tools, and refresh diagnostics.
 - CSV is the supported format for bulk updates.
 - If WPML is active, you can filter scans by language.
 
@@ -44,6 +47,13 @@ When deleted from WordPress (not just deactivated), the plugin removes:
 - Plugin database tables
 
 ## Changelog
+
+### 4.4.5
+
+- Replaced deprecated author lookups with capability-based user queries to remove WordPress "Doing it wrong" warnings
+- Converted Author filters across Links Editor, Cited Domains, All Anchor Text, and Links Target to dropdowns backed by author IDs
+- Added indexed datastore and summary support for `post_author_id`, including schema upgrades and compatibility fallbacks for older cached rows
+- Kept Text Search Mode copy aligned with the new Author dropdown behavior so author selection is no longer described as a text filter
 
 ### 4.4.4
 
@@ -99,6 +109,10 @@ When deleted from WordPress (not just deactivated), the plugin removes:
 ### 4.4.0
 
 - Internal improvements and maintenance updates
+
+### Earlier Versions
+
+- Versions prior to `4.4.0` are not documented in this repository's current changelog history.
 
 ## License
 
