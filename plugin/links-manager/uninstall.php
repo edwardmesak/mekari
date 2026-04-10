@@ -74,6 +74,8 @@ $cleanup_blog = static function() use ($wpdb, $options_to_delete) {
     $wpdb->prefix . 'lm_stats_log',
     $wpdb->prefix . 'lm_link_fact',
     $wpdb->prefix . 'lm_link_post_summary',
+    $wpdb->prefix . 'lm_link_domain_summary',
+    $wpdb->prefix . 'lm_anchor_text_summary',
   ];
 
   foreach ($tables as $table) {

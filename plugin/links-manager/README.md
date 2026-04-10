@@ -85,6 +85,17 @@ When deleted from WordPress (not just deactivated), the plugin removes:
 - Added a parity-safe guard for Pages Link indexed fast paths so filtered requests automatically fall back to row-based counting when indexed filtering is not fully supported
 - Added Refresh Diagnostics visibility for target-only summary rows created during inbound finalizing
 
+### 4.4.4
+
+- Added adaptive runtime safeguards for heavy Links Editor filter combinations so unsafe PHP fallback requests now show safe warnings instead of causing critical errors
+- Expanded indexed editor filtering to keep more text-search combinations on fast indexed paths, including additional text modes and ALT filtering support
+- Added workload-specific safety guards for Cited Domains and All Anchor Text so broad aggregation requests fail safely instead of crashing
+- Added structural summary tables for Cited Domains and All Anchor Text and moved report and export flows toward summary-first indexed reads
+- Extended indexed datastore finalization to rebuild post, cited-domain, and anchor-text summaries during Refresh Data
+- Improved Troubleshooting and Status visibility with summary row counts, runtime guard details, and safer runtime-profile capture scoped to Links Manager requests
+- Added consistent active-filter highlighting for Links Target filter grids to match other report pages
+- Hardened WPML refresh orchestration so rebuild jobs preserve explicit language scope, expose crawl and finalize language progress, and stamp rebuilt rows with the active crawl language
+
 ### 4.4.3
 
 - Changed weak anchor phrase detection to exact-match rules and reduced overly generic default weak phrases

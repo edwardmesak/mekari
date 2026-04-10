@@ -390,6 +390,8 @@ trait LM_Settings_Admin_Trait {
     echo '<table class="widefat striped" style="margin-top:8px; max-width:760px;">';
     echo '<tbody>';
     echo '<tr><th style="width:260px;">' . esc_html__('Available report rows', 'links-manager') . '</th><td>' . esc_html(number_format($effectiveCacheRowsCount)) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Available Cited Domains summary rows', 'links-manager') . '</th><td>' . esc_html(number_format($this->get_indexed_report_summary_count('domain', $readinessWpmlLang))) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Available All Anchor Text summary rows', 'links-manager') . '</th><td>' . esc_html(number_format($this->get_indexed_report_summary_count('anchor', $readinessWpmlLang))) . '</td></tr>';
     if ($readinessWpmlLang !== 'all') {
       echo '<tr><th>' . esc_html__('Available global rows', 'links-manager') . '</th><td>' . esc_html(number_format($globalRowsCount)) . '</td></tr>';
     }
@@ -413,12 +415,16 @@ trait LM_Settings_Admin_Trait {
     echo '<tr><th>' . esc_html__('Report cache freshness', 'links-manager') . '</th><td>' . esc_html(sprintf(__('Up to %d seconds for repeated admin requests.', 'links-manager'), (int)$autoPerformance['rest_response_cache_ttl_sec'])) . '</td></tr>';
     echo '<tr><th>' . esc_html__('Dashboard stats refresh', 'links-manager') . '</th><td>' . esc_html($this->describe_stats_refresh_minutes((int)$autoPerformance['stats_snapshot_ttl_min'])) . '</td></tr>';
     $editorFallbackMeta = $this->get_editor_php_fallback_runtime_meta();
+    $domainSummaryCount = $this->get_indexed_report_summary_count('domain', 'all');
+    $anchorSummaryCount = $this->get_indexed_report_summary_count('anchor', 'all');
     echo '<tr><th>' . esc_html__('Editor PHP fallback safeguard', 'links-manager') . '</th><td>' . esc_html(sprintf(
       __('Auto threshold: %1$s rows (memory %2$s, max execution %3$s).', 'links-manager'),
       number_format((int)($editorFallbackMeta['threshold_rows'] ?? 0)),
       (string)($editorFallbackMeta['memory_limit_label'] ?? '0 B'),
       ((int)($editorFallbackMeta['max_execution_time'] ?? 0) > 0 ? number_format((int)($editorFallbackMeta['max_execution_time'] ?? 0)) . 's' : __('unlimited', 'links-manager'))
     )) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Global Cited Domains summary rows', 'links-manager') . '</th><td>' . esc_html(number_format($domainSummaryCount)) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Global All Anchor Text summary rows', 'links-manager') . '</th><td>' . esc_html(number_format($anchorSummaryCount)) . '</td></tr>';
     echo '</tbody>';
     echo '</table>';
     echo '</div>';

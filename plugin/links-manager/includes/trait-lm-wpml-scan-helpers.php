@@ -8,6 +8,35 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_WPML_Scan_Helpers_Trait {
+  private function run_wpml_scan_query_in_language_context($wpmlLang, $callback) {
+    if (!is_callable($callback) || !$this->is_wpml_active()) {
+      return is_callable($callback) ? $callback() : null;
+    }
+
+    $targetLang = $this->sanitize_wpml_lang_filter((string)$wpmlLang);
+    $wpmlWasSwitched = false;
+    $wpmlPreviousLang = '';
+
+    try {
+      $prev = $this->safe_wpml_apply_filters('wpml_current_language', null);
+      if (is_string($prev)) {
+        $wpmlPreviousLang = sanitize_key($prev);
+      }
+
+      $switchLang = ($targetLang === 'all') ? null : $targetLang;
+      $wpmlWasSwitched = $this->safe_wpml_switch_language($switchLang);
+      return $callback();
+    } finally {
+      if ($wpmlWasSwitched) {
+        if ($wpmlPreviousLang !== '') {
+          $this->safe_wpml_switch_language($wpmlPreviousLang);
+        } else {
+          $this->safe_wpml_switch_language(null);
+        }
+      }
+    }
+  }
+
   private function execute_scan_scope_post_count_query($postTypes, $wpmlLang = 'all') {
     $postTypes = array_values(array_unique(array_map('sanitize_key', (array)$postTypes)));
     if (empty($postTypes)) {
@@ -51,7 +80,9 @@ trait LM_WPML_Scan_Helpers_Trait {
       $queryArgs['lang'] = ($wpmlLang === 'all') ? '' : sanitize_key((string)$wpmlLang);
     }
 
-    $q = new WP_Query($queryArgs);
+    $q = $this->run_wpml_scan_query_in_language_context($wpmlLang, function() use ($queryArgs) {
+      return new WP_Query($queryArgs);
+    });
     return max(0, (int)$q->found_posts);
   }
 
@@ -133,6 +164,43 @@ trait LM_WPML_Scan_Helpers_Trait {
     }
 
     return isset($enabled[0]) ? (string)$enabled[0] : 'all';
+  }
+
+  private function normalize_rebuild_wpml_lang($requestedLang) {
+    $requestedLang = $this->sanitize_wpml_lang_filter((string)$requestedLang);
+    if ($requestedLang === '') {
+      return 'all';
+    }
+
+    return $requestedLang;
+  }
+
+  private function get_rebuild_crawl_lang_queue($requestedLang = 'all') {
+    $requestedLang = $this->normalize_rebuild_wpml_lang((string)$requestedLang);
+    if ($requestedLang !== 'all' || !$this->is_wpml_active()) {
+      return [$requestedLang];
+    }
+
+    $langs = array_values(array_unique(array_filter(array_map('sanitize_key', array_keys($this->get_wpml_languages_map())))));
+    if (empty($langs)) {
+      return ['all'];
+    }
+
+    return $langs;
+  }
+
+  private function get_rebuild_finalize_lang_queue($requestedLang = 'all') {
+    $requestedLang = $this->normalize_rebuild_wpml_lang((string)$requestedLang);
+    if ($requestedLang !== 'all') {
+      return [$requestedLang];
+    }
+
+    $queue = $this->get_rebuild_crawl_lang_queue($requestedLang);
+    if (!in_array('all', $queue, true)) {
+      $queue[] = 'all';
+    }
+
+    return array_values(array_unique(array_filter(array_map([$this, 'sanitize_wpml_lang_filter'], $queue))));
   }
 
   private function get_requested_view_wpml_lang($requestedLang) {

@@ -124,6 +124,8 @@ trait LM_Indexed_Datastore_Trait {
     return [
       'fact' => $wpdb->prefix . 'lm_link_fact',
       'summary' => $wpdb->prefix . 'lm_link_post_summary',
+      'domain_summary' => $wpdb->prefix . 'lm_link_domain_summary',
+      'anchor_summary' => $wpdb->prefix . 'lm_anchor_text_summary',
     ];
   }
 
@@ -142,6 +144,31 @@ trait LM_Indexed_Datastore_Trait {
     $summaryExists = (string)$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $summary));
     $ready = ($factExists === $fact && $summaryExists === $summary);
     return (bool)$ready;
+  }
+
+  private function get_indexed_report_summary_count($type, $wpmlLang = 'all') {
+    global $wpdb;
+
+    $tables = $this->get_indexed_datastore_tables();
+    $type = sanitize_key((string)$type);
+    $table = '';
+    if ($type === 'domain') {
+      $table = (string)($tables['domain_summary'] ?? '');
+    } elseif ($type === 'anchor') {
+      $table = (string)($tables['anchor_summary'] ?? '');
+    }
+    if ($table === '') {
+      return 0;
+    }
+
+    $exists = (string)$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+    if ($exists !== $table) {
+      return 0;
+    }
+
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
+    $sql = "SELECT COUNT(*) FROM $table WHERE wpml_lang = %s";
+    return max(0, (int)$wpdb->get_var($wpdb->prepare($sql, [$wpmlLang])));
   }
 
   private function maybe_self_heal_indexed_datastore($wpmlLang = 'all') {

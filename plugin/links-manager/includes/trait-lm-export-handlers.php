@@ -193,17 +193,20 @@ trait LM_Export_Handlers_Trait {
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $filters = $this->get_cited_domains_filters_from_request();
-    $summaryRows = [];
-    $all = $this->get_indexed_rows_for_custom_aggregation($filters, 'exlink');
-    if (empty($all)) {
-      $summaryRows = $this->get_indexed_cited_domains_summary_rows($filters);
-      if (!empty($summaryRows)) {
-        $all = [];
-      } else {
+    $summaryRows = $this->get_indexed_cited_domains_summary_rows($filters);
+    $all = [];
+    if (empty($summaryRows)) {
+      $all = $this->get_indexed_rows_for_custom_aggregation($filters, 'exlink');
+      if (empty($all)) {
+        $all = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
+      }
+      $summaryRows = $this->build_cited_domains_summary_rows($all, $filters);
+    } else {
+      $all = $this->get_indexed_rows_for_custom_aggregation($filters, 'exlink');
+      if (empty($all)) {
         $all = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
       }
     }
-    $summaryRows = !empty($summaryRows) ? $summaryRows : $this->build_cited_domains_summary_rows($all, $filters);
 
     $allowedDomains = [];
     $domainStats = [];

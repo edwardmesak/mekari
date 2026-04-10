@@ -77,7 +77,7 @@ trait LM_Cache_Index_Sync_Trait {
   }
 
   private function sync_indexed_datastore_from_rows($rows, $wpml_lang = 'all') {
-    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
     $rows = is_array($rows) ? $rows : [];
     $this->reset_indexed_datastore_for_refresh_scope($wpml_lang);
     if (!empty($rows)) {
@@ -91,23 +91,31 @@ trait LM_Cache_Index_Sync_Trait {
   private function clear_indexed_summary_for_lang($wpml_lang = 'all') {
     global $wpdb;
     $summaryTable = $wpdb->prefix . 'lm_link_post_summary';
+    $domainSummaryTable = $wpdb->prefix . 'lm_link_domain_summary';
+    $anchorSummaryTable = $wpdb->prefix . 'lm_anchor_text_summary';
 
-    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
     $wpdb->query($wpdb->prepare("DELETE FROM $summaryTable WHERE wpml_lang = %s", $wpml_lang));
+    $wpdb->query($wpdb->prepare("DELETE FROM $domainSummaryTable WHERE wpml_lang = %s", $wpml_lang));
+    $wpdb->query($wpdb->prepare("DELETE FROM $anchorSummaryTable WHERE wpml_lang = %s", $wpml_lang));
   }
 
   private function reset_indexed_datastore_for_lang($wpml_lang = 'all') {
     global $wpdb;
     $factTable = $wpdb->prefix . 'lm_link_fact';
     $summaryTable = $wpdb->prefix . 'lm_link_post_summary';
+    $domainSummaryTable = $wpdb->prefix . 'lm_link_domain_summary';
+    $anchorSummaryTable = $wpdb->prefix . 'lm_anchor_text_summary';
 
-    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
     $wpdb->query($wpdb->prepare("DELETE FROM $factTable WHERE wpml_lang = %s", $wpml_lang));
     $wpdb->query($wpdb->prepare("DELETE FROM $summaryTable WHERE wpml_lang = %s", $wpml_lang));
+    $wpdb->query($wpdb->prepare("DELETE FROM $domainSummaryTable WHERE wpml_lang = %s", $wpml_lang));
+    $wpdb->query($wpdb->prepare("DELETE FROM $anchorSummaryTable WHERE wpml_lang = %s", $wpml_lang));
   }
 
   private function reset_indexed_datastore_for_refresh_scope($wpml_lang = 'all') {
-    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
     if ($wpml_lang !== 'all') {
       $this->reset_indexed_datastore_for_lang($wpml_lang);
       return;
@@ -119,7 +127,7 @@ trait LM_Cache_Index_Sync_Trait {
   }
 
   private function get_indexed_summary_refresh_langs_from_rows($rows, $wpml_lang = 'all') {
-    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
     if ($wpml_lang !== 'all') {
       return [$wpml_lang];
     }
@@ -136,7 +144,7 @@ trait LM_Cache_Index_Sync_Trait {
   }
 
   private function resolve_fact_row_wpml_lang($row, $fallbackLang = 'all') {
-    $fallbackLang = $this->get_effective_scan_wpml_lang((string)$fallbackLang);
+    $fallbackLang = $this->normalize_rebuild_wpml_lang((string)$fallbackLang);
     if (!is_array($row)) {
       return $fallbackLang;
     }
@@ -153,7 +161,7 @@ trait LM_Cache_Index_Sync_Trait {
   private function append_indexed_datastore_rows($rows, $wpml_lang = 'all') {
     global $wpdb;
     $factTable = $wpdb->prefix . 'lm_link_fact';
-    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
     $rows = is_array($rows) ? $rows : [];
     if (empty($rows)) {
       return 0;
@@ -252,7 +260,7 @@ trait LM_Cache_Index_Sync_Trait {
   }
 
   private function rebuild_indexed_summary_for_lang($wpml_lang = 'all') {
-    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
     $afterFactId = 0;
     do {
       $backfill = $this->backfill_normalized_url_chunk_for_lang($wpml_lang, $afterFactId, $this->get_default_finalize_chunk_size());
@@ -272,6 +280,18 @@ trait LM_Cache_Index_Sync_Trait {
       $result = $this->finalize_indexed_summary_inbound_chunk_for_lang($wpml_lang, $afterInboundPostId, $this->get_default_finalize_inbound_chunk_size());
       $afterInboundPostId = (int)($result['last_post_id'] ?? 0);
     } while (empty($result['done']));
+
+    $afterDomainPostId = 0;
+    do {
+      $result = $this->build_indexed_domain_summary_chunk_for_lang($wpml_lang, $afterDomainPostId, $this->get_default_finalize_seed_chunk_size());
+      $afterDomainPostId = (int)($result['last_post_id'] ?? 0);
+    } while (empty($result['done']));
+
+    $afterAnchorPostId = 0;
+    do {
+      $result = $this->build_indexed_anchor_summary_chunk_for_lang($wpml_lang, $afterAnchorPostId, $this->get_default_finalize_seed_chunk_size());
+      $afterAnchorPostId = (int)($result['last_post_id'] ?? 0);
+    } while (empty($result['done']));
   }
 
   private function backfill_normalized_url_chunk_for_lang($wpml_lang = 'all', $afterFactId = 0, $limit = 25) {
@@ -288,7 +308,7 @@ trait LM_Cache_Index_Sync_Trait {
 
     $chunkStartedAt = microtime(true);
     $factTable = $wpdb->prefix . 'lm_link_fact';
-    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
     $afterFactId = max(0, (int)$afterFactId);
     $limit = max(10, min(100, (int)$limit));
 
@@ -354,7 +374,7 @@ trait LM_Cache_Index_Sync_Trait {
 
     $factTable = $wpdb->prefix . 'lm_link_fact';
     $summaryTable = $wpdb->prefix . 'lm_link_post_summary';
-    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
     $afterPostId = max(0, (int)$afterPostId);
     $limit = max(1, min(500, (int)$limit));
     $chunkStartedAt = microtime(true);
@@ -458,7 +478,7 @@ trait LM_Cache_Index_Sync_Trait {
 
     $factTable = $wpdb->prefix . 'lm_link_fact';
     $summaryTable = $wpdb->prefix . 'lm_link_post_summary';
-    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
     $afterPostId = max(0, (int)$afterPostId);
     $limit = max(1, min(500, (int)$limit));
     $chunkStartedAt = microtime(true);
@@ -872,6 +892,321 @@ trait LM_Cache_Index_Sync_Trait {
       outbound=VALUES(outbound)";
 
     $wpdb->query($wpdb->prepare($sql, $params));
+  }
+
+  private function insert_indexed_domain_summary_batch($table, $batch) {
+    global $wpdb;
+    if (empty($batch) || !is_array($batch)) {
+      return;
+    }
+
+    $valuesSql = [];
+    $params = [];
+    foreach ($batch as $row) {
+      $valuesSql[] = '(%s,%d,%s,%s,%s,%d,%s,%s,%s,%s,%s,%d,%d,%d,%s,%s,%s,%s,%s,%d)';
+      $params[] = (string)($row['wpml_lang'] ?? 'all');
+      $params[] = (int)($row['post_id'] ?? 0);
+      $params[] = (string)($row['post_title'] ?? '');
+      $params[] = (string)($row['post_type'] ?? '');
+      $params[] = (string)($row['post_author'] ?? '');
+      $params[] = (int)($row['post_author_id'] ?? 0);
+      $params[] = $row['post_date'];
+      $params[] = $row['post_modified'];
+      $params[] = (string)($row['page_url'] ?? '');
+      $params[] = (string)($row['source_type'] ?? '');
+      $params[] = (string)($row['link_location'] ?? '');
+      $params[] = (int)($row['rel_nofollow'] ?? 0);
+      $params[] = (int)($row['rel_sponsored'] ?? 0);
+      $params[] = (int)($row['rel_ugc'] ?? 0);
+      $params[] = (string)($row['domain'] ?? '');
+      $params[] = (string)($row['link_url'] ?? '');
+      $params[] = (string)($row['link_hash'] ?? '');
+      $params[] = (string)($row['anchor_text'] ?? '');
+      $params[] = (string)($row['anchor_hash'] ?? '');
+      $params[] = (int)($row['cites'] ?? 0);
+    }
+
+    $sql = "INSERT INTO $table (
+      wpml_lang,post_id,post_title,post_type,post_author,post_author_id,post_date,post_modified,page_url,source_type,link_location,rel_nofollow,rel_sponsored,rel_ugc,domain,link_url,link_hash,anchor_text,anchor_hash,cites
+    ) VALUES " . implode(',', $valuesSql) . "
+    ON DUPLICATE KEY UPDATE
+      post_title=VALUES(post_title),
+      post_type=VALUES(post_type),
+      post_author=VALUES(post_author),
+      post_author_id=VALUES(post_author_id),
+      post_date=VALUES(post_date),
+      post_modified=VALUES(post_modified),
+      page_url=VALUES(page_url),
+      domain=VALUES(domain),
+      link_url=VALUES(link_url),
+      anchor_text=VALUES(anchor_text),
+      cites=VALUES(cites)";
+
+    $wpdb->query($wpdb->prepare($sql, $params));
+  }
+
+  private function insert_indexed_anchor_summary_batch($table, $batch) {
+    global $wpdb;
+    if (empty($batch) || !is_array($batch)) {
+      return;
+    }
+
+    $valuesSql = [];
+    $params = [];
+    foreach ($batch as $row) {
+      $valuesSql[] = '(%s,%d,%s,%s,%s,%d,%s,%s,%s,%s,%s,%s,%d,%d,%d,%s,%s,%s,%s,%s,%d)';
+      $params[] = (string)($row['wpml_lang'] ?? 'all');
+      $params[] = (int)($row['post_id'] ?? 0);
+      $params[] = (string)($row['post_title'] ?? '');
+      $params[] = (string)($row['post_type'] ?? '');
+      $params[] = (string)($row['post_author'] ?? '');
+      $params[] = (int)($row['post_author_id'] ?? 0);
+      $params[] = $row['post_date'];
+      $params[] = $row['post_modified'];
+      $params[] = (string)($row['page_url'] ?? '');
+      $params[] = (string)($row['source_type'] ?? '');
+      $params[] = (string)($row['link_location'] ?? '');
+      $params[] = (string)($row['link_type'] ?? '');
+      $params[] = (int)($row['rel_nofollow'] ?? 0);
+      $params[] = (int)($row['rel_sponsored'] ?? 0);
+      $params[] = (int)($row['rel_ugc'] ?? 0);
+      $params[] = (string)($row['anchor_text'] ?? '');
+      $params[] = (string)($row['anchor_hash'] ?? '');
+      $params[] = (string)($row['quality'] ?? '');
+      $params[] = (string)($row['link_url'] ?? '');
+      $params[] = (string)($row['link_hash'] ?? '');
+      $params[] = (int)($row['uses'] ?? 0);
+    }
+
+    $sql = "INSERT INTO $table (
+      wpml_lang,post_id,post_title,post_type,post_author,post_author_id,post_date,post_modified,page_url,source_type,link_location,link_type,rel_nofollow,rel_sponsored,rel_ugc,anchor_text,anchor_hash,quality,link_url,link_hash,uses
+    ) VALUES " . implode(',', $valuesSql) . "
+    ON DUPLICATE KEY UPDATE
+      post_title=VALUES(post_title),
+      post_type=VALUES(post_type),
+      post_author=VALUES(post_author),
+      post_author_id=VALUES(post_author_id),
+      post_date=VALUES(post_date),
+      post_modified=VALUES(post_modified),
+      page_url=VALUES(page_url),
+      anchor_text=VALUES(anchor_text),
+      quality=VALUES(quality),
+      link_url=VALUES(link_url),
+      uses=VALUES(uses)";
+
+    $wpdb->query($wpdb->prepare($sql, $params));
+  }
+
+  private function build_indexed_domain_summary_chunk_for_lang($wpml_lang = 'all', $afterPostId = 0, $limit = 100) {
+    global $wpdb;
+
+    $factTable = $wpdb->prefix . 'lm_link_fact';
+    $summaryTable = $wpdb->prefix . 'lm_link_domain_summary';
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
+    $afterPostId = max(0, (int)$afterPostId);
+    $limit = max(1, min(500, (int)$limit));
+    $chunkStartedAt = microtime(true);
+
+    $postIds = $wpdb->get_col(
+      $wpdb->prepare(
+        "SELECT DISTINCT post_id
+         FROM $factTable
+         WHERE wpml_lang = %s
+           AND post_id > %d
+           AND post_id > 0
+           AND link_type = 'exlink'
+           AND link_domain <> ''
+         ORDER BY post_id ASC
+         LIMIT %d",
+        $wpml_lang,
+        $afterPostId,
+        $limit
+      )
+    );
+    $postIds = array_values(array_filter(array_map('intval', (array)$postIds)));
+    if (empty($postIds)) {
+      return [
+        'done' => true,
+        'processed_posts' => 0,
+        'last_post_id' => $afterPostId,
+        'summary_rows' => 0,
+        'step_ms' => max(0, (int)round((microtime(true) - $chunkStartedAt) * 1000)),
+      ];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($postIds), '%d'));
+    $params = array_merge([$wpml_lang], $postIds);
+    $sql = "SELECT
+      fact.wpml_lang,
+      fact.post_id,
+      MAX(fact.post_title) AS post_title,
+      MAX(fact.post_type) AS post_type,
+      MAX(fact.post_author) AS post_author,
+      MAX(fact.post_author_id) AS post_author_id,
+      MAX(fact.post_date) AS post_date,
+      MAX(fact.post_modified) AS post_modified,
+      MAX(fact.page_url) AS page_url,
+      fact.source AS source_type,
+      fact.link_location,
+      fact.rel_nofollow,
+      fact.rel_sponsored,
+      fact.rel_ugc,
+      fact.link_domain AS domain,
+      fact.link AS link_url,
+      MD5(COALESCE(NULLIF(fact.normalized_link, ''), fact.link)) AS link_hash,
+      LEFT(COALESCE(fact.anchor_text, ''), 255) AS anchor_text,
+      MD5(COALESCE(fact.anchor_text, '')) AS anchor_hash,
+      COUNT(*) AS cites
+    FROM $factTable fact
+    WHERE fact.wpml_lang = %s
+      AND fact.post_id IN ($placeholders)
+      AND fact.link_type = 'exlink'
+      AND fact.link_domain <> ''
+    GROUP BY fact.wpml_lang, fact.post_id, fact.source, fact.link_location, fact.rel_nofollow, fact.rel_sponsored, fact.rel_ugc, fact.link_domain, fact.link, fact.anchor_text";
+    $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+
+    $batch = [];
+    foreach ((array)$rows as $row) {
+      $batch[] = [
+        'wpml_lang' => (string)($row['wpml_lang'] ?? $wpml_lang),
+        'post_id' => (int)($row['post_id'] ?? 0),
+        'post_title' => sanitize_text_field((string)($row['post_title'] ?? '')),
+        'post_type' => sanitize_key((string)($row['post_type'] ?? '')),
+        'post_author' => sanitize_text_field((string)($row['post_author'] ?? '')),
+        'post_author_id' => max(0, (int)($row['post_author_id'] ?? 0)),
+        'post_date' => $this->normalize_db_datetime_or_null($row['post_date'] ?? ''),
+        'post_modified' => $this->normalize_db_datetime_or_null($row['post_modified'] ?? ''),
+        'page_url' => esc_url_raw((string)($row['page_url'] ?? '')),
+        'source_type' => sanitize_key((string)($row['source_type'] ?? '')),
+        'link_location' => sanitize_text_field((string)($row['link_location'] ?? '')),
+        'rel_nofollow' => (int)($row['rel_nofollow'] ?? 0),
+        'rel_sponsored' => (int)($row['rel_sponsored'] ?? 0),
+        'rel_ugc' => (int)($row['rel_ugc'] ?? 0),
+        'domain' => strtolower((string)($row['domain'] ?? '')),
+        'link_url' => esc_url_raw((string)($row['link_url'] ?? '')),
+        'link_hash' => sanitize_text_field((string)($row['link_hash'] ?? '')),
+        'anchor_text' => sanitize_text_field((string)($row['anchor_text'] ?? '')),
+        'anchor_hash' => sanitize_text_field((string)($row['anchor_hash'] ?? '')),
+        'cites' => (int)($row['cites'] ?? 0),
+      ];
+    }
+
+    if (!empty($batch)) {
+      $this->insert_indexed_domain_summary_batch($summaryTable, $batch);
+    }
+
+    return [
+      'done' => count($postIds) < $limit,
+      'processed_posts' => count($postIds),
+      'last_post_id' => max($postIds),
+      'summary_rows' => count($batch),
+      'step_ms' => max(0, (int)round((microtime(true) - $chunkStartedAt) * 1000)),
+    ];
+  }
+
+  private function build_indexed_anchor_summary_chunk_for_lang($wpml_lang = 'all', $afterPostId = 0, $limit = 100) {
+    global $wpdb;
+
+    $factTable = $wpdb->prefix . 'lm_link_fact';
+    $summaryTable = $wpdb->prefix . 'lm_anchor_text_summary';
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
+    $afterPostId = max(0, (int)$afterPostId);
+    $limit = max(1, min(500, (int)$limit));
+    $chunkStartedAt = microtime(true);
+
+    $postIds = $wpdb->get_col(
+      $wpdb->prepare(
+        "SELECT DISTINCT post_id
+         FROM $factTable
+         WHERE wpml_lang = %s
+           AND post_id > %d
+           AND post_id > 0
+         ORDER BY post_id ASC
+         LIMIT %d",
+        $wpml_lang,
+        $afterPostId,
+        $limit
+      )
+    );
+    $postIds = array_values(array_filter(array_map('intval', (array)$postIds)));
+    if (empty($postIds)) {
+      return [
+        'done' => true,
+        'processed_posts' => 0,
+        'last_post_id' => $afterPostId,
+        'summary_rows' => 0,
+        'step_ms' => max(0, (int)round((microtime(true) - $chunkStartedAt) * 1000)),
+      ];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($postIds), '%d'));
+    $params = array_merge([$wpml_lang], $postIds);
+    $sql = "SELECT
+      fact.wpml_lang,
+      fact.post_id,
+      MAX(fact.post_title) AS post_title,
+      MAX(fact.post_type) AS post_type,
+      MAX(fact.post_author) AS post_author,
+      MAX(fact.post_author_id) AS post_author_id,
+      MAX(fact.post_date) AS post_date,
+      MAX(fact.post_modified) AS post_modified,
+      MAX(fact.page_url) AS page_url,
+      fact.source AS source_type,
+      fact.link_location,
+      fact.link_type,
+      fact.rel_nofollow,
+      fact.rel_sponsored,
+      fact.rel_ugc,
+      LEFT(COALESCE(fact.anchor_text, ''), 255) AS anchor_text,
+      MD5(COALESCE(fact.anchor_text, '')) AS anchor_hash,
+      fact.link AS link_url,
+      MD5(COALESCE(NULLIF(fact.normalized_link, ''), fact.link)) AS link_hash,
+      COUNT(*) AS uses
+    FROM $factTable fact
+    WHERE fact.wpml_lang = %s
+      AND fact.post_id IN ($placeholders)
+    GROUP BY fact.wpml_lang, fact.post_id, fact.source, fact.link_location, fact.link_type, fact.rel_nofollow, fact.rel_sponsored, fact.rel_ugc, fact.anchor_text, fact.link";
+    $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+
+    $batch = [];
+    foreach ((array)$rows as $row) {
+      $anchorText = sanitize_text_field((string)($row['anchor_text'] ?? ''));
+      $batch[] = [
+        'wpml_lang' => (string)($row['wpml_lang'] ?? $wpml_lang),
+        'post_id' => (int)($row['post_id'] ?? 0),
+        'post_title' => sanitize_text_field((string)($row['post_title'] ?? '')),
+        'post_type' => sanitize_key((string)($row['post_type'] ?? '')),
+        'post_author' => sanitize_text_field((string)($row['post_author'] ?? '')),
+        'post_author_id' => max(0, (int)($row['post_author_id'] ?? 0)),
+        'post_date' => $this->normalize_db_datetime_or_null($row['post_date'] ?? ''),
+        'post_modified' => $this->normalize_db_datetime_or_null($row['post_modified'] ?? ''),
+        'page_url' => esc_url_raw((string)($row['page_url'] ?? '')),
+        'source_type' => sanitize_key((string)($row['source_type'] ?? '')),
+        'link_location' => sanitize_text_field((string)($row['link_location'] ?? '')),
+        'link_type' => sanitize_key((string)($row['link_type'] ?? '')),
+        'rel_nofollow' => (int)($row['rel_nofollow'] ?? 0),
+        'rel_sponsored' => (int)($row['rel_sponsored'] ?? 0),
+        'rel_ugc' => (int)($row['rel_ugc'] ?? 0),
+        'anchor_text' => $anchorText,
+        'anchor_hash' => sanitize_text_field((string)($row['anchor_hash'] ?? '')),
+        'quality' => sanitize_key((string)$this->get_anchor_quality_label($anchorText)),
+        'link_url' => esc_url_raw((string)($row['link_url'] ?? '')),
+        'link_hash' => sanitize_text_field((string)($row['link_hash'] ?? '')),
+        'uses' => (int)($row['uses'] ?? 0),
+      ];
+    }
+
+    if (!empty($batch)) {
+      $this->insert_indexed_anchor_summary_batch($summaryTable, $batch);
+    }
+
+    return [
+      'done' => count($postIds) < $limit,
+      'processed_posts' => count($postIds),
+      'last_post_id' => max($postIds),
+      'summary_rows' => count($batch),
+      'step_ms' => max(0, (int)round((microtime(true) - $chunkStartedAt) * 1000)),
+    ];
   }
 
   private function update_indexed_summary_inbound_batch($table, $batch) {

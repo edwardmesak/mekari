@@ -94,7 +94,7 @@ class LM_Links_Manager {
   const PAGE_SLUG = 'links-manager-editor';
   const NONCE_ACTION = 'lm_links_manager_nonce_action';
   const NONCE_NAME = 'lm_nonce';
-  const DB_VERSION = '5.1';
+  const DB_VERSION = '5.2';
 
   const CACHE_TTL = 6 * HOUR_IN_SECONDS;
   const CACHE_BASE_TTL = 30 * DAY_IN_SECONDS;
@@ -624,13 +624,50 @@ class LM_Links_Manager {
     .lm-quick-actions{display:flex; flex-wrap:wrap; gap:8px; align-items:center;}
     .lm-filter-select{min-width:140px; max-width:240px;}
     .lm-filter-grid{display:grid; grid-template-columns:repeat(5, minmax(170px, 1fr)); gap:10px 12px; align-items:start; margin-bottom:10px;}
-    .lm-filter-field{min-width:0;}
+    .lm-filter-field{
+      min-width:0;
+      position:relative;
+      padding:10px 12px 12px;
+      border:1px solid transparent;
+      border-radius:14px;
+      background:linear-gradient(180deg, rgba(255,255,255,.92) 0%, rgba(248,251,255,.82) 100%);
+      transition:border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+    }
     .lm-filter-field-full{grid-column:1 / -1;}
     .lm-filter-field-wide{grid-column:span 2;}
     .lm-filter-grid input[type=text],
     .lm-filter-grid input[type=number],
     .lm-filter-grid select{width:100%; max-width:none;}
     .lm-filter-grid .lm-checklist{max-height:170px; overflow:auto; border:1px solid #dcdcde; padding:8px; background:#fff;}
+    .lm-filter-grid .lm-filter-field-active{
+      border-color:#b7d4ea;
+      background:linear-gradient(180deg, #f8fbff 0%, #eef6fd 100%);
+      box-shadow:0 8px 22px rgba(34,113,177,.08);
+    }
+    .lm-filter-grid .lm-filter-field-active > .lm-small:first-child{
+      color:#0f5d92;
+      font-weight:700;
+    }
+    .lm-filter-grid .lm-filter-field-active > .lm-small:first-child::after{
+      content:'Active';
+      display:inline-flex;
+      align-items:center;
+      margin-left:8px;
+      padding:2px 8px;
+      border-radius:999px;
+      background:#e6f2fb;
+      color:#0f5d92;
+      font-size:10px;
+      font-weight:700;
+      letter-spacing:.03em;
+      text-transform:uppercase;
+      vertical-align:middle;
+    }
+    .lm-filter-grid .lm-filter-control-active{
+      border-color:#2271b1 !important;
+      background:#f8fbff !important;
+      box-shadow:0 0 0 1px #2271b1 !important;
+    }
     .lm-filter-table{width:100%;}
     .lm-filter-table tbody{display:grid; grid-template-columns:repeat(5, minmax(170px, 1fr)); gap:10px 12px; align-items:start;}
     .lm-filter-table tr{display:block; margin:0;}
@@ -1212,6 +1249,44 @@ class LM_Links_Manager {
         });
       });
 
+      const isIgnoredFilterControl = (control) => {
+        const name = String(control.name || '');
+        if (!name) return true;
+        if (control.type === 'hidden') return true;
+        return /(\\[?page\\]?|paged|cursor|orderby|order|per_page|search_mode|text_mode|text_match_mode)$/i.test(name);
+      };
+
+      const isActiveFilterControl = (control) => {
+        if (!control || control.disabled || isIgnoredFilterControl(control)) return false;
+
+        const tag = (control.tagName || '').toLowerCase();
+        const type = (control.type || '').toLowerCase();
+
+        if (tag === 'select') {
+          const value = String(control.value || '').trim().toLowerCase();
+          return !['', 'any', '0', '-1'].includes(value);
+        }
+
+        if (type === 'checkbox' || type === 'radio') {
+          return !!control.checked && !control.defaultChecked;
+        }
+
+        if (['text', 'search', 'url', 'date', 'number'].includes(type) || tag === 'textarea') {
+          return String(control.value || '').trim() !== '';
+        }
+
+        return false;
+      };
+
+      const createActiveSummary = () => {
+        const activeSummary = document.createElement('div');
+        activeSummary.className = 'lm-filter-active-summary is-empty';
+        activeSummary.innerHTML = ''
+          + '<div class=\"lm-filter-active-summary__count\">No active filters</div>'
+          + '<div class=\"lm-filter-active-summary__hint\">Results are showing the full current scope.</div>';
+        return activeSummary;
+      };
+
       // Normalize legacy table-based filter forms into consistent scanning order.
       document.querySelectorAll('table.lm-filter-table tbody').forEach(tbody => {
         const rows = Array.from(tbody.querySelectorAll('tr'));
@@ -1238,40 +1313,11 @@ class LM_Links_Manager {
           }
         }
 
-        const isIgnoredControl = (control) => {
-          const name = String(control.name || '');
-          if (!name) return true;
-          if (control.type === 'hidden') return true;
-          return /(\\[?page\\]?|paged|cursor|orderby|order|per_page|search_mode|text_mode|text_match_mode)$/i.test(name);
-        };
-
-        const isActiveControl = (control) => {
-          if (!control || control.disabled || isIgnoredControl(control)) return false;
-
-          const tag = (control.tagName || '').toLowerCase();
-          const type = (control.type || '').toLowerCase();
-
-          if (tag === 'select') {
-            const value = String(control.value || '').trim().toLowerCase();
-            return !['', 'any', '0', '-1'].includes(value);
-          }
-
-          if (type === 'checkbox' || type === 'radio') {
-            return !!control.checked && !control.defaultChecked;
-          }
-
-          if (['text', 'search', 'url', 'date', 'number'].includes(type) || tag === 'textarea') {
-            return String(control.value || '').trim() !== '';
-          }
-
-          return false;
-        };
-
         const refreshRowState = (row) => {
           const controls = Array.from(row.querySelectorAll('input, select, textarea'));
           let hasActive = false;
           controls.forEach(control => {
-            const active = isActiveControl(control);
+            const active = isActiveFilterControl(control);
             control.classList.toggle('lm-filter-control-active', active);
             if (active) hasActive = true;
           });
@@ -1283,11 +1329,7 @@ class LM_Links_Manager {
         let activeSummary = null;
         if (form) {
           const actions = form.querySelector('.lm-filter-actions');
-          activeSummary = document.createElement('div');
-          activeSummary.className = 'lm-filter-active-summary is-empty';
-          activeSummary.innerHTML = ''
-            + '<div class=\"lm-filter-active-summary__count\">No active filters</div>'
-            + '<div class=\"lm-filter-active-summary__hint\">Results are showing the full current scope.</div>';
+          activeSummary = createActiveSummary();
           if (actions && actions.parentNode === form) {
             form.insertBefore(activeSummary, actions);
           } else if (tbody.parentNode && tbody.parentNode.parentNode === form) {
@@ -1323,6 +1365,68 @@ class LM_Links_Manager {
           });
         });
         refreshSummaryState();
+      });
+
+      document.querySelectorAll('.lm-filter-grid').forEach(grid => {
+        const fields = Array.from(grid.querySelectorAll('.lm-filter-field'));
+        if (!fields.length) return;
+
+        const form = grid.closest('form');
+        let activeSummary = grid.querySelector(':scope > .lm-filter-active-summary');
+        if (!activeSummary) {
+          activeSummary = createActiveSummary();
+          activeSummary.classList.add('lm-filter-field-full');
+          const actionsField = grid.querySelector('.lm-filter-field-full');
+          if (actionsField) {
+            grid.insertBefore(activeSummary, actionsField);
+          } else {
+            grid.prepend(activeSummary);
+          }
+        }
+
+        const refreshFieldState = (field) => {
+          const controls = Array.from(field.querySelectorAll('input, select, textarea'));
+          let hasActive = false;
+          controls.forEach(control => {
+            const active = isActiveFilterControl(control);
+            control.classList.toggle('lm-filter-control-active', active);
+            if (active) hasActive = true;
+          });
+          field.classList.toggle('lm-filter-field-active', hasActive);
+          return hasActive;
+        };
+
+        const refreshSummaryState = () => {
+          const activeCount = fields.reduce((count, field) => count + (refreshFieldState(field) ? 1 : 0), 0);
+          if (!activeSummary) return;
+          const countEl = activeSummary.querySelector('.lm-filter-active-summary__count');
+          const hintEl = activeSummary.querySelector('.lm-filter-active-summary__hint');
+          activeSummary.classList.toggle('is-empty', activeCount === 0);
+          if (countEl) {
+            countEl.textContent = activeCount === 0
+              ? 'No active filters'
+              : activeCount === 1
+                ? '1 active filter'
+                : activeCount + ' active filters';
+          }
+          if (hintEl) {
+            hintEl.textContent = activeCount === 0
+              ? 'Results are showing the full current scope.'
+              : 'Only results matching the highlighted filters are shown.';
+          }
+        };
+
+        fields.forEach(field => {
+          refreshFieldState(field);
+          field.querySelectorAll('input, select, textarea').forEach(control => {
+            control.addEventListener('change', refreshSummaryState);
+            control.addEventListener('input', refreshSummaryState);
+          });
+        });
+
+        if (form) {
+          refreshSummaryState();
+        }
       });
 
       const rebuildRoot = document.getElementById('lm-rest-rebuild-controls');

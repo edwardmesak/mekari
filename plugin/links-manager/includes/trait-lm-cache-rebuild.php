@@ -52,7 +52,9 @@ trait LM_Cache_Rebuild_Trait {
       $queryArgs['tax_query'] = $globalTaxQuery;
     }
 
-    $q = new WP_Query($queryArgs);
+    $q = $this->run_wpml_scan_query_in_language_context($wpml_lang, function() use ($queryArgs) {
+      return new WP_Query($queryArgs);
+    });
     return max(0, (int)$q->found_posts);
   }
 
@@ -96,7 +98,9 @@ trait LM_Cache_Rebuild_Trait {
       $queryArgs['tax_query'] = $globalTaxQuery;
     }
 
-    $q = new WP_Query($queryArgs);
+    $q = $this->run_wpml_scan_query_in_language_context($wpml_lang, function() use ($queryArgs) {
+      return new WP_Query($queryArgs);
+    });
     if (empty($q->posts)) return [];
 
     return array_values(array_unique(array_map('intval', (array)$q->posts)));
@@ -158,7 +162,9 @@ trait LM_Cache_Rebuild_Trait {
     }
 
     try {
-      $q = new WP_Query($queryArgs);
+      $q = $this->run_wpml_scan_query_in_language_context($wpml_lang, function() use ($queryArgs) {
+        return new WP_Query($queryArgs);
+      });
     } finally {
       if ($idWhereFilter !== null) {
         remove_filter('posts_where', $idWhereFilter, 10);
@@ -290,6 +296,61 @@ trait LM_Cache_Rebuild_Trait {
 
     $this->append_rows($all, $this->crawl_menus($enabledSources));
     return $all;
+  }
+
+  private function crawl_rows_for_rebuild_lang_queue($post_types, $crawlLangQueue, $scanModifiedAfterGmt, $enabledSources, $maxPostsPerRebuild, $chunkSize) {
+    $all = [];
+    $processedPosts = 0;
+    $crawlAborted = false;
+    $completedLangs = [];
+    $crawlStartedAt = microtime(true);
+
+    foreach ((array)$crawlLangQueue as $crawlLang) {
+      $crawlLang = $this->normalize_rebuild_wpml_lang((string)$crawlLang);
+      $lastSeenId = 0;
+
+      while (true) {
+        $postIds = $this->query_cache_post_ids_chunk($post_types, $crawlLang, $scanModifiedAfterGmt, $lastSeenId, $chunkSize);
+        if (empty($postIds)) {
+          break;
+        }
+
+        foreach ($postIds as $post_id) {
+          $post_id = (int)$post_id;
+          if ($post_id > $lastSeenId) {
+            $lastSeenId = $post_id;
+          }
+          if ($post_id < 1) {
+            continue;
+          }
+
+          if ($maxPostsPerRebuild > 0 && $processedPosts >= $maxPostsPerRebuild) {
+            $crawlAborted = true;
+            break 3;
+          }
+
+          $this->append_rows($all, $this->crawl_post_for_cache_language($post_id, $crawlLang, $enabledSources));
+          $processedPosts++;
+          if ($this->should_abort_crawl($crawlStartedAt)) {
+            $crawlAborted = true;
+            break 3;
+          }
+        }
+
+        if (count($postIds) < $chunkSize) {
+          break;
+        }
+      }
+
+      $completedLangs[] = $crawlLang;
+    }
+
+    return [
+      'rows' => $all,
+      'processed_posts' => $processedPosts,
+      'crawl_aborted' => $crawlAborted ? '1' : '0',
+      'completed_langs' => array_values(array_unique(array_filter(array_map('strval', $completedLangs)))),
+    ];
   }
 
   private function get_stats_snapshot_ttl() {
@@ -477,7 +538,7 @@ trait LM_Cache_Rebuild_Trait {
     if ($scope_post_type === '') {
       $scope_post_type = 'any';
     }
-    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
     $delaySeconds = max(1, (int)$delaySeconds);
 
     $args = [$scope_post_type, $wpml_lang];
@@ -577,7 +638,7 @@ trait LM_Cache_Rebuild_Trait {
         }
         $contexts[] = [
           'scope' => $scope,
-          'lang' => $this->get_effective_scan_wpml_lang($lang),
+          'lang' => $this->normalize_rebuild_wpml_lang($lang),
         ];
       }
     }
@@ -586,7 +647,7 @@ trait LM_Cache_Rebuild_Trait {
   }
 
   private function crawl_post_for_cache_language($post, $lang, $enabledSources) {
-    $lang = $this->get_effective_scan_wpml_lang((string)$lang);
+    $lang = $this->normalize_rebuild_wpml_lang((string)$lang);
     $wpmlWasSwitched = false;
     $wpmlPreviousLang = '';
     try {
@@ -595,11 +656,24 @@ trait LM_Cache_Rebuild_Trait {
         if (is_string($prev)) {
           $wpmlPreviousLang = sanitize_key($prev);
         }
-        $switchLang = ($lang === 'all') ? 'all' : $lang;
+        $switchLang = ($lang === 'all') ? null : $lang;
         $wpmlWasSwitched = $this->safe_wpml_switch_language($switchLang);
       }
 
-      return $this->crawl_post($post, $enabledSources);
+      $rows = $this->crawl_post($post, $enabledSources);
+      if ($lang === 'all' || empty($rows) || !is_array($rows)) {
+        return $rows;
+      }
+
+      foreach ($rows as &$row) {
+        if (!is_array($row)) {
+          continue;
+        }
+        $row['wpml_lang'] = $lang;
+      }
+      unset($row);
+
+      return $rows;
     } finally {
       if ($wpmlWasSwitched) {
         if ($wpmlPreviousLang !== '') {
@@ -740,7 +814,7 @@ trait LM_Cache_Rebuild_Trait {
     if ($scope_post_type === '') {
       $scope_post_type = 'any';
     }
-    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
     $delaySeconds = max(1, (int)$delaySeconds);
 
     $args = [$scope_post_type, $wpml_lang];
@@ -754,7 +828,7 @@ trait LM_Cache_Rebuild_Trait {
     if ($scope_post_type === '') {
       $scope_post_type = 'any';
     }
-    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
 
     try {
       $pagesRequest = new WP_REST_Request('GET', '/links-manager/v1/pages-link/list');
@@ -798,7 +872,7 @@ trait LM_Cache_Rebuild_Trait {
     if ($scope_post_type === '') {
       $scope_post_type = 'any';
     }
-    $wpml_lang = $this->get_effective_scan_wpml_lang((string)$wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
 
     $lockKey = $this->background_rebuild_lock_key($scope_post_type, $wpml_lang);
     if (get_transient($lockKey)) {
@@ -822,7 +896,7 @@ trait LM_Cache_Rebuild_Trait {
   private function build_or_get_cache($scope_post_type, $force_rebuild = false, $wpml_lang = 'all', $allow_stale_serve = true, $force_incremental = false) {
     $profileTotalStarted = $this->profile_start();
     $this->reset_crawl_runtime_stats();
-    $wpml_lang = $this->get_effective_scan_wpml_lang($wpml_lang);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang($wpml_lang);
 
     $key = $this->cache_key($scope_post_type, $wpml_lang);
     $backupKey = $this->cache_backup_key($scope_post_type, $wpml_lang);
@@ -878,6 +952,9 @@ trait LM_Cache_Rebuild_Trait {
     $maxPostsPerRebuild = $this->get_max_posts_per_rebuild();
     $crawlBatch = $this->get_crawl_post_batch_size();
     $incrementalEnabled = $force_incremental ? true : $this->is_incremental_rebuild_enabled();
+    if ($wpml_lang === 'all') {
+      $incrementalEnabled = false;
+    }
     if (!$incrementalEnabled && $force_rebuild && is_array($backup) && $lastScanGmt !== '') {
       $incrementalEnabled = true;
     }
@@ -895,7 +972,7 @@ trait LM_Cache_Rebuild_Trait {
         if (is_string($prev)) {
           $wpmlPreviousLang = sanitize_key($prev);
         }
-        $switchLang = ($wpml_lang === 'all') ? 'all' : $wpml_lang;
+        $switchLang = ($wpml_lang === 'all') ? null : $wpml_lang;
         $wpmlWasSwitched = $this->safe_wpml_switch_language($switchLang);
       }
 
@@ -920,37 +997,51 @@ trait LM_Cache_Rebuild_Trait {
       $chunkSize = $crawlBatch > 0 ? (int)$crawlBatch : (int)self::CRAWL_POST_BATCH;
       if ($chunkSize < 1) $chunkSize = 100;
 
-      $lastSeenId = 0;
-      while (true) {
-        $postIds = $this->query_cache_post_ids_chunk($post_types, $wpml_lang, $scanModifiedAfterGmt, $lastSeenId, $chunkSize);
-        if (empty($postIds)) {
-          break;
-        }
-
-        foreach ($postIds as $post_id) {
-          $post_id = (int)$post_id;
-          if ($post_id > $lastSeenId) {
-            $lastSeenId = $post_id;
+      if ($wpml_lang === 'all') {
+        $globalResult = $this->crawl_rows_for_rebuild_lang_queue(
+          $post_types,
+          $this->get_rebuild_crawl_lang_queue($wpml_lang),
+          $scanModifiedAfterGmt,
+          $enabledSources,
+          $maxPostsPerRebuild,
+          $chunkSize
+        );
+        $all = is_array($globalResult['rows'] ?? null) ? $globalResult['rows'] : [];
+        $processedPosts = max(0, (int)($globalResult['processed_posts'] ?? 0));
+        $crawlAborted = !empty($globalResult['crawl_aborted']);
+      } else {
+        $lastSeenId = 0;
+        while (true) {
+          $postIds = $this->query_cache_post_ids_chunk($post_types, $wpml_lang, $scanModifiedAfterGmt, $lastSeenId, $chunkSize);
+          if (empty($postIds)) {
+            break;
           }
-          if ($post_id < 1) {
-            continue;
+
+          foreach ($postIds as $post_id) {
+            $post_id = (int)$post_id;
+            if ($post_id > $lastSeenId) {
+              $lastSeenId = $post_id;
+            }
+            if ($post_id < 1) {
+              continue;
+            }
+
+            if ($maxPostsPerRebuild > 0 && $processedPosts >= $maxPostsPerRebuild) {
+              $crawlAborted = true;
+              break 2;
+            }
+
+            $this->append_rows($all, $this->crawl_post($post_id, $enabledSources));
+            $processedPosts++;
+            if ($this->should_abort_crawl($crawlStartedAt)) {
+              $crawlAborted = true;
+              break 2;
+            }
           }
 
-          if ($maxPostsPerRebuild > 0 && $processedPosts >= $maxPostsPerRebuild) {
-            $crawlAborted = true;
-            break 2;
+          if (count($postIds) < $chunkSize) {
+            break;
           }
-
-          $this->append_rows($all, $this->crawl_post($post_id, $enabledSources));
-          $processedPosts++;
-          if ($this->should_abort_crawl($crawlStartedAt)) {
-            $crawlAborted = true;
-            break 2;
-          }
-        }
-
-        if (count($postIds) < $chunkSize) {
-          break;
         }
       }
     } finally {

@@ -31,6 +31,8 @@ trait LM_Schema_Trait {
     $this->create_stats_table();
     $this->create_link_fact_table();
     $this->create_link_post_summary_table();
+    $this->create_link_domain_summary_table();
+    $this->create_anchor_text_summary_table();
 
     if (version_compare($installedVersion, '4.7', '<')) {
       $this->ensure_link_fact_domain_schema();
@@ -311,6 +313,93 @@ trait LM_Schema_Trait {
       KEY idx_lang_internal_outbound (wpml_lang, internal_outbound),
       KEY idx_lang_outbound (wpml_lang, outbound),
       KEY idx_page_url (page_url(191))
+    ) $charset;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+  }
+
+  private function create_link_domain_summary_table() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'lm_link_domain_summary';
+    $charset = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE IF NOT EXISTS $table (
+      id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+      wpml_lang VARCHAR(20) NOT NULL DEFAULT 'all',
+      post_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+      post_title TEXT,
+      post_type VARCHAR(32) NOT NULL DEFAULT '',
+      post_author VARCHAR(255) NOT NULL DEFAULT '',
+      post_author_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+      post_date DATETIME NULL,
+      post_modified DATETIME NULL,
+      page_url VARCHAR(1024) NOT NULL DEFAULT '',
+      source_type VARCHAR(32) NOT NULL DEFAULT '',
+      link_location VARCHAR(128) NOT NULL DEFAULT '',
+      rel_nofollow TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+      rel_sponsored TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+      rel_ugc TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+      domain VARCHAR(255) NOT NULL DEFAULT '',
+      link_url VARCHAR(1024) NOT NULL DEFAULT '',
+      link_hash CHAR(32) NOT NULL DEFAULT '',
+      anchor_text VARCHAR(255) NOT NULL DEFAULT '',
+      anchor_hash CHAR(32) NOT NULL DEFAULT '',
+      cites INT(11) NOT NULL DEFAULT 0,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_domain_row (wpml_lang, post_id, source_type, link_location, rel_nofollow, rel_sponsored, rel_ugc, domain(191), link_hash, anchor_hash),
+      KEY idx_lang_domain (wpml_lang, domain),
+      KEY idx_lang_post_type_domain (wpml_lang, post_type, domain),
+      KEY idx_lang_post_author_domain (wpml_lang, post_author_id, domain),
+      KEY idx_lang_source_domain (wpml_lang, source_type, domain),
+      KEY idx_lang_location_domain (wpml_lang, link_location, domain),
+      KEY idx_lang_post (wpml_lang, post_id),
+      KEY idx_page_url (page_url(191)),
+      KEY idx_link_url (link_url(191))
+    ) $charset;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+  }
+
+  private function create_anchor_text_summary_table() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'lm_anchor_text_summary';
+    $charset = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE IF NOT EXISTS $table (
+      id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+      wpml_lang VARCHAR(20) NOT NULL DEFAULT 'all',
+      post_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+      post_title TEXT,
+      post_type VARCHAR(32) NOT NULL DEFAULT '',
+      post_author VARCHAR(255) NOT NULL DEFAULT '',
+      post_author_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+      post_date DATETIME NULL,
+      post_modified DATETIME NULL,
+      page_url VARCHAR(1024) NOT NULL DEFAULT '',
+      source_type VARCHAR(32) NOT NULL DEFAULT '',
+      link_location VARCHAR(128) NOT NULL DEFAULT '',
+      link_type VARCHAR(16) NOT NULL DEFAULT '',
+      rel_nofollow TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+      rel_sponsored TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+      rel_ugc TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+      anchor_text VARCHAR(255) NOT NULL DEFAULT '',
+      anchor_hash CHAR(32) NOT NULL DEFAULT '',
+      quality VARCHAR(16) NOT NULL DEFAULT '',
+      link_url VARCHAR(1024) NOT NULL DEFAULT '',
+      link_hash CHAR(32) NOT NULL DEFAULT '',
+      uses INT(11) NOT NULL DEFAULT 0,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_anchor_row (wpml_lang, post_id, source_type, link_location, link_type, rel_nofollow, rel_sponsored, rel_ugc, anchor_hash, link_hash),
+      KEY idx_lang_anchor (wpml_lang, anchor_hash),
+      KEY idx_lang_post_type_anchor (wpml_lang, post_type, anchor_hash),
+      KEY idx_lang_post_author_anchor (wpml_lang, post_author_id, anchor_hash),
+      KEY idx_lang_quality_anchor (wpml_lang, quality, anchor_hash),
+      KEY idx_lang_source_anchor (wpml_lang, source_type, anchor_hash),
+      KEY idx_lang_location_anchor (wpml_lang, link_location, anchor_hash),
+      KEY idx_lang_post (wpml_lang, post_id),
+      KEY idx_link_url (link_url(191))
     ) $charset;";
 
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');

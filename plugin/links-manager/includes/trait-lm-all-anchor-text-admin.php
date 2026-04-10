@@ -11,6 +11,7 @@ trait LM_All_Anchor_Text_Admin_Trait {
   public function render_admin_all_anchor_text_page() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
+    $profileStarted = $this->profile_start();
     $filters = $this->get_all_anchor_text_filters_from_request();
     $exportUrl = $this->build_all_anchor_text_export_url($filters);
     $scopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
@@ -34,36 +35,48 @@ trait LM_All_Anchor_Text_Admin_Trait {
     $perPage = $filters['per_page'];
     $totalPages = 1;
     $pageRows = [];
+    $warningNotice = '';
+    $executionMode = 'all_anchor_text_indexed_paged';
+    $guardState = $this->get_indexed_aggregation_guard_state($filters, 'any', 'all_anchor_text_aggregation', 'All Anchor Text');
+    $runtimeMeta = (array)($guardState['runtime_meta'] ?? []);
 
     $usedIndexedPagedFastpath = false;
-    $indexedPaged = $this->get_indexed_all_anchor_text_paged_result($filters);
-    if (is_array($indexedPaged)
-      && isset($indexedPaged['items'])
-      && isset($indexedPaged['pagination'])
-      && is_array($indexedPaged['items'])
-      && is_array($indexedPaged['pagination'])
-      && (!empty($indexedPaged['items']) || (int)($indexedPaged['pagination']['total'] ?? 0) > 0)) {
-      $usedIndexedPagedFastpath = true;
-      $pageRows = array_values((array)$indexedPaged['items']);
-      $pagination = (array)$indexedPaged['pagination'];
-      $total = max(0, (int)($pagination['total'] ?? 0));
-      $perPage = max(10, (int)($pagination['per_page'] ?? $perPage));
-      $filters['paged'] = max(1, (int)($pagination['paged'] ?? $filters['paged']));
-      $totalPages = max(1, (int)($pagination['total_pages'] ?? 1));
-    }
-
-    if (!$usedIndexedPagedFastpath) {
-      $rows = $this->get_indexed_all_anchor_text_summary_rows($filters);
-      if (empty($rows)) {
-        $scopeRows = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
-        $rows = $this->build_all_anchor_text_rows($scopeRows, $filters);
+    $indexedPaged = null;
+    if (!empty($guardState['blocked'])) {
+      $warningNotice = (string)($guardState['warning_notice'] ?? '');
+      $executionMode = 'all_anchor_text_aggregation_blocked';
+    } else {
+      $indexedPaged = $this->get_indexed_all_anchor_text_paged_result($filters);
+      if (is_array($indexedPaged)
+        && isset($indexedPaged['items'])
+        && isset($indexedPaged['pagination'])
+        && is_array($indexedPaged['items'])
+        && is_array($indexedPaged['pagination'])
+        && (!empty($indexedPaged['items']) || (int)($indexedPaged['pagination']['total'] ?? 0) > 0)) {
+        $usedIndexedPagedFastpath = true;
+        $pageRows = array_values((array)$indexedPaged['items']);
+        $pagination = (array)$indexedPaged['pagination'];
+        $total = max(0, (int)($pagination['total'] ?? 0));
+        $perPage = max(10, (int)($pagination['per_page'] ?? $perPage));
+        $filters['paged'] = max(1, (int)($pagination['paged'] ?? $filters['paged']));
+        $totalPages = max(1, (int)($pagination['total_pages'] ?? 1));
       }
-      $total = count($rows);
-      $perPage = $filters['per_page'];
-      $totalPages = max(1, (int)ceil($total / $perPage));
-      if ($filters['paged'] > $totalPages) $filters['paged'] = $totalPages;
-      $offset = ($filters['paged'] - 1) * $perPage;
-      $pageRows = array_slice($rows, $offset, $perPage);
+
+      if (!$usedIndexedPagedFastpath) {
+        $rows = $this->get_indexed_all_anchor_text_summary_rows($filters);
+        $executionMode = 'all_anchor_text_indexed_summary';
+        if (empty($rows)) {
+          $scopeRows = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
+          $rows = $this->build_all_anchor_text_rows($scopeRows, $filters);
+          $executionMode = 'all_anchor_text_php_summary';
+        }
+        $total = count($rows);
+        $perPage = $filters['per_page'];
+        $totalPages = max(1, (int)ceil($total / $perPage));
+        if ($filters['paged'] > $totalPages) $filters['paged'] = $totalPages;
+        $offset = ($filters['paged'] - 1) * $perPage;
+        $pageRows = array_slice($rows, $offset, $perPage);
+      }
     }
     $offset = ($filters['paged'] - 1) * $perPage;
 
@@ -94,6 +107,13 @@ trait LM_All_Anchor_Text_Admin_Trait {
       $qualityInlinkBase = max(0, (int)($qualityPack['inlink_base'] ?? 0));
       $qualityOutboundBase = max(0, (int)($qualityPack['outbound_base'] ?? 0));
     }
+    $profileMeta = [
+      'execution_mode' => $executionMode,
+      'estimated_rows' => (int)($guardState['estimated_rows'] ?? 0),
+      'total' => (int)$total,
+      'warning' => $warningNotice !== '' ? '1' : '0',
+    ];
+    $this->profile_end('all_anchor_text_load', $profileStarted, array_merge($profileMeta, $runtimeMeta));
 
     echo '<div class="wrap lm-wrap">';
     $this->render_admin_page_header(
@@ -101,6 +121,7 @@ trait LM_All_Anchor_Text_Admin_Trait {
       __('Explore anchor text usage across internal and external links, then spot overused, weak, or missing patterns more quickly.', 'links-manager')
     );
     if ($dataNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($dataNotice) . '</p></div>';
+    if ($warningNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($warningNotice) . '</p></div>';
 
     echo '<div class="lm-card lm-card-full">';
     $this->render_admin_section_intro(

@@ -4,6 +4,71 @@
  */
 
 trait LM_Runtime_Rebuild_Helpers_Trait {
+  private function get_runtime_guard_policy($workload = 'editor_php_fallback') {
+    $workload = sanitize_key((string)$workload);
+
+    switch ($workload) {
+      case 'cited_domains_aggregation':
+        return [
+          'memory_baselines' => [
+            268435456 => 4000,
+            402653184 => 6500,
+            536870912 => 9000,
+            805306368 => 12000,
+            'default' => 15000,
+          ],
+          'time_caps' => [
+            15 => 5000,
+            30 => 8000,
+            60 => 11000,
+            'default' => 15000,
+            'unlimited' => 15000,
+          ],
+          'min_threshold' => 3000,
+          'max_threshold' => 15000,
+        ];
+      case 'all_anchor_text_aggregation':
+        return [
+          'memory_baselines' => [
+            268435456 => 4000,
+            402653184 => 6000,
+            536870912 => 8500,
+            805306368 => 11000,
+            'default' => 14000,
+          ],
+          'time_caps' => [
+            15 => 4500,
+            30 => 7000,
+            60 => 10000,
+            'default' => 14000,
+            'unlimited' => 14000,
+          ],
+          'min_threshold' => 3000,
+          'max_threshold' => 14000,
+        ];
+      case 'editor_php_fallback':
+      default:
+        return [
+          'memory_baselines' => [
+            268435456 => 4000,
+            402653184 => 7000,
+            536870912 => 10000,
+            805306368 => 14000,
+            'default' => 18000,
+          ],
+          'time_caps' => [
+            15 => 5000,
+            30 => 9000,
+            60 => 14000,
+            'default' => 20000,
+            'unlimited' => 20000,
+          ],
+          'min_threshold' => 3000,
+          'max_threshold' => 20000,
+        ];
+    }
+  }
+
   private function parse_php_bytes($value) {
     $value = trim((string)$value);
     if ($value === '') return 0;
@@ -34,43 +99,79 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
     return $maxExecution;
   }
 
-  private function get_editor_php_fallback_memory_baseline_rows() {
+  private function get_runtime_guard_memory_baseline_rows($workload = 'editor_php_fallback') {
     $limit = $this->get_effective_memory_limit_bytes();
-    if ($limit <= 268435456) return 4000;
-    if ($limit <= 402653184) return 7000;
-    if ($limit <= 536870912) return 10000;
-    if ($limit <= 805306368) return 14000;
-    return 18000;
+    $policy = $this->get_runtime_guard_policy($workload);
+    $memoryBaselines = (array)($policy['memory_baselines'] ?? []);
+
+    foreach ($memoryBaselines as $cap => $rows) {
+      if ($cap === 'default') {
+        continue;
+      }
+      if ($limit <= (int)$cap) {
+        return (int)$rows;
+      }
+    }
+
+    return (int)($memoryBaselines['default'] ?? 18000);
   }
 
-  private function get_editor_php_fallback_time_cap_rows() {
+  private function get_runtime_guard_time_cap_rows($workload = 'editor_php_fallback') {
     $maxExecution = $this->get_runtime_max_execution_time_seconds();
-    if ($maxExecution <= 0) return 20000;
-    if ($maxExecution <= 15) return 5000;
-    if ($maxExecution <= 30) return 9000;
-    if ($maxExecution <= 60) return 14000;
-    return 20000;
+    $policy = $this->get_runtime_guard_policy($workload);
+    $timeCaps = (array)($policy['time_caps'] ?? []);
+
+    if ($maxExecution <= 0) {
+      return (int)($timeCaps['unlimited'] ?? $timeCaps['default'] ?? 20000);
+    }
+
+    foreach ($timeCaps as $cap => $rows) {
+      if ($cap === 'default' || $cap === 'unlimited') {
+        continue;
+      }
+      if ($maxExecution <= (int)$cap) {
+        return (int)$rows;
+      }
+    }
+
+    return (int)($timeCaps['default'] ?? 20000);
   }
 
-  private function get_editor_php_fallback_runtime_meta() {
+  private function get_runtime_guard_runtime_meta($workload = 'editor_php_fallback') {
     $memoryLimitBytes = $this->get_effective_memory_limit_bytes();
     $maxExecution = $this->get_runtime_max_execution_time_seconds();
-    $memoryBaseline = $this->get_editor_php_fallback_memory_baseline_rows();
-    $timeCap = $this->get_editor_php_fallback_time_cap_rows();
+    $policy = $this->get_runtime_guard_policy($workload);
+    $memoryBaseline = $this->get_runtime_guard_memory_baseline_rows($workload);
+    $timeCap = $this->get_runtime_guard_time_cap_rows($workload);
 
-    $threshold = min($memoryBaseline, $timeCap, 20000);
-    if ($threshold < 3000) {
-      $threshold = 3000;
+    $threshold = min($memoryBaseline, $timeCap, (int)($policy['max_threshold'] ?? 20000));
+    if ($threshold < (int)($policy['min_threshold'] ?? 3000)) {
+      $threshold = (int)($policy['min_threshold'] ?? 3000);
     }
 
     return [
+      'workload' => sanitize_key((string)$workload),
       'threshold_rows' => (int)$threshold,
       'memory_limit_bytes' => (int)$memoryLimitBytes,
       'memory_limit_label' => function_exists('size_format') ? size_format((int)$memoryLimitBytes) : (string)$memoryLimitBytes,
       'memory_baseline_rows' => (int)$memoryBaseline,
       'time_cap_rows' => (int)$timeCap,
       'max_execution_time' => (int)$maxExecution,
+      'min_threshold_rows' => (int)($policy['min_threshold'] ?? 3000),
+      'max_threshold_rows' => (int)($policy['max_threshold'] ?? 20000),
     ];
+  }
+
+  private function get_editor_php_fallback_memory_baseline_rows() {
+    return $this->get_runtime_guard_memory_baseline_rows('editor_php_fallback');
+  }
+
+  private function get_editor_php_fallback_time_cap_rows() {
+    return $this->get_runtime_guard_time_cap_rows('editor_php_fallback');
+  }
+
+  private function get_editor_php_fallback_runtime_meta() {
+    return $this->get_runtime_guard_runtime_meta('editor_php_fallback');
   }
 
   private function get_editor_php_fallback_row_limit() {
@@ -348,7 +449,7 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
     }
 
     $scopePostType = sanitize_key((string)($state['scope_post_type'] ?? 'any'));
-    $wpmlLang = $this->get_effective_scan_wpml_lang((string)($state['wpml_lang'] ?? 'all'));
+    $wpmlLang = $this->normalize_rebuild_wpml_lang((string)($state['wpml_lang'] ?? 'all'));
     delete_transient($this->rebuild_job_partial_rows_key($scopePostType, $wpmlLang));
     $this->release_rebuild_job_lock();
 
@@ -395,6 +496,12 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
       'status' => sanitize_key((string)($state['status'] ?? 'idle')),
       'scope_post_type' => sanitize_key((string)($state['scope_post_type'] ?? 'any')),
       'wpml_lang' => sanitize_key((string)($state['wpml_lang'] ?? 'all')),
+      'requested_wpml_lang' => sanitize_key((string)($state['requested_wpml_lang'] ?? ($state['wpml_lang'] ?? 'all'))),
+      'active_crawl_wpml_lang' => sanitize_key((string)($state['active_crawl_wpml_lang'] ?? '')),
+      'crawl_lang_queue' => isset($state['crawl_lang_queue']) && is_array($state['crawl_lang_queue']) ? array_values(array_map('sanitize_key', (array)$state['crawl_lang_queue'])) : [],
+      'completed_crawl_langs' => isset($state['completed_crawl_langs']) && is_array($state['completed_crawl_langs']) ? array_values(array_map('sanitize_key', (array)$state['completed_crawl_langs'])) : [],
+      'aggregate_all_started' => !empty($state['aggregate_all_started']),
+      'aggregate_all_done' => !empty($state['aggregate_all_done']),
       'offset' => max(0, (int)($state['offset'] ?? 0)),
       'total_posts' => max(0, (int)($state['total_posts'] ?? 0)),
       'processed_posts' => max(0, (int)($state['processed_posts'] ?? 0)),

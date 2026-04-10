@@ -11,7 +11,7 @@ trait LM_Indexed_Aggregation_Trait {
       'db_version' => (string)get_option('lm_db_version', '0'),
       'stats_version' => (int)get_option('lm_stats_snapshot_version', 1),
       'dataset_version' => $this->get_dataset_cache_version(),
-      'logic_version' => 2,
+      'logic_version' => 3,
     ];
     return 'lm_all_anchor_text_paged_' . md5(wp_json_encode($payload));
   }
@@ -199,10 +199,321 @@ trait LM_Indexed_Aggregation_Trait {
     ];
   }
 
+  private function get_indexed_custom_aggregation_scope_count($filters, $forceLinkType = 'any') {
+    global $wpdb;
+
+    $parts = $this->build_indexed_custom_aggregation_query_parts($filters, $forceLinkType);
+    if (!is_array($parts)) {
+      return 0;
+    }
+
+    $table = (string)$parts['table'];
+    $whereSql = (string)$parts['where_sql'];
+    $params = (array)$parts['params'];
+
+    $sql = "SELECT COUNT(*) FROM $table $whereSql";
+    $count = (int)$wpdb->get_var($wpdb->prepare($sql, $params));
+    return max(0, $count);
+  }
+
+  private function get_indexed_aggregation_active_text_filter_count($filters) {
+    $filters = is_array($filters) ? $filters : [];
+    $count = 0;
+    foreach (['value_contains', 'source_contains', 'title_contains', 'anchor_contains', 'search'] as $key) {
+      if (trim((string)($filters[$key] ?? '')) !== '') {
+        $count++;
+      }
+    }
+    return $count;
+  }
+
+  private function should_block_indexed_aggregation_by_complexity($filters, $workload) {
+    $filters = is_array($filters) ? $filters : [];
+    $workload = sanitize_key((string)$workload);
+    $searchMode = $this->sanitize_text_match_mode((string)($filters['search_mode'] ?? 'contains'));
+    $activeTextFilters = $this->get_indexed_aggregation_active_text_filter_count($filters);
+    $hasTaxonomyFilter = (int)($filters['post_category'] ?? 0) > 0 || (int)($filters['post_tag'] ?? 0) > 0;
+    $hasAuthorFilter = (int)($filters['author'] ?? 0) > 0;
+    $hasLocationFilter = trim((string)($filters['location'] ?? 'any')) !== '' && (string)($filters['location'] ?? 'any') !== 'any';
+    $hasSourceTypeFilter = trim((string)($filters['source_type'] ?? 'any')) !== '' && (string)($filters['source_type'] ?? 'any') !== 'any';
+    $hasSeoFlagFilter = trim((string)($filters['seo_flag'] ?? 'any')) !== '' && (string)($filters['seo_flag'] ?? 'any') !== 'any';
+    $hasUsageTypeFilter = trim((string)($filters['usage_type'] ?? 'any')) !== '' && (string)($filters['usage_type'] ?? 'any') !== 'any';
+    $hasQualityFilter = trim((string)($filters['quality'] ?? 'any')) !== '' && (string)($filters['quality'] ?? 'any') !== 'any';
+
+    if ($searchMode === 'regex' || $searchMode === 'exact') {
+      return false;
+    }
+
+    if ($workload === 'cited_domains_aggregation') {
+      return $activeTextFilters >= 5
+        && $hasTaxonomyFilter
+        && $hasAuthorFilter
+        && $hasLocationFilter
+        && $hasSourceTypeFilter;
+    }
+
+    if ($workload === 'all_anchor_text_aggregation') {
+      return $activeTextFilters >= 4
+        && $hasTaxonomyFilter
+        && $hasAuthorFilter
+        && $hasLocationFilter
+        && $hasSourceTypeFilter
+        && ($hasUsageTypeFilter || $hasQualityFilter || $hasSeoFlagFilter);
+    }
+
+    return false;
+  }
+
+  private function has_structural_summary_index_for_workload($workload) {
+    $workload = sanitize_key((string)$workload);
+    if ($workload === 'cited_domains_aggregation') {
+      return $this->indexed_summary_table_exists($this->get_indexed_domain_summary_table())
+        && $this->get_indexed_report_summary_count('domain', 'all') > 0;
+    }
+    if ($workload === 'all_anchor_text_aggregation') {
+      return $this->indexed_summary_table_exists($this->get_indexed_anchor_summary_table())
+        && $this->get_indexed_report_summary_count('anchor', 'all') > 0;
+    }
+    return false;
+  }
+
+  private function get_indexed_aggregation_guard_state($filters, $forceLinkType, $workload, $reportLabel) {
+    $runtimeMeta = $this->get_runtime_guard_runtime_meta($workload);
+    $estimatedRows = 0;
+    $hasStructuralIndex = $this->has_structural_summary_index_for_workload($workload);
+    $complexityBlocked = $hasStructuralIndex ? false : $this->should_block_indexed_aggregation_by_complexity($filters, $workload);
+
+    if (!$complexityBlocked && !$hasStructuralIndex && $this->is_indexed_datastore_ready()) {
+      $estimatedRows = $this->get_indexed_custom_aggregation_scope_count($filters, $forceLinkType);
+    }
+
+    $thresholdRows = max(1, (int)($runtimeMeta['threshold_rows'] ?? 0));
+    $blocked = $complexityBlocked || $estimatedRows > $thresholdRows;
+    $warningNotice = '';
+
+    if ($blocked) {
+      if ($complexityBlocked) {
+        $warningNotice = sprintf(
+          __('This filter combination needs a heavy %1$s aggregation that exceeds the current safety limit of %2$d rows. Narrow the text filters or remove some scope filters to avoid a critical error.', 'links-manager'),
+          $reportLabel,
+          $thresholdRows
+        );
+      } else {
+        $warningNotice = sprintf(
+          __('This filter combination needs a heavy %1$s aggregation across %2$d rows, which exceeds the safety limit of %3$d rows. Narrow the filters to avoid a critical error.', 'links-manager'),
+          $reportLabel,
+          $estimatedRows,
+          $thresholdRows
+        );
+      }
+    }
+
+    return [
+      'blocked' => $blocked,
+      'complexity_blocked' => $complexityBlocked,
+      'warning_notice' => $warningNotice,
+      'estimated_rows' => $estimatedRows,
+      'runtime_meta' => $runtimeMeta,
+    ];
+  }
+
+  private function get_indexed_domain_summary_table() {
+    global $wpdb;
+    return $wpdb->prefix . 'lm_link_domain_summary';
+  }
+
+  private function get_indexed_anchor_summary_table() {
+    global $wpdb;
+    return $wpdb->prefix . 'lm_anchor_text_summary';
+  }
+
+  private function indexed_summary_table_exists($table) {
+    global $wpdb;
+    $table = trim((string)$table);
+    if ($table === '') {
+      return false;
+    }
+    return ((string)$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table);
+  }
+
+  private function build_indexed_domain_summary_query_parts($filters) {
+    global $wpdb;
+
+    $table = $this->get_indexed_domain_summary_table();
+    if (!$this->indexed_summary_table_exists($table)) {
+      return null;
+    }
+
+    $scopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $wpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $resolvedScope = $this->resolve_indexed_datastore_scope($scopePostType, $wpmlLang, !$this->has_exact_language_scope($wpmlLang));
+    if (!is_array($resolvedScope)) {
+      return null;
+    }
+
+    $whereParts = ['wpml_lang = %s'];
+    $params = [(string)$resolvedScope['wpml_lang']];
+
+    if ((string)$resolvedScope['scope_post_type'] !== 'any') {
+      $whereParts[] = 'post_type = %s';
+      $params[] = (string)$resolvedScope['scope_post_type'];
+    }
+
+    $location = (string)($filters['location'] ?? 'any');
+    if ($location !== '' && $location !== 'any') {
+      $whereParts[] = 'link_location = %s';
+      $params[] = $location;
+    }
+
+    $sourceType = (string)($filters['source_type'] ?? 'any');
+    if ($sourceType !== '' && $sourceType !== 'any') {
+      $whereParts[] = 'source_type = %s';
+      $params[] = $sourceType;
+    }
+
+    $seoFlag = (string)($filters['seo_flag'] ?? 'any');
+    if ($seoFlag === 'dofollow') {
+      $whereParts[] = 'rel_nofollow = 0 AND rel_sponsored = 0 AND rel_ugc = 0';
+    } elseif ($seoFlag === 'nofollow') {
+      $whereParts[] = 'rel_nofollow = 1';
+    } elseif ($seoFlag === 'sponsored') {
+      $whereParts[] = 'rel_sponsored = 1';
+    } elseif ($seoFlag === 'ugc') {
+      $whereParts[] = 'rel_ugc = 1';
+    }
+
+    $textMode = (string)($filters['search_mode'] ?? 'contains');
+    $this->append_indexed_text_match_clause($whereParts, $params, 'link_url', (string)($filters['value_contains'] ?? ''), $textMode);
+    $this->append_indexed_text_match_clause($whereParts, $params, 'page_url', (string)($filters['source_contains'] ?? ''), $textMode);
+    $this->append_indexed_text_match_clause($whereParts, $params, 'post_title', (string)($filters['title_contains'] ?? ''), $textMode);
+    $this->append_indexed_text_match_clause($whereParts, $params, 'anchor_text', (string)($filters['anchor_contains'] ?? ''), $textMode);
+    $this->append_indexed_author_filter_clause(
+      $whereParts,
+      $params,
+      isset($filters['author']) ? (int)$filters['author'] : 0,
+      $this->get_author_filter_display_name(isset($filters['author']) ? (int)$filters['author'] : 0)
+    );
+
+    $allowedPostIds = $this->get_post_ids_by_post_terms(
+      isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
+      isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0
+    );
+    if (is_array($allowedPostIds)) {
+      $allowedIds = array_values(array_map('intval', array_keys($allowedPostIds)));
+      if (empty($allowedIds)) {
+        $whereParts[] = '1 = 0';
+      } else {
+        $inPlaceholders = implode(',', array_fill(0, count($allowedIds), '%d'));
+        $whereParts[] = "post_id IN ($inPlaceholders)";
+        foreach ($allowedIds as $pid) {
+          $params[] = $pid;
+        }
+      }
+    }
+
+    return [
+      'table' => $table,
+      'where_sql' => 'WHERE ' . implode(' AND ', $whereParts),
+      'params' => $params,
+    ];
+  }
+
+  private function build_indexed_anchor_summary_query_parts($filters) {
+    $table = $this->get_indexed_anchor_summary_table();
+    if (!$this->indexed_summary_table_exists($table)) {
+      return null;
+    }
+
+    $scopePostType = sanitize_key((string)($filters['post_type'] ?? 'any'));
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $wpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $resolvedScope = $this->resolve_indexed_datastore_scope($scopePostType, $wpmlLang, !$this->has_exact_language_scope($wpmlLang));
+    if (!is_array($resolvedScope)) {
+      return null;
+    }
+
+    $whereParts = ['wpml_lang = %s'];
+    $params = [(string)$resolvedScope['wpml_lang']];
+
+    if ((string)$resolvedScope['scope_post_type'] !== 'any') {
+      $whereParts[] = 'post_type = %s';
+      $params[] = (string)$resolvedScope['scope_post_type'];
+    }
+
+    $location = (string)($filters['location'] ?? 'any');
+    if ($location !== '' && $location !== 'any') {
+      $whereParts[] = 'link_location = %s';
+      $params[] = $location;
+    }
+
+    $sourceType = (string)($filters['source_type'] ?? 'any');
+    if ($sourceType !== '' && $sourceType !== 'any') {
+      $whereParts[] = 'source_type = %s';
+      $params[] = $sourceType;
+    }
+
+    $linkType = (string)($filters['link_type'] ?? 'any');
+    if ($linkType !== '' && $linkType !== 'any') {
+      $whereParts[] = 'link_type = %s';
+      $params[] = $linkType;
+    }
+
+    $seoFlag = (string)($filters['seo_flag'] ?? 'any');
+    if ($seoFlag === 'dofollow') {
+      $whereParts[] = 'rel_nofollow = 0 AND rel_sponsored = 0 AND rel_ugc = 0';
+    } elseif ($seoFlag === 'nofollow') {
+      $whereParts[] = 'rel_nofollow = 1';
+    } elseif ($seoFlag === 'sponsored') {
+      $whereParts[] = 'rel_sponsored = 1';
+    } elseif ($seoFlag === 'ugc') {
+      $whereParts[] = 'rel_ugc = 1';
+    }
+
+    $textMode = (string)($filters['search_mode'] ?? 'contains');
+    $this->append_indexed_text_match_clause($whereParts, $params, 'link_url', (string)($filters['value_contains'] ?? ''), $textMode);
+    $this->append_indexed_text_match_clause($whereParts, $params, 'page_url', (string)($filters['source_contains'] ?? ''), $textMode);
+    $this->append_indexed_text_match_clause($whereParts, $params, 'post_title', (string)($filters['title_contains'] ?? ''), $textMode);
+    $this->append_indexed_text_match_clause($whereParts, $params, 'anchor_text', (string)($filters['search'] ?? ''), $textMode);
+    $this->append_indexed_author_filter_clause(
+      $whereParts,
+      $params,
+      isset($filters['author']) ? (int)$filters['author'] : 0,
+      $this->get_author_filter_display_name(isset($filters['author']) ? (int)$filters['author'] : 0)
+    );
+
+    $allowedPostIds = $this->get_post_ids_by_post_terms(
+      isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
+      isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0
+    );
+    if (is_array($allowedPostIds)) {
+      $allowedIds = array_values(array_map('intval', array_keys($allowedPostIds)));
+      if (empty($allowedIds)) {
+        $whereParts[] = '1 = 0';
+      } else {
+        $inPlaceholders = implode(',', array_fill(0, count($allowedIds), '%d'));
+        $whereParts[] = "post_id IN ($inPlaceholders)";
+        foreach ($allowedIds as $pid) {
+          $params[] = $pid;
+        }
+      }
+    }
+
+    return [
+      'table' => $table,
+      'where_sql' => 'WHERE ' . implode(' AND ', $whereParts),
+      'params' => $params,
+    ];
+  }
+
   private function get_indexed_cited_domains_summary_rows($filters) {
     global $wpdb;
 
-    $parts = $this->build_indexed_custom_aggregation_query_parts($filters, 'exlink');
+    $parts = $this->build_indexed_domain_summary_query_parts($filters);
     if (!is_array($parts)) {
       return [];
     }
@@ -211,13 +522,11 @@ trait LM_Indexed_Aggregation_Trait {
     $whereSql = (string)$parts['where_sql'];
     $params = (array)$parts['params'];
 
-    $domainExpr = $this->get_indexed_link_domain_sql_expression();
-
     $sql = "SELECT
-      $domainExpr AS domain,
-      COUNT(*) AS cites,
-      COUNT(DISTINCT page_url) AS pages,
-      MIN(link) AS sample_url
+      domain,
+      SUM(cites) AS cites,
+      COUNT(DISTINCT post_id) AS pages,
+      MIN(link_url) AS sample_url
       FROM $table
       $whereSql
       GROUP BY domain
@@ -248,7 +557,7 @@ trait LM_Indexed_Aggregation_Trait {
       return null;
     }
 
-    $parts = $this->build_indexed_custom_aggregation_query_parts($filters, 'exlink');
+    $parts = $this->build_indexed_domain_summary_query_parts($filters);
     if (!is_array($parts)) {
       return null;
     }
@@ -257,12 +566,11 @@ trait LM_Indexed_Aggregation_Trait {
     $whereSql = (string)$parts['where_sql'];
     $baseParams = (array)$parts['params'];
 
-    $domainExpr = $this->get_indexed_link_domain_sql_expression();
     $baseAggSql = "SELECT
-      $domainExpr AS domain,
-      COUNT(*) AS cites,
-      COUNT(DISTINCT page_url) AS pages,
-      MIN(link) AS sample_url
+      domain,
+      SUM(cites) AS cites,
+      COUNT(DISTINCT post_id) AS pages,
+      MIN(link_url) AS sample_url
       FROM $table
       $whereSql
       GROUP BY domain
@@ -360,7 +668,7 @@ trait LM_Indexed_Aggregation_Trait {
   private function get_indexed_all_anchor_text_summary_rows($filters) {
     global $wpdb;
 
-    $parts = $this->build_indexed_custom_aggregation_query_parts($filters, 'any');
+    $parts = $this->build_indexed_anchor_summary_query_parts($filters);
     if (!is_array($parts)) {
       return [];
     }
@@ -371,12 +679,13 @@ trait LM_Indexed_Aggregation_Trait {
 
     $sql = "SELECT
       anchor_text,
-      COUNT(*) AS total,
-      SUM(CASE WHEN link_type = 'inlink' THEN 1 ELSE 0 END) AS inlink,
-      SUM(CASE WHEN link_type = 'exlink' THEN 1 ELSE 0 END) AS outbound,
-      COUNT(DISTINCT page_url) AS source_pages,
-      COUNT(DISTINCT link) AS destinations,
-      GROUP_CONCAT(DISTINCT source ORDER BY source SEPARATOR ',') AS source_types
+      MAX(quality) AS quality,
+      SUM(uses) AS total,
+      SUM(CASE WHEN link_type = 'inlink' THEN uses ELSE 0 END) AS inlink,
+      SUM(CASE WHEN link_type = 'exlink' THEN uses ELSE 0 END) AS outbound,
+      COUNT(DISTINCT post_id) AS source_pages,
+      COUNT(DISTINCT link_hash) AS destinations,
+      GROUP_CONCAT(DISTINCT source_type ORDER BY source_type SEPARATOR ',') AS source_types
       FROM $table
       $whereSql
       GROUP BY anchor_text";
@@ -433,7 +742,7 @@ trait LM_Indexed_Aggregation_Trait {
 
       $out[] = [
         'anchor_text' => $anchor,
-        'quality' => $this->get_anchor_quality_label($anchor),
+        'quality' => sanitize_key((string)($row['quality'] ?? $this->get_anchor_quality_label($anchor))),
         'usage_type' => $usageType,
         'total' => (int)($row['total'] ?? 0),
         'inlink' => $inlink,
@@ -560,12 +869,8 @@ trait LM_Indexed_Aggregation_Trait {
     if ((string)($filters['group'] ?? 'any') !== 'any') {
       return false;
     }
-    if ((string)($filters['quality'] ?? 'any') !== 'any') {
-      return false;
-    }
-
     $orderby = (string)($filters['orderby'] ?? 'total');
-    $allowedOrderby = ['total', 'inlink', 'outbound', 'anchor', 'pages', 'destinations', 'usage_type'];
+    $allowedOrderby = ['total', 'inlink', 'outbound', 'anchor', 'pages', 'destinations', 'usage_type', 'quality'];
     if (!in_array($orderby, $allowedOrderby, true)) {
       return false;
     }
@@ -584,12 +889,17 @@ trait LM_Indexed_Aggregation_Trait {
     }
 
     $usageType = (string)($filters['usage_type'] ?? 'any');
+    $quality = (string)($filters['quality'] ?? 'any');
     if ($usageType === 'inlink_only') {
       $outerWhereParts[] = 'inlink > 0 AND outbound = 0';
     } elseif ($usageType === 'outbound_only') {
       $outerWhereParts[] = 'outbound > 0 AND inlink = 0';
     } elseif ($usageType === 'mixed') {
       $outerWhereParts[] = 'inlink > 0 AND outbound > 0';
+    }
+    if ($quality !== '' && $quality !== 'any') {
+      $outerWhereParts[] = 'quality = %s';
+      $outerParams[] = sanitize_key($quality);
     }
 
     $minTotal = max(0, (int)($filters['min_total'] ?? 0));
@@ -657,7 +967,7 @@ trait LM_Indexed_Aggregation_Trait {
       return null;
     }
 
-    $parts = $this->build_indexed_custom_aggregation_query_parts($filters, 'any');
+    $parts = $this->build_indexed_anchor_summary_query_parts($filters);
     if (!is_array($parts)) {
       return null;
     }
@@ -668,11 +978,12 @@ trait LM_Indexed_Aggregation_Trait {
 
     $baseAggSql = "SELECT
       anchor_text,
-      COUNT(*) AS total,
-      SUM(CASE WHEN link_type = 'inlink' THEN 1 ELSE 0 END) AS inlink,
-      SUM(CASE WHEN link_type = 'exlink' THEN 1 ELSE 0 END) AS outbound,
-      COUNT(DISTINCT page_url) AS source_pages,
-      COUNT(DISTINCT link) AS destinations
+      MAX(quality) AS quality,
+      SUM(uses) AS total,
+      SUM(CASE WHEN link_type = 'inlink' THEN uses ELSE 0 END) AS inlink,
+      SUM(CASE WHEN link_type = 'exlink' THEN uses ELSE 0 END) AS outbound,
+      COUNT(DISTINCT post_id) AS source_pages,
+      COUNT(DISTINCT link_hash) AS destinations
       FROM $table
       $whereSql
       GROUP BY anchor_text";
@@ -701,7 +1012,7 @@ trait LM_Indexed_Aggregation_Trait {
     $outboundBase = 0;
 
     foreach ((array)$rows as $row) {
-      $quality = $this->get_anchor_quality_label((string)($row['anchor_text'] ?? ''));
+      $quality = sanitize_key((string)($row['quality'] ?? $this->get_anchor_quality_label((string)($row['anchor_text'] ?? ''))));
       if (!isset($summary[$quality])) {
         $summary[$quality] = ['anchors' => 0, 'total' => 0, 'inlink' => 0, 'outbound' => 0];
       }
@@ -740,7 +1051,7 @@ trait LM_Indexed_Aggregation_Trait {
       return $cached;
     }
 
-    $parts = $this->build_indexed_custom_aggregation_query_parts($filters, 'any');
+    $parts = $this->build_indexed_anchor_summary_query_parts($filters);
     if (!is_array($parts)) {
       return null;
     }
@@ -751,12 +1062,13 @@ trait LM_Indexed_Aggregation_Trait {
 
     $baseAggSql = "SELECT
       anchor_text,
-      COUNT(*) AS total,
-      SUM(CASE WHEN link_type = 'inlink' THEN 1 ELSE 0 END) AS inlink,
-      SUM(CASE WHEN link_type = 'exlink' THEN 1 ELSE 0 END) AS outbound,
-      COUNT(DISTINCT page_url) AS source_pages,
-      COUNT(DISTINCT link) AS destinations,
-      GROUP_CONCAT(DISTINCT source ORDER BY source SEPARATOR ',') AS source_types
+      MAX(quality) AS quality,
+      SUM(uses) AS total,
+      SUM(CASE WHEN link_type = 'inlink' THEN uses ELSE 0 END) AS inlink,
+      SUM(CASE WHEN link_type = 'exlink' THEN uses ELSE 0 END) AS outbound,
+      COUNT(DISTINCT post_id) AS source_pages,
+      COUNT(DISTINCT link_hash) AS destinations,
+      GROUP_CONCAT(DISTINCT source_type ORDER BY source_type SEPARATOR ',') AS source_types
       FROM $table
       $whereSql
       GROUP BY anchor_text";
@@ -793,11 +1105,12 @@ trait LM_Indexed_Aggregation_Trait {
       'anchor' => 'anchor_text',
       'pages' => 'source_pages',
       'destinations' => 'destinations',
+      'quality' => 'quality',
       'usage_type' => "CASE WHEN inlink > 0 AND outbound > 0 THEN 'mixed' WHEN inlink > 0 THEN 'inlink_only' WHEN outbound > 0 THEN 'outbound_only' ELSE 'mixed' END",
     ];
     $orderColumn = isset($orderMap[$orderBy]) ? $orderMap[$orderBy] : 'total';
 
-    $dataSql = "SELECT anchor_text, total, inlink, outbound, source_pages, destinations, source_types
+    $dataSql = "SELECT anchor_text, quality, total, inlink, outbound, source_pages, destinations, source_types
       FROM ($baseAggSql) anchor_summary" .
       $outerWhereSql .
       " ORDER BY $orderColumn $orderDir, anchor_text $orderDir
@@ -833,7 +1146,7 @@ trait LM_Indexed_Aggregation_Trait {
 
       $items[] = [
         'anchor_text' => $anchor,
-        'quality' => $this->get_anchor_quality_label($anchor),
+        'quality' => sanitize_key((string)($row['quality'] ?? $this->get_anchor_quality_label($anchor))),
         'usage_type' => $usageType,
         'total' => (int)($row['total'] ?? 0),
         'inlink' => $inlink,
