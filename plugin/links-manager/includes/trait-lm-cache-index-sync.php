@@ -132,7 +132,7 @@ trait LM_Cache_Index_Sync_Trait {
       return [$wpml_lang];
     }
 
-    $langs = ['all'];
+    $langs = [];
     foreach ((array)$rows as $row) {
       $rowLang = $this->resolve_fact_row_wpml_lang($row, $wpml_lang);
       if ($rowLang !== '' && $rowLang !== 'all') {
@@ -140,7 +140,10 @@ trait LM_Cache_Index_Sync_Trait {
       }
     }
 
-    return array_values(array_unique(array_filter(array_map([$this, 'sanitize_wpml_lang_filter'], $langs))));
+    $langs = array_values(array_unique(array_filter(array_map([$this, 'sanitize_wpml_lang_filter'], $langs))));
+    $langs[] = 'all';
+
+    return array_values(array_unique(array_filter($langs)));
   }
 
   private function resolve_fact_row_wpml_lang($row, $fallbackLang = 'all') {
@@ -261,6 +264,11 @@ trait LM_Cache_Index_Sync_Trait {
 
   private function rebuild_indexed_summary_for_lang($wpml_lang = 'all') {
     $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
+    if ($wpml_lang === 'all') {
+      $this->rebuild_indexed_summary_for_all_from_language_summaries();
+      return;
+    }
+
     $afterFactId = 0;
     do {
       $backfill = $this->backfill_normalized_url_chunk_for_lang($wpml_lang, $afterFactId, $this->get_default_finalize_chunk_size());
@@ -292,6 +300,318 @@ trait LM_Cache_Index_Sync_Trait {
       $result = $this->build_indexed_anchor_summary_chunk_for_lang($wpml_lang, $afterAnchorPostId, $this->get_default_finalize_seed_chunk_size());
       $afterAnchorPostId = (int)($result['last_post_id'] ?? 0);
     } while (empty($result['done']));
+  }
+
+  private function rebuild_indexed_summary_for_all_from_language_summaries() {
+    $this->clear_indexed_summary_for_lang('all');
+
+    $afterPostId = 0;
+    do {
+      $result = $this->build_indexed_post_summary_all_chunk($afterPostId, $this->get_default_finalize_seed_chunk_size());
+      $afterPostId = (int)($result['last_post_id'] ?? 0);
+    } while (empty($result['done']));
+
+    $afterDomainPostId = 0;
+    do {
+      $result = $this->build_indexed_domain_summary_all_chunk($afterDomainPostId, $this->get_default_finalize_seed_chunk_size());
+      $afterDomainPostId = (int)($result['last_post_id'] ?? 0);
+    } while (empty($result['done']));
+
+    $afterAnchorPostId = 0;
+    do {
+      $result = $this->build_indexed_anchor_summary_all_chunk($afterAnchorPostId, $this->get_default_finalize_seed_chunk_size());
+      $afterAnchorPostId = (int)($result['last_post_id'] ?? 0);
+    } while (empty($result['done']));
+  }
+
+  private function build_indexed_post_summary_all_chunk($afterPostId = 0, $limit = 100) {
+    global $wpdb;
+
+    $summaryTable = $wpdb->prefix . 'lm_link_post_summary';
+    $afterPostId = max(0, (int)$afterPostId);
+    $limit = max(1, min(500, (int)$limit));
+    $chunkStartedAt = microtime(true);
+
+    $postIds = $wpdb->get_col(
+      $wpdb->prepare(
+        "SELECT DISTINCT post_id
+         FROM $summaryTable
+         WHERE wpml_lang <> %s
+           AND post_id > %d
+         ORDER BY post_id ASC
+         LIMIT %d",
+        'all',
+        $afterPostId,
+        $limit
+      )
+    );
+    $postIds = array_values(array_filter(array_map('intval', (array)$postIds)));
+    if (empty($postIds)) {
+      return [
+        'done' => true,
+        'processed_posts' => 0,
+        'last_post_id' => $afterPostId,
+        'summary_rows' => 0,
+        'step_ms' => max(0, (int)round((microtime(true) - $chunkStartedAt) * 1000)),
+      ];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($postIds), '%d'));
+    $sql = "SELECT
+      %s AS wpml_lang,
+      src.post_id,
+      MAX(src.post_title) AS post_title,
+      MAX(src.post_type) AS post_type,
+      MAX(src.post_author) AS post_author,
+      MAX(src.post_author_id) AS post_author_id,
+      MAX(src.post_date) AS post_date,
+      MAX(src.post_modified) AS post_modified,
+      MAX(src.page_url) AS page_url,
+      MAX(src.inbound) AS inbound,
+      MAX(src.internal_outbound) AS internal_outbound,
+      MAX(src.outbound) AS outbound
+    FROM $summaryTable src
+    WHERE src.wpml_lang <> %s
+      AND src.post_id IN ($placeholders)
+    GROUP BY src.post_id";
+    $params = array_merge(['all', 'all'], $postIds);
+    $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+
+    $batch = [];
+    foreach ((array)$rows as $row) {
+      $postId = isset($row['post_id']) ? (int)$row['post_id'] : 0;
+      if ($postId < 1) {
+        continue;
+      }
+      $batch[] = [
+        'wpml_lang' => 'all',
+        'post_id' => $postId,
+        'post_title' => sanitize_text_field((string)($row['post_title'] ?? '')),
+        'post_type' => sanitize_key((string)($row['post_type'] ?? '')),
+        'post_author' => sanitize_text_field((string)($row['post_author'] ?? '')),
+        'post_author_id' => max(0, (int)($row['post_author_id'] ?? 0)),
+        'post_date' => $this->normalize_db_datetime_or_null($row['post_date'] ?? ''),
+        'post_modified' => $this->normalize_db_datetime_or_null($row['post_modified'] ?? ''),
+        'page_url' => esc_url_raw((string)($row['page_url'] ?? '')),
+        'inbound' => max(0, (int)($row['inbound'] ?? 0)),
+        'internal_outbound' => max(0, (int)($row['internal_outbound'] ?? 0)),
+        'outbound' => max(0, (int)($row['outbound'] ?? 0)),
+      ];
+    }
+
+    if (!empty($batch)) {
+      $this->insert_indexed_summary_batch($summaryTable, $batch);
+    }
+
+    return [
+      'done' => count($postIds) < $limit,
+      'processed_posts' => count($postIds),
+      'last_post_id' => max($postIds),
+      'summary_rows' => count($batch),
+      'step_ms' => max(0, (int)round((microtime(true) - $chunkStartedAt) * 1000)),
+    ];
+  }
+
+  private function build_indexed_domain_summary_all_chunk($afterPostId = 0, $limit = 100) {
+    global $wpdb;
+
+    $summaryTable = $wpdb->prefix . 'lm_link_domain_summary';
+    $afterPostId = max(0, (int)$afterPostId);
+    $limit = max(1, min(500, (int)$limit));
+    $chunkStartedAt = microtime(true);
+
+    $postIds = $wpdb->get_col(
+      $wpdb->prepare(
+        "SELECT DISTINCT post_id
+         FROM $summaryTable
+         WHERE wpml_lang <> %s
+           AND post_id > %d
+         ORDER BY post_id ASC
+         LIMIT %d",
+        'all',
+        $afterPostId,
+        $limit
+      )
+    );
+    $postIds = array_values(array_filter(array_map('intval', (array)$postIds)));
+    if (empty($postIds)) {
+      return [
+        'done' => true,
+        'processed_posts' => 0,
+        'last_post_id' => $afterPostId,
+        'summary_rows' => 0,
+        'step_ms' => max(0, (int)round((microtime(true) - $chunkStartedAt) * 1000)),
+      ];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($postIds), '%d'));
+    $sql = "SELECT
+      %s AS wpml_lang,
+      src.post_id,
+      MAX(src.post_title) AS post_title,
+      MAX(src.post_type) AS post_type,
+      MAX(src.post_author) AS post_author,
+      MAX(src.post_author_id) AS post_author_id,
+      MAX(src.post_date) AS post_date,
+      MAX(src.post_modified) AS post_modified,
+      MAX(src.page_url) AS page_url,
+      src.source_type,
+      src.link_location,
+      src.rel_nofollow,
+      src.rel_sponsored,
+      src.rel_ugc,
+      src.domain,
+      MAX(src.link_url) AS link_url,
+      src.link_hash,
+      MAX(src.anchor_text) AS anchor_text,
+      src.anchor_hash,
+      SUM(src.cites) AS cites
+    FROM $summaryTable src
+    WHERE src.wpml_lang <> %s
+      AND src.post_id IN ($placeholders)
+    GROUP BY src.post_id, src.source_type, src.link_location, src.rel_nofollow, src.rel_sponsored, src.rel_ugc, src.domain, src.link_hash, src.anchor_hash";
+    $params = array_merge(['all', 'all'], $postIds);
+    $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+
+    $batch = [];
+    foreach ((array)$rows as $row) {
+      $batch[] = [
+        'wpml_lang' => 'all',
+        'post_id' => (int)($row['post_id'] ?? 0),
+        'post_title' => sanitize_text_field((string)($row['post_title'] ?? '')),
+        'post_type' => sanitize_key((string)($row['post_type'] ?? '')),
+        'post_author' => sanitize_text_field((string)($row['post_author'] ?? '')),
+        'post_author_id' => max(0, (int)($row['post_author_id'] ?? 0)),
+        'post_date' => $this->normalize_db_datetime_or_null($row['post_date'] ?? ''),
+        'post_modified' => $this->normalize_db_datetime_or_null($row['post_modified'] ?? ''),
+        'page_url' => esc_url_raw((string)($row['page_url'] ?? '')),
+        'source_type' => sanitize_key((string)($row['source_type'] ?? '')),
+        'link_location' => sanitize_text_field((string)($row['link_location'] ?? '')),
+        'rel_nofollow' => (int)($row['rel_nofollow'] ?? 0),
+        'rel_sponsored' => (int)($row['rel_sponsored'] ?? 0),
+        'rel_ugc' => (int)($row['rel_ugc'] ?? 0),
+        'domain' => strtolower((string)($row['domain'] ?? '')),
+        'link_url' => esc_url_raw((string)($row['link_url'] ?? '')),
+        'link_hash' => sanitize_text_field((string)($row['link_hash'] ?? '')),
+        'anchor_text' => sanitize_text_field((string)($row['anchor_text'] ?? '')),
+        'anchor_hash' => sanitize_text_field((string)($row['anchor_hash'] ?? '')),
+        'cites' => max(0, (int)($row['cites'] ?? 0)),
+      ];
+    }
+
+    if (!empty($batch)) {
+      $this->insert_indexed_domain_summary_batch($summaryTable, $batch);
+    }
+
+    return [
+      'done' => count($postIds) < $limit,
+      'processed_posts' => count($postIds),
+      'last_post_id' => max($postIds),
+      'summary_rows' => count($batch),
+      'step_ms' => max(0, (int)round((microtime(true) - $chunkStartedAt) * 1000)),
+    ];
+  }
+
+  private function build_indexed_anchor_summary_all_chunk($afterPostId = 0, $limit = 100) {
+    global $wpdb;
+
+    $summaryTable = $wpdb->prefix . 'lm_anchor_text_summary';
+    $afterPostId = max(0, (int)$afterPostId);
+    $limit = max(1, min(500, (int)$limit));
+    $chunkStartedAt = microtime(true);
+
+    $postIds = $wpdb->get_col(
+      $wpdb->prepare(
+        "SELECT DISTINCT post_id
+         FROM $summaryTable
+         WHERE wpml_lang <> %s
+           AND post_id > %d
+         ORDER BY post_id ASC
+         LIMIT %d",
+        'all',
+        $afterPostId,
+        $limit
+      )
+    );
+    $postIds = array_values(array_filter(array_map('intval', (array)$postIds)));
+    if (empty($postIds)) {
+      return [
+        'done' => true,
+        'processed_posts' => 0,
+        'last_post_id' => $afterPostId,
+        'summary_rows' => 0,
+        'step_ms' => max(0, (int)round((microtime(true) - $chunkStartedAt) * 1000)),
+      ];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($postIds), '%d'));
+    $sql = "SELECT
+      %s AS wpml_lang,
+      src.post_id,
+      MAX(src.post_title) AS post_title,
+      MAX(src.post_type) AS post_type,
+      MAX(src.post_author) AS post_author,
+      MAX(src.post_author_id) AS post_author_id,
+      MAX(src.post_date) AS post_date,
+      MAX(src.post_modified) AS post_modified,
+      MAX(src.page_url) AS page_url,
+      src.source_type,
+      src.link_location,
+      src.link_type,
+      src.rel_nofollow,
+      src.rel_sponsored,
+      src.rel_ugc,
+      MAX(src.anchor_text) AS anchor_text,
+      src.anchor_hash,
+      MAX(src.quality) AS quality,
+      MAX(src.link_url) AS link_url,
+      src.link_hash,
+      SUM(src.uses) AS uses
+    FROM $summaryTable src
+    WHERE src.wpml_lang <> %s
+      AND src.post_id IN ($placeholders)
+    GROUP BY src.post_id, src.source_type, src.link_location, src.link_type, src.rel_nofollow, src.rel_sponsored, src.rel_ugc, src.anchor_hash, src.link_hash";
+    $params = array_merge(['all', 'all'], $postIds);
+    $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+
+    $batch = [];
+    foreach ((array)$rows as $row) {
+      $batch[] = [
+        'wpml_lang' => 'all',
+        'post_id' => (int)($row['post_id'] ?? 0),
+        'post_title' => sanitize_text_field((string)($row['post_title'] ?? '')),
+        'post_type' => sanitize_key((string)($row['post_type'] ?? '')),
+        'post_author' => sanitize_text_field((string)($row['post_author'] ?? '')),
+        'post_author_id' => max(0, (int)($row['post_author_id'] ?? 0)),
+        'post_date' => $this->normalize_db_datetime_or_null($row['post_date'] ?? ''),
+        'post_modified' => $this->normalize_db_datetime_or_null($row['post_modified'] ?? ''),
+        'page_url' => esc_url_raw((string)($row['page_url'] ?? '')),
+        'source_type' => sanitize_key((string)($row['source_type'] ?? '')),
+        'link_location' => sanitize_text_field((string)($row['link_location'] ?? '')),
+        'link_type' => sanitize_key((string)($row['link_type'] ?? '')),
+        'rel_nofollow' => (int)($row['rel_nofollow'] ?? 0),
+        'rel_sponsored' => (int)($row['rel_sponsored'] ?? 0),
+        'rel_ugc' => (int)($row['rel_ugc'] ?? 0),
+        'anchor_text' => sanitize_text_field((string)($row['anchor_text'] ?? '')),
+        'anchor_hash' => sanitize_text_field((string)($row['anchor_hash'] ?? '')),
+        'quality' => sanitize_key((string)($row['quality'] ?? '')),
+        'link_url' => esc_url_raw((string)($row['link_url'] ?? '')),
+        'link_hash' => sanitize_text_field((string)($row['link_hash'] ?? '')),
+        'uses' => max(0, (int)($row['uses'] ?? 0)),
+      ];
+    }
+
+    if (!empty($batch)) {
+      $this->insert_indexed_anchor_summary_batch($summaryTable, $batch);
+    }
+
+    return [
+      'done' => count($postIds) < $limit,
+      'processed_posts' => count($postIds),
+      'last_post_id' => max($postIds),
+      'summary_rows' => count($batch),
+      'step_ms' => max(0, (int)round((microtime(true) - $chunkStartedAt) * 1000)),
+    ];
   }
 
   private function backfill_normalized_url_chunk_for_lang($wpml_lang = 'all', $afterFactId = 0, $limit = 25) {
@@ -500,7 +820,7 @@ trait LM_Cache_Index_Sync_Trait {
     }
 
     $postTypes = array_keys($this->get_filterable_post_types());
-    $postDataMap = $this->get_pages_link_post_data_map($candidatePostIds, $postTypes, true, []);
+    $postDataMap = $this->get_pages_link_post_data_map($candidatePostIds, $postTypes, true, [], $wpml_lang);
     $targetUrlMap = [];
     $targetPostIds = array_values(array_unique(array_map('intval', $candidatePostIds)));
     foreach ($targetPostIds as $postId) {
@@ -679,7 +999,9 @@ trait LM_Cache_Index_Sync_Trait {
     }
 
     try {
-      $query = new WP_Query($queryArgs);
+      $query = $this->run_wpml_scan_query_in_language_context($wpml_lang, function() use ($queryArgs) {
+        return new WP_Query($queryArgs);
+      });
     } finally {
       if ($idWhereFilter !== null) {
         remove_filter('posts_where', $idWhereFilter, 10);

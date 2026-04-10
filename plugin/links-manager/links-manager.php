@@ -104,6 +104,7 @@ class LM_Links_Manager {
   const CRAWL_POST_BATCH = 100;
   const MAX_CACHE_ROWS = 15000;
   const DIAGNOSTIC_OPTION_KEY = 'lm_last_fatal_diagnostic';
+  const LINK_UPDATE_DIAGNOSTIC_OPTION_KEY = 'lm_link_update_diagnostics';
   const RUNTIME_PROFILE_OPTION_KEY = 'lm_last_runtime_profile';
 
   private $weak_anchor_patterns_cache = null;
@@ -1150,6 +1151,8 @@ class LM_Links_Manager {
               const oldAnchorField = form.querySelector('input[name=old_anchor]');
               const oldRelField = form.querySelector('input[name=old_rel]');
               const oldSnippetField = form.querySelector('input[name=old_snippet]');
+              const rowIdField = form.querySelector('input[name=row_id]');
+              if (rowIdField && payload.updated_row_id !== undefined) rowIdField.value = payload.updated_row_id;
               if (oldLinkField && payload.updated_link !== undefined) oldLinkField.value = payload.updated_link;
               if (oldAnchorField && payload.updated_anchor !== undefined) oldAnchorField.value = payload.updated_anchor;
               if (oldRelField && payload.updated_rel_raw !== undefined) oldRelField.value = payload.updated_rel_raw;

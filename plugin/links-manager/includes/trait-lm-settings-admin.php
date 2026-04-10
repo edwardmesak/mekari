@@ -764,6 +764,7 @@ trait LM_Settings_Admin_Trait {
 
       if ($debugModeEnabled) {
         $this->render_settings_diagnostic_box();
+        $this->render_settings_link_update_diagnostic_box();
         $this->render_settings_runtime_profile_box();
       }
     }
@@ -882,6 +883,55 @@ trait LM_Settings_Admin_Trait {
     echo '<input type="hidden" name="' . esc_attr(self::NONCE_NAME) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '"/>';
     submit_button(__('Clear Diagnostic', 'links-manager'), 'secondary', 'submit', false);
     echo '</form>';
+    echo '</div>';
+  }
+
+  private function render_settings_link_update_diagnostic_box() {
+    if (!$this->can_access_debug_diagnostics()) {
+      return;
+    }
+
+    $entries = $this->get_link_update_diagnostics();
+    if (empty($entries)) {
+      return;
+    }
+
+    $entries = array_reverse(array_values($entries));
+
+    echo '<div class="lm-card lm-card-full" style="border-left:4px solid #dba617; margin-bottom:14px;">';
+    echo '<h2 style="margin-top:0;">' . esc_html__('Recent Link Update Diagnostics', 'links-manager') . '</h2>';
+    echo '<div class="lm-small" style="margin-bottom:10px;">Captured when debug mode or WP_DEBUG is enabled. Use this to inspect why a row update failed or what context the updater saw.</div>';
+    echo '<table class="widefat striped" style="max-width:100%; margin-bottom:10px;">';
+    echo '<thead><tr><th style="width:160px;">Captured At</th><th style="width:130px;">Stage</th><th style="width:110px;">Status</th><th>Details</th></tr></thead>';
+    echo '<tbody>';
+    foreach ($entries as $entry) {
+      $capturedAt = isset($entry['captured_at']) ? (string)$entry['captured_at'] : '';
+      $stage = isset($entry['stage']) ? (string)$entry['stage'] : '';
+      $status = isset($entry['status']) ? (string)$entry['status'] : '';
+      $requestAction = isset($entry['request_action']) ? (string)$entry['request_action'] : '';
+      $requestPage = isset($entry['request_page']) ? (string)$entry['request_page'] : '';
+      $requestUri = isset($entry['request_uri']) ? (string)$entry['request_uri'] : '';
+      $payload = isset($entry['payload']) && is_array($entry['payload']) ? $entry['payload'] : [];
+      $payloadText = !empty($payload) ? wp_json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '{}';
+
+      echo '<tr>';
+      echo '<td>' . esc_html($capturedAt) . '</td>';
+      echo '<td><code>' . esc_html($stage) . '</code></td>';
+      echo '<td>' . esc_html($status) . '</td>';
+      echo '<td>';
+      echo '<div><strong>Action:</strong> <code>' . esc_html($requestAction) . '</code></div>';
+      if ($requestPage !== '') {
+        echo '<div><strong>Page:</strong> <code>' . esc_html($requestPage) . '</code></div>';
+      }
+      if ($requestUri !== '') {
+        echo '<div><strong>URI:</strong> <code>' . esc_html($requestUri) . '</code></div>';
+      }
+      echo '<div><strong>Payload:</strong> <code style="white-space:pre-wrap;">' . esc_html((string)$payloadText) . '</code></div>';
+      echo '</td>';
+      echo '</tr>';
+    }
+    echo '</tbody>';
+    echo '</table>';
     echo '</div>';
   }
 
@@ -1413,7 +1463,10 @@ trait LM_Settings_Admin_Trait {
       return null;
     }
 
-    $requestedPostIds = array_values(array_unique(array_filter(array_map('intval', preg_split('/[\s,]+/', $postIdsRaw))))); 
+    $requestedPostIds = array_values(array_unique(array_filter(array_map('intval', preg_split('/[\s,]+/', $postIdsRaw)))));
+    if (count($requestedPostIds) > 100) {
+      $requestedPostIds = array_slice($requestedPostIds, 0, 100);
+    }
     if (empty($requestedPostIds)) {
       return [
         'requested_ids_label' => $postIdsRaw,
@@ -1425,20 +1478,48 @@ trait LM_Settings_Admin_Trait {
     }
 
     $filters = $this->get_pages_link_filters_from_request();
-    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
     $scopeLabel = (string)($filters['post_type'] ?? 'any') . ' / ' . $scopeWpmlLang;
 
     $rowBasedMap = [];
     $indexedMap = [];
+    $candidatePostIds = [];
+    $postTypes = [];
+    $postDataMap = [];
 
     try {
-      $all = $this->get_canonical_rows_for_scope('any', false, isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters);
-      $this->compact_rows_for_pages_link($all);
-      $rowBasedRows = $this->get_pages_with_inbound_counts($all, $filters, true);
-      foreach ((array)$rowBasedRows as $row) {
-        $pid = isset($row['post_id']) ? (int)$row['post_id'] : 0;
-        if ($pid > 0) {
-          $rowBasedMap[$pid] = $row;
+      $queryConfig = $this->build_pages_link_candidate_query_args($filters, -1, 1, false);
+      if (is_array($queryConfig) && isset($queryConfig[0]) && is_array($queryConfig[0])) {
+        $queryArgs = $queryConfig[0];
+        $postTypes = isset($queryConfig[1]) && is_array($queryConfig[1]) ? $queryConfig[1] : [];
+        $queryArgs['post__in'] = $requestedPostIds;
+        $queryArgs['orderby'] = 'post__in';
+        $queryArgs['posts_per_page'] = max(1, count($requestedPostIds));
+
+        $candidateQuery = $this->run_wpml_scan_query_in_language_context($scopeWpmlLang, function() use ($queryArgs) {
+          return new WP_Query($queryArgs);
+        });
+        if ($candidateQuery instanceof WP_Query && !empty($candidateQuery->posts)) {
+          $candidatePostIds = array_values(array_unique(array_map('intval', (array)$candidateQuery->posts)));
+        }
+      }
+
+      if (!empty($candidatePostIds)) {
+        $postDataMap = $this->get_pages_link_post_data_map($candidatePostIds, $postTypes, true, [], $scopeWpmlLang);
+        $rowBasedMap = $this->get_pages_link_filtered_indexed_summary_map($candidatePostIds, $postDataMap, $scopeWpmlLang, $filters);
+        foreach ($candidatePostIds as $candidatePostId) {
+          $pidKey = (string)$candidatePostId;
+          if (!isset($rowBasedMap[$pidKey]) || !is_array($rowBasedMap[$pidKey])) {
+            $rowBasedMap[$pidKey] = [
+              'inbound' => 0,
+              'internal_outbound' => 0,
+              'outbound' => 0,
+            ];
+          }
+          $rowBasedMap[$pidKey]['post_id'] = $candidatePostId;
+          if (!isset($rowBasedMap[$pidKey]['page_url'])) {
+            $rowBasedMap[$pidKey]['page_url'] = (string)($postDataMap[$pidKey]['page_url'] ?? '');
+          }
         }
       }
     } catch (Throwable $e) {
@@ -1472,7 +1553,7 @@ trait LM_Settings_Admin_Trait {
       } elseif ($indexed && isset($indexed['page_url'])) {
         $pageUrl = (string)$indexed['page_url'];
       } else {
-        $pageUrl = (string)get_permalink($postId);
+        $pageUrl = $this->get_pages_link_scoped_permalink($postId, $scopeWpmlLang);
       }
 
       $rowInbound = (int)($rowBased['inbound'] ?? 0);
@@ -1751,6 +1832,7 @@ trait LM_Settings_Admin_Trait {
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     delete_option(self::DIAGNOSTIC_OPTION_KEY);
+    delete_option(self::LINK_UPDATE_DIAGNOSTIC_OPTION_KEY);
     delete_option(self::RUNTIME_PROFILE_OPTION_KEY);
     wp_safe_redirect(admin_url('admin.php?page=links-manager-settings&lm_msg=' . rawurlencode(__('Diagnostic log cleared.', 'links-manager'))));
     exit;

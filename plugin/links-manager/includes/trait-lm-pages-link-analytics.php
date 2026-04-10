@@ -228,7 +228,7 @@ trait LM_Pages_Link_Analytics_Trait {
       $postData = isset($postDataMap[$pidKey]) && is_array($postDataMap[$pidKey]) ? $postDataMap[$pidKey] : [];
       $pageUrl = (string)($postData['page_url'] ?? '');
       if ($pageUrl === '') {
-        $pageUrl = (string)get_permalink($postId);
+        $pageUrl = $this->get_pages_link_scoped_permalink($postId, $scopeWpmlLang);
       }
       if ($pageUrl === '') {
         continue;
@@ -396,6 +396,7 @@ trait LM_Pages_Link_Analytics_Trait {
       'paged' => max(1, (int)$paged),
       'fields' => 'ids',
       'no_found_rows' => !$withFoundRows,
+      'suppress_filters' => false,
       'orderby' => $queryOrderby,
       'order' => isset($filters['order']) ? (string)$filters['order'] : 'DESC',
       'author' => isset($filters['author']) ? (int)$filters['author'] : 0,
@@ -436,6 +437,13 @@ trait LM_Pages_Link_Analytics_Trait {
         $dateQueryClauses['relation'] = 'AND';
       }
       $queryArgs['date_query'] = $dateQueryClauses;
+    }
+
+    if ($this->is_wpml_active()) {
+      $queryArgs['lang'] = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+      if ($queryArgs['lang'] === 'all') {
+        $queryArgs['lang'] = '';
+      }
     }
 
     return [$queryArgs, $postTypes];
@@ -501,9 +509,9 @@ trait LM_Pages_Link_Analytics_Trait {
     $pageQuery = new WP_Query($pageQueryArgs);
     $candidatePostIds = !empty($pageQuery->posts) ? array_values(array_unique(array_map('intval', (array)$pageQuery->posts))) : [];
 
-    $needAllPageUrls = ((string)($filters['orderby'] ?? 'date') === 'page_url') || !empty($filters['search_url']);
-    $postDataMap = $this->get_pages_link_post_data_map($candidatePostIds, $postTypes, $needAllPageUrls, []);
-    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $needAllPageUrls = true;
+    $postDataMap = $this->get_pages_link_post_data_map($candidatePostIds, $postTypes, $needAllPageUrls, [], $scopeWpmlLang);
     // Pages Link counts must include links coming from any source post type into the selected candidate posts.
     $summaryMap = $this->get_pages_link_filtered_indexed_summary_map($candidatePostIds, $postDataMap, $scopeWpmlLang, $filters);
 
@@ -706,6 +714,7 @@ trait LM_Pages_Link_Analytics_Trait {
       'posts_per_page' => -1,
       'fields' => 'ids',
       'no_found_rows' => true,
+      'suppress_filters' => false,
       'orderby' => $queryOrderby,
       'order' => isset($filters['order']) ? (string)$filters['order'] : 'DESC',
       'author' => isset($filters['author']) ? (int)$filters['author'] : 0,
@@ -748,15 +757,22 @@ trait LM_Pages_Link_Analytics_Trait {
       $queryArgs['date_query'] = $dateQueryClauses;
     }
 
+    if ($this->is_wpml_active()) {
+      $queryArgs['lang'] = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+      if ($queryArgs['lang'] === 'all') {
+        $queryArgs['lang'] = '';
+      }
+    }
+
     $q = new WP_Query($queryArgs);
     if (empty($q->posts)) {
       return [];
     }
 
     $candidatePostIds = array_values(array_unique(array_map('intval', (array)$q->posts)));
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
     $needAllPageUrls = ((string)$orderby === 'page_url') || !empty($filters['search_url']);
-    $postDataMap = $this->get_pages_link_post_data_map($candidatePostIds, $postTypes, $needAllPageUrls, []);
-    $scopeWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $postDataMap = $this->get_pages_link_post_data_map($candidatePostIds, $postTypes, $needAllPageUrls, [], $scopeWpmlLang);
     // Pages Link counts must include links coming from any source post type into the selected candidate posts.
     $summaryMap = $this->get_pages_link_filtered_indexed_summary_map($candidatePostIds, $postDataMap, $scopeWpmlLang, $filters);
 
@@ -901,7 +917,7 @@ trait LM_Pages_Link_Analytics_Trait {
     return $rows;
   }
 
-  private function get_pages_link_post_data_map($candidatePostIds, $postTypes, $needAllPageUrls, $candidatePageUrlMap = []) {
+  private function get_pages_link_post_data_map($candidatePostIds, $postTypes, $needAllPageUrls, $candidatePageUrlMap = [], $scopeWpmlLang = 'all') {
     $candidatePostIds = array_values(array_unique(array_filter(array_map('intval', (array)$candidatePostIds), function($id) {
       return $id > 0;
     })));
@@ -950,32 +966,62 @@ trait LM_Pages_Link_Analytics_Trait {
       }
     }
 
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)$scopeWpmlLang);
     $postDataMap = [];
-    foreach ($postRows as $postRow) {
-      $pid = isset($postRow->ID) ? (int)$postRow->ID : 0;
-      if ($pid < 1) {
-        continue;
-      }
-      $pidKey = (string)$pid;
-      $authorId = isset($postRow->post_author) ? (int)$postRow->post_author : 0;
+    $buildPostData = function() use (&$postDataMap, $postRows, $candidatePageUrlMap, $needAllPageUrls, $authorMap) {
+      foreach ($postRows as $postRow) {
+        $pid = isset($postRow->ID) ? (int)$postRow->ID : 0;
+        if ($pid < 1) {
+          continue;
+        }
+        $pidKey = (string)$pid;
+        $authorId = isset($postRow->post_author) ? (int)$postRow->post_author : 0;
 
-      $pageUrl = isset($candidatePageUrlMap[$pidKey]) ? (string)$candidatePageUrlMap[$pidKey] : '';
-      if ($needAllPageUrls && $pageUrl === '') {
-        $pageUrl = (string)get_permalink($pid);
-      }
+        $pageUrl = isset($candidatePageUrlMap[$pidKey]) ? (string)$candidatePageUrlMap[$pidKey] : '';
+        if ($needAllPageUrls && $pageUrl === '') {
+          $pageUrl = (string)get_permalink($pid);
+        }
 
-      $postDataMap[$pidKey] = [
-        'post_title' => isset($postRow->post_title) ? (string)$postRow->post_title : '',
-        'post_type' => isset($postRow->post_type) ? (string)$postRow->post_type : '',
-        'author_id' => $authorId,
-        'author_name' => isset($authorMap[$authorId]) ? (string)$authorMap[$authorId] : '',
-        'post_date' => isset($postRow->post_date) ? (string)$postRow->post_date : '',
-        'post_modified' => isset($postRow->post_modified) ? (string)$postRow->post_modified : '',
-        'page_url' => $pageUrl,
-      ];
+        $postDataMap[$pidKey] = [
+          'post_title' => isset($postRow->post_title) ? (string)$postRow->post_title : '',
+          'post_type' => isset($postRow->post_type) ? (string)$postRow->post_type : '',
+          'author_id' => $authorId,
+          'author_name' => isset($authorMap[$authorId]) ? (string)$authorMap[$authorId] : '',
+          'post_date' => isset($postRow->post_date) ? (string)$postRow->post_date : '',
+          'post_modified' => isset($postRow->post_modified) ? (string)$postRow->post_modified : '',
+          'page_url' => $pageUrl,
+        ];
+      }
+    };
+
+    if ($this->is_wpml_active() && $scopeWpmlLang !== 'all') {
+      $this->run_wpml_scan_query_in_language_context($scopeWpmlLang, $buildPostData);
+    } else {
+      $buildPostData();
     }
 
     return $postDataMap;
+  }
+
+  private function get_pages_link_scoped_permalink($postId, $scopeWpmlLang = 'all') {
+    $postId = (int)$postId;
+    if ($postId < 1) {
+      return '';
+    }
+
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)$scopeWpmlLang);
+    $permalink = '';
+    $loadPermalink = function() use (&$permalink, $postId) {
+      $permalink = (string)get_permalink($postId);
+    };
+
+    if ($this->is_wpml_active() && $scopeWpmlLang !== 'all') {
+      $this->run_wpml_scan_query_in_language_context($scopeWpmlLang, $loadPermalink);
+    } else {
+      $loadPermalink();
+    }
+
+    return $permalink;
   }
 
   private function sanitize_inbound_status_thresholds($orphanMax, $lowMax, $standardMax) {

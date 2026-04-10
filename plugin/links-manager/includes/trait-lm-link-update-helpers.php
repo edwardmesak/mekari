@@ -8,6 +8,103 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Link_Update_Helpers_Trait {
+  private function serialize_dom_document_html($doc) {
+    if (!$doc instanceof DOMDocument) {
+      return '';
+    }
+
+    $html = '';
+    foreach ($doc->childNodes as $childNode) {
+      if ($childNode instanceof DOMProcessingInstruction) {
+        continue;
+      }
+      $html .= $doc->saveHTML($childNode);
+    }
+
+    return (string)$html;
+  }
+
+  private function update_single_occurrence_in_html_dom($html, $old_link, $occurrence, $new_link, $new_rel = '', $new_anchor = null, $page_url = '') {
+    if (!is_string($html) || trim($html) === '') {
+      return ['html' => $html, 'changed' => 0, 'error' => 'empty_html'];
+    }
+
+    $oldC = $this->normalize_for_compare($old_link);
+    $new_link = trim((string)$new_link);
+    $new_rel = trim((string)$new_rel);
+    if ($oldC === '' || $new_link === '') {
+      return ['html' => $html, 'changed' => 0, 'error' => 'invalid_input'];
+    }
+
+    $targetOcc = max(0, (int)$occurrence);
+    $contextPageUrl = (string)$page_url;
+
+    libxml_use_internal_errors(true);
+    $doc = new DOMDocument();
+    $wrapped = '<?xml encoding="utf-8" ?>' . $html;
+    $loaded = $doc->loadHTML($wrapped, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+    if (!$loaded) {
+      libxml_clear_errors();
+      return ['html' => $html, 'changed' => 0, 'error' => 'dom_load_failed'];
+    }
+
+    $links = $doc->getElementsByTagName('a');
+    if (!$links || $links->length < 1) {
+      libxml_clear_errors();
+      return ['html' => $html, 'changed' => 0, 'error' => 'target_not_found'];
+    }
+
+    $matchedIndexes = [];
+    for ($i = 0; $i < $links->length; $i++) {
+      $linkNode = $links->item($i);
+      if (!$linkNode instanceof DOMElement) {
+        continue;
+      }
+
+      $hrefRaw = $linkNode->getAttribute('href');
+      $hrefComparable = $contextPageUrl !== '' ? $this->resolve_to_absolute($hrefRaw, $contextPageUrl) : $hrefRaw;
+      $hrefNorm = (string)$this->normalize_for_compare($hrefComparable);
+      if ($hrefNorm !== '' && $hrefNorm === $oldC) {
+        $matchedIndexes[] = $i;
+      }
+    }
+
+    $targetIndex = null;
+    if (in_array($targetOcc, $matchedIndexes, true)) {
+      $targetIndex = $targetOcc;
+    } elseif (count($matchedIndexes) === 1) {
+      $targetIndex = (int)$matchedIndexes[0];
+    }
+
+    if ($targetIndex === null) {
+      libxml_clear_errors();
+      return ['html' => $html, 'changed' => 0, 'error' => 'target_not_found'];
+    }
+
+    $targetNode = $links->item($targetIndex);
+    if (!$targetNode instanceof DOMElement) {
+      libxml_clear_errors();
+      return ['html' => $html, 'changed' => 0, 'error' => 'target_not_found'];
+    }
+
+    $targetNode->setAttribute('href', (string)$new_link);
+    if ($new_rel !== '') {
+      $targetNode->setAttribute('rel', (string)$new_rel);
+    }
+
+    if ($new_anchor !== null) {
+      while ($targetNode->firstChild) {
+        $targetNode->removeChild($targetNode->firstChild);
+      }
+      $targetNode->appendChild($doc->createTextNode((string)$new_anchor));
+    }
+
+    $newHtml = $this->serialize_dom_document_html($doc);
+    libxml_clear_errors();
+
+    return ['html' => $newHtml !== '' ? $newHtml : $html, 'changed' => 1, 'error' => ''];
+  }
+
   private function update_single_occurrence_in_html($html, $old_link, $occurrence, $new_link, $new_rel = '', $new_anchor = null, $page_url = '') {
     if (!is_string($html) || trim($html) === '') return ['html' => $html, 'changed' => 0, 'error' => 'empty_html'];
 
@@ -133,7 +230,165 @@ trait LM_Link_Update_Helpers_Trait {
       }
     }
 
+    if ($changed !== 1) {
+      $domFallback = $this->update_single_occurrence_in_html_dom($html, $old_link, $occurrence, $new_link, $new_rel, $new_anchor, $page_url);
+      if ((int)($domFallback['changed'] ?? 0) === 1) {
+        return $domFallback;
+      }
+    }
+
     return ['html' => $newHtml, 'changed' => $changed, 'error' => ''];
+  }
+
+  private function get_current_row_for_update_context($post_id, $source, $location, $block_index, $occurrence) {
+    $source = (string)$source;
+    $location = (string)$location;
+    $block_index = (string)$block_index;
+    $occurrence = max(0, (int)$occurrence);
+
+    if ($source === 'menu') {
+      if (strpos($location, 'menu:') !== 0) {
+        return ['ok' => false, 'msg' => 'Invalid menu target.'];
+      }
+
+      $menuName = trim(substr($location, 5));
+      if ($menuName === '') {
+        return ['ok' => false, 'msg' => 'Menu name is empty.'];
+      }
+
+      $item = null;
+      if (strpos($block_index, 'menu_item:') === 0) {
+        $itemId = (int)substr($block_index, strlen('menu_item:'));
+        if ($itemId > 0) {
+          $candidate = wp_setup_nav_menu_item(get_post($itemId));
+          if ($candidate && !empty($candidate->ID)) {
+            $item = $candidate;
+          }
+        }
+      }
+
+      if (!$item) {
+        $menu = null;
+        $menus = wp_get_nav_menus();
+        if (is_array($menus)) {
+          foreach ($menus as $candidate) {
+            if ((string)($candidate->name ?? '') === $menuName) {
+              $menu = $candidate;
+              break;
+            }
+          }
+        }
+        if (!$menu || empty($menu->term_id)) {
+          return ['ok' => false, 'msg' => 'Menu not found.'];
+        }
+
+        $items = wp_get_nav_menu_items((int)$menu->term_id);
+        if (!is_array($items) || !isset($items[$occurrence])) {
+          return ['ok' => false, 'msg' => 'Menu target changed. Rebuild and try again.'];
+        }
+        $item = $items[$occurrence];
+      }
+
+      if (!$item || empty($item->ID)) {
+        return ['ok' => false, 'msg' => 'Menu item not found.'];
+      }
+
+      $resolved = $this->normalize_url($this->resolve_to_absolute((string)($item->url ?? ''), home_url('/')));
+      return [
+        'ok' => true,
+        'row' => [
+          'post_id' => '',
+          'source' => 'menu',
+          'link_location' => $location,
+          'block_index' => $block_index,
+          'occurrence' => (string)$occurrence,
+          'link' => $resolved,
+          'row_id' => $this->row_id('', 'menu', $location, $block_index, $occurrence, $resolved),
+        ],
+      ];
+    }
+
+    $post_id = (int)$post_id;
+    $post = get_post($post_id);
+    if (!$post) {
+      return ['ok' => false, 'msg' => 'Post not found'];
+    }
+
+    $pageUrl = get_permalink($post_id);
+    $rows = [];
+
+    if ($source === 'content') {
+      $content = (string)$post->post_content;
+      $blocks = function_exists('parse_blocks') ? parse_blocks($content) : [];
+      $isClassicContentTarget = ($location === 'classic' || trim($block_index) === '');
+
+      if (empty($blocks) || $isClassicContentTarget) {
+        $rows = $this->parse_links_from_html($content, [
+          'post_id' => (string)$post_id,
+          'source' => 'content',
+          'link_location' => 'classic',
+          'block_index' => '',
+          'page_url' => (string)$pageUrl,
+        ]);
+      } else {
+        $idx = (int)$block_index;
+        if (!isset($blocks[$idx])) {
+          return ['ok' => false, 'msg' => 'Invalid block index (content changed?)'];
+        }
+
+        $block = $blocks[$idx];
+        $blockName = isset($block['blockName']) && $block['blockName'] ? (string)$block['blockName'] : 'classic';
+        if ($location !== $blockName) {
+          return ['ok' => false, 'msg' => 'Block target changed (content updated). Rebuild and try again.'];
+        }
+
+        $html = $this->render_block_html_best_effort($block);
+        $rows = $this->parse_links_from_html($html, [
+          'post_id' => (string)$post_id,
+          'source' => 'content',
+          'link_location' => $location,
+          'block_index' => $block_index,
+          'page_url' => (string)$pageUrl,
+        ]);
+      }
+    } elseif ($source === 'excerpt') {
+      $rows = $this->parse_links_from_html((string)$post->post_excerpt, [
+        'post_id' => (string)$post_id,
+        'source' => 'excerpt',
+        'link_location' => 'excerpt',
+        'block_index' => '',
+        'page_url' => (string)$pageUrl,
+      ]);
+    } elseif ($source === 'meta') {
+      if (strpos($location, 'meta:') !== 0) {
+        return ['ok' => false, 'msg' => 'Invalid meta key.'];
+      }
+      $key = substr($location, 5);
+      if ($key === '') {
+        return ['ok' => false, 'msg' => 'Meta key is empty.'];
+      }
+
+      $val = get_post_meta($post_id, $key, true);
+      if (!is_string($val)) {
+        return ['ok' => false, 'msg' => 'Meta value is not a string.'];
+      }
+
+      $rows = $this->parse_links_from_html($val, [
+        'post_id' => (string)$post_id,
+        'source' => 'meta',
+        'link_location' => $location,
+        'block_index' => '',
+        'page_url' => (string)$pageUrl,
+      ]);
+    } else {
+      return ['ok' => false, 'msg' => 'Source not supported for update.'];
+    }
+
+    if (!isset($rows[$occurrence]) || !is_array($rows[$occurrence])) {
+      return ['ok' => false, 'msg' => 'Target link not found (content changed?)'];
+    }
+
+    return ['ok' => true, 'row' => $rows[$occurrence]];
   }
 
   private function update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $new_link, $new_rel = '', $new_anchor = null) {

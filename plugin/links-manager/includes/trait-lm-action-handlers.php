@@ -147,16 +147,67 @@ trait LM_Action_Handlers_Trait {
       if ($row_id === '' && $post_id > 0 && $old_link !== '') {
         $msg .= ' ' . __('Data is not synchronized yet. Run Refresh Data, then reload this page and try again.', 'links-manager');
       }
+      $this->record_link_update_diagnostic('single_update_validate', 'failed', [
+        'post_id' => $post_id,
+        'source' => $source,
+        'link_location' => $location,
+        'block_index' => $block_index,
+        'occurrence' => $occurrence,
+        'row_id' => $row_id,
+        'old_link' => $old_link,
+        'effective_new_link' => $effective_new_link,
+        'has_change' => $has_change,
+        'message' => $msg,
+      ]);
       $this->safe_redirect_back($filters, ['lm_msg' => $msg]);
     }
 
-    $rowIdPostId = $isMenuSource ? '' : (string)$post_id;
-    $expected = $this->row_id($rowIdPostId, $source, $location, $block_index, $occurrence, $this->normalize_for_compare($old_link));
-    if ($expected !== $row_id) {
-      $this->safe_redirect_back($filters, ['lm_msg' => __('Failed: Row ID mismatch (data changed). Run Refresh Data and try again.', 'links-manager')]);
+    $currentRowResult = $this->get_current_row_for_update_context($post_id, $source, $location, $block_index, $occurrence);
+    if (empty($currentRowResult['ok'])) {
+      $contextMessage = isset($currentRowResult['msg']) ? (string)$currentRowResult['msg'] : __('Target link not found (content changed?)', 'links-manager');
+      $this->record_link_update_diagnostic('single_update_context_lookup', 'failed', [
+        'post_id' => $post_id,
+        'source' => $source,
+        'link_location' => $location,
+        'block_index' => $block_index,
+        'occurrence' => $occurrence,
+        'row_id' => $row_id,
+        'old_link' => $old_link,
+        'message' => $contextMessage,
+      ]);
+      $this->safe_redirect_back($filters, ['lm_msg' => sprintf(__('Failed: %s', 'links-manager'), $contextMessage)]);
+    }
+
+    $currentRow = (array)($currentRowResult['row'] ?? []);
+    $currentLink = (string)($currentRow['link'] ?? '');
+    if ($this->normalize_for_compare($currentLink) !== $this->normalize_for_compare($old_link)) {
+      $this->record_link_update_diagnostic('single_update_target_compare', 'failed', [
+        'post_id' => $post_id,
+        'source' => $source,
+        'link_location' => $location,
+        'block_index' => $block_index,
+        'occurrence' => $occurrence,
+        'row_id' => $row_id,
+        'old_link' => $old_link,
+        'current_link' => $currentLink,
+      ]);
+      $this->safe_redirect_back($filters, ['lm_msg' => __('Failed: Link target changed. Reload this page or run Refresh Data and try again.', 'links-manager')]);
     }
 
     $res = $this->update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $effective_new_link, $new_rel, $new_anchor);
+    if (!$res['ok']) {
+      $this->record_link_update_diagnostic('single_update_apply', 'failed', [
+        'post_id' => $post_id,
+        'source' => $source,
+        'link_location' => $location,
+        'block_index' => $block_index,
+        'occurrence' => $occurrence,
+        'row_id' => $row_id,
+        'old_link' => $old_link,
+        'effective_new_link' => $effective_new_link,
+        'message' => isset($res['msg']) ? (string)$res['msg'] : '',
+      ]);
+    }
 
     $this->clear_cache_all();
 
@@ -215,16 +266,67 @@ trait LM_Action_Handlers_Trait {
     if ((!$isMenuSource && $post_id <= 0) || $old_link === '' || $effective_new_link === '' || $source === '' || $location === '' || $row_id === '' || !$has_change) {
       $msg = __('Failed: incomplete input.', 'links-manager');
       if (!$has_change) $msg = __('Failed: no changes provided.', 'links-manager');
+      $this->record_link_update_diagnostic('ajax_update_validate', 'failed', [
+        'post_id' => $post_id,
+        'source' => $source,
+        'link_location' => $location,
+        'block_index' => $block_index,
+        'occurrence' => $occurrence,
+        'row_id' => $row_id,
+        'old_link' => $old_link,
+        'effective_new_link' => $effective_new_link,
+        'has_change' => $has_change,
+        'message' => $msg,
+      ]);
       wp_send_json_error(['msg' => $msg], 400);
     }
 
-    $rowIdPostId = $isMenuSource ? '' : (string)$post_id;
-    $expected = $this->row_id($rowIdPostId, $source, $location, $block_index, $occurrence, $this->normalize_for_compare($old_link));
-    if ($expected !== $row_id) {
-      wp_send_json_error(['msg' => __('Failed: Row ID mismatch (data changed).', 'links-manager')], 409);
+    $currentRowResult = $this->get_current_row_for_update_context($post_id, $source, $location, $block_index, $occurrence);
+    if (empty($currentRowResult['ok'])) {
+      $contextMessage = isset($currentRowResult['msg']) ? (string)$currentRowResult['msg'] : __('Target link not found (content changed?)', 'links-manager');
+      $this->record_link_update_diagnostic('ajax_update_context_lookup', 'failed', [
+        'post_id' => $post_id,
+        'source' => $source,
+        'link_location' => $location,
+        'block_index' => $block_index,
+        'occurrence' => $occurrence,
+        'row_id' => $row_id,
+        'old_link' => $old_link,
+        'message' => $contextMessage,
+      ]);
+      wp_send_json_error(['msg' => sprintf(__('Failed: %s', 'links-manager'), $contextMessage)], 409);
+    }
+
+    $currentRow = (array)($currentRowResult['row'] ?? []);
+    $currentLink = (string)($currentRow['link'] ?? '');
+    if ($this->normalize_for_compare($currentLink) !== $this->normalize_for_compare($old_link)) {
+      $this->record_link_update_diagnostic('ajax_update_target_compare', 'failed', [
+        'post_id' => $post_id,
+        'source' => $source,
+        'link_location' => $location,
+        'block_index' => $block_index,
+        'occurrence' => $occurrence,
+        'row_id' => $row_id,
+        'old_link' => $old_link,
+        'current_link' => $currentLink,
+      ]);
+      wp_send_json_error(['msg' => __('Failed: Link target changed. Reload this page or run Refresh Data and try again.', 'links-manager')], 409);
     }
 
     $res = $this->update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $effective_new_link, $new_rel, $new_anchor);
+    if (!$res['ok']) {
+      $this->record_link_update_diagnostic('ajax_update_apply', 'failed', [
+        'post_id' => $post_id,
+        'source' => $source,
+        'link_location' => $location,
+        'block_index' => $block_index,
+        'occurrence' => $occurrence,
+        'row_id' => $row_id,
+        'old_link' => $old_link,
+        'effective_new_link' => $effective_new_link,
+        'message' => isset($res['msg']) ? (string)$res['msg'] : '',
+      ]);
+    }
     $this->clear_cache_all();
 
     $old_rel = $this->request_text('old_rel', '');
@@ -262,9 +364,18 @@ trait LM_Action_Handlers_Trait {
       }, $updated_snippet_full, 1);
     }
     $updated_snippet_display = $this->text_snippet_with_anchor_offset($updated_snippet_full, $effective_anchor, 60, 4);
+    $updated_row_id = $this->row_id(
+      $isMenuSource ? '' : (string)$post_id,
+      $source,
+      $location,
+      $block_index,
+      $occurrence,
+      $this->normalize_for_compare($effective_new_link)
+    );
 
     $response = [
       'msg' => $res['msg'],
+      'updated_row_id' => $updated_row_id,
       'updated_link' => $effective_new_link,
       'updated_anchor' => $effective_anchor,
       'updated_rel_raw' => $effective_rel_raw,
@@ -395,7 +506,17 @@ trait LM_Action_Handlers_Trait {
       $has_change = ($new_link !== '') || ($new_rel !== '') || ($new_anchor !== null);
       $effective_new_link = $new_link !== '' ? $new_link : $old_link;
 
-      if ($old_link === '' || $row_id === '' || $effective_new_link === '' || !$has_change) { $fail++; continue; }
+      if ($old_link === '' || $row_id === '' || $effective_new_link === '' || !$has_change) {
+        $this->record_link_update_diagnostic('bulk_update_validate', 'failed', [
+          'post_id' => $post_id,
+          'row_id' => $row_id,
+          'old_link' => $old_link,
+          'effective_new_link' => $effective_new_link,
+          'has_change' => $has_change,
+        ]);
+        $fail++;
+        continue;
+      }
 
       $source = '';
       $location = '';
@@ -409,12 +530,42 @@ trait LM_Action_Handlers_Trait {
         $block_index = sanitize_text_field((string)($raw[$idx['block_index']] ?? ''));
         $occurrence = intval($raw[$idx['occurrence']] ?? 0);
       } else {
-        if (!isset($rowMap[$row_id])) { $fail++; continue; }
+        if (!isset($rowMap[$row_id])) {
+          $this->record_link_update_diagnostic('bulk_update_context_lookup', 'failed', [
+            'post_id' => $post_id,
+            'row_id' => $row_id,
+            'old_link' => $old_link,
+            'message' => 'Row not found in lookup map.',
+          ]);
+          $fail++;
+          continue;
+        }
         $found = $rowMap[$row_id];
 
         $expectedPostId = ((string)$found['source'] === 'menu') ? '' : (string)$post_id;
-        if ((string)$found['post_id'] !== $expectedPostId) { $fail++; continue; }
-        if ($this->normalize_for_compare((string)$found['link']) !== $this->normalize_for_compare($old_link)) { $fail++; continue; }
+        if ((string)$found['post_id'] !== $expectedPostId) {
+          $this->record_link_update_diagnostic('bulk_update_context_lookup', 'failed', [
+            'post_id' => $post_id,
+            'row_id' => $row_id,
+            'old_link' => $old_link,
+            'found_post_id' => (string)$found['post_id'],
+            'expected_post_id' => $expectedPostId,
+            'message' => 'Lookup post_id mismatch.',
+          ]);
+          $fail++;
+          continue;
+        }
+        if ($this->normalize_for_compare((string)$found['link']) !== $this->normalize_for_compare($old_link)) {
+          $this->record_link_update_diagnostic('bulk_update_context_lookup', 'failed', [
+            'post_id' => $post_id,
+            'row_id' => $row_id,
+            'old_link' => $old_link,
+            'current_link' => (string)$found['link'],
+            'message' => 'Lookup link mismatch.',
+          ]);
+          $fail++;
+          continue;
+        }
 
         $source = (string)$found['source'];
         $location = (string)$found['link_location'];
@@ -422,15 +573,71 @@ trait LM_Action_Handlers_Trait {
         $occurrence = intval($found['occurrence'] ?? 0);
       }
 
-      if ($source !== 'menu' && $post_id <= 0) { $fail++; continue; }
+      if ($source !== 'menu' && $post_id <= 0) {
+        $this->record_link_update_diagnostic('bulk_update_validate', 'failed', [
+          'post_id' => $post_id,
+          'row_id' => $row_id,
+          'source' => $source,
+          'message' => 'Invalid post_id for non-menu source.',
+        ]);
+        $fail++;
+        continue;
+      }
 
-      if (!$this->current_user_can_edit_link_target($post_id, $source)) { $fail++; continue; }
+      if (!$this->current_user_can_edit_link_target($post_id, $source)) {
+        $this->record_link_update_diagnostic('bulk_update_permission', 'failed', [
+          'post_id' => $post_id,
+          'row_id' => $row_id,
+          'source' => $source,
+        ]);
+        $fail++;
+        continue;
+      }
 
-      $rowIdPostId = ($source === 'menu') ? '' : (string)$post_id;
-      $expected = $this->row_id($rowIdPostId, $source, $location, $block_index, $occurrence, $this->normalize_for_compare($old_link));
-      if ($expected !== $row_id) { $fail++; continue; }
+      $currentRowResult = $this->get_current_row_for_update_context($post_id, $source, $location, $block_index, $occurrence);
+      if (empty($currentRowResult['ok'])) {
+        $this->record_link_update_diagnostic('bulk_update_context_lookup', 'failed', [
+          'post_id' => $post_id,
+          'row_id' => $row_id,
+          'source' => $source,
+          'link_location' => $location,
+          'block_index' => $block_index,
+          'occurrence' => $occurrence,
+          'message' => isset($currentRowResult['msg']) ? (string)$currentRowResult['msg'] : 'Context lookup failed.',
+        ]);
+        $fail++;
+        continue;
+      }
+      $currentRow = (array)($currentRowResult['row'] ?? []);
+      if ($this->normalize_for_compare((string)($currentRow['link'] ?? '')) !== $this->normalize_for_compare($old_link)) {
+        $this->record_link_update_diagnostic('bulk_update_target_compare', 'failed', [
+          'post_id' => $post_id,
+          'row_id' => $row_id,
+          'source' => $source,
+          'link_location' => $location,
+          'block_index' => $block_index,
+          'occurrence' => $occurrence,
+          'old_link' => $old_link,
+          'current_link' => (string)($currentRow['link'] ?? ''),
+        ]);
+        $fail++;
+        continue;
+      }
 
       $res = $this->update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $effective_new_link, $new_rel, $new_anchor);
+      if (!$res['ok']) {
+        $this->record_link_update_diagnostic('bulk_update_apply', 'failed', [
+          'post_id' => $post_id,
+          'row_id' => $row_id,
+          'source' => $source,
+          'link_location' => $location,
+          'block_index' => $block_index,
+          'occurrence' => $occurrence,
+          'old_link' => $old_link,
+          'effective_new_link' => $effective_new_link,
+          'message' => isset($res['msg']) ? (string)$res['msg'] : '',
+        ]);
+      }
 
       $this->log_audit_trail(
         'update_bulk',

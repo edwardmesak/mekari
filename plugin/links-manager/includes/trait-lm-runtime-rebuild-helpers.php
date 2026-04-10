@@ -222,8 +222,8 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
 
   private function get_finalize_time_budget_seconds() {
     $budget = $this->get_crawl_time_budget_seconds();
-    if ($budget > 15) {
-      $budget = 15;
+    if ($budget > 25) {
+      $budget = 25;
     }
     if ($budget < 5) {
       $budget = 5;
@@ -262,6 +262,22 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
 
   private function get_default_finalize_chunk_size() {
     $runtimeBatch = $this->get_runtime_max_crawl_batch();
+    $maxExecution = $this->get_runtime_max_execution_time_seconds();
+    $hasLongExecutionWindow = ($maxExecution <= 0 || $maxExecution >= 300);
+
+    if ($hasLongExecutionWindow) {
+      if ($runtimeBatch <= 40) {
+        return 25;
+      }
+      if ($runtimeBatch <= 60) {
+        return 30;
+      }
+      if ($runtimeBatch <= 100) {
+        return 40;
+      }
+      return 50;
+    }
+
     if ($runtimeBatch <= 40) {
       return 15;
     }
@@ -275,11 +291,20 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
   }
 
   private function get_default_finalize_seed_chunk_size() {
-    return $this->normalize_finalize_chunk_size(max(25, (int)floor($this->get_default_finalize_chunk_size() * 2)));
+    $base = $this->get_default_finalize_chunk_size();
+    $seed = (int)floor($base * 2);
+    if ($base >= 25) {
+      $seed = max($seed, 60);
+    }
+    return $this->normalize_finalize_chunk_size(max(25, $seed));
   }
 
   private function get_default_finalize_inbound_chunk_size() {
-    return $this->normalize_finalize_chunk_size($this->get_default_finalize_chunk_size());
+    $base = $this->get_default_finalize_chunk_size();
+    if ($base >= 25) {
+      return $this->normalize_finalize_chunk_size(max($base, 30));
+    }
+    return $this->normalize_finalize_chunk_size($base);
   }
 
   private function normalize_finalize_chunk_size($size) {
@@ -332,7 +357,7 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
       return $this->normalize_finalize_chunk_size((int)floor($currentSize / 2));
     }
     if ($stepMs > 0 && $stepMs <= (int)floor($budgetMs * 0.25)) {
-      return $this->normalize_finalize_chunk_size($currentSize + 10);
+      return $this->normalize_finalize_chunk_size($currentSize + 15);
     }
 
     return $currentSize;

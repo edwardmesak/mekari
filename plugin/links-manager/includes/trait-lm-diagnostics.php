@@ -8,6 +8,80 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Diagnostics_Trait {
+  private function should_capture_link_update_diagnostics() {
+    return $this->is_debug_mode_enabled() || (defined('WP_DEBUG') && WP_DEBUG);
+  }
+
+  private function normalize_link_update_diagnostic_value($value) {
+    if (is_bool($value)) {
+      return $value ? '1' : '0';
+    }
+    if (is_int($value) || is_float($value)) {
+      return $value;
+    }
+    if (is_array($value)) {
+      $normalized = [];
+      foreach ($value as $key => $item) {
+        $cleanKey = is_string($key) ? sanitize_key($key) : (string)$key;
+        if ($cleanKey === '') {
+          continue;
+        }
+        $normalized[$cleanKey] = $this->normalize_link_update_diagnostic_value($item);
+      }
+      return $normalized;
+    }
+    if (is_object($value)) {
+      return sanitize_text_field(wp_json_encode($value));
+    }
+    return sanitize_text_field((string)$value);
+  }
+
+  private function record_link_update_diagnostic($stage, $status, $payload = []) {
+    if (!$this->should_capture_link_update_diagnostics()) {
+      return;
+    }
+
+    $payload = is_array($payload) ? $payload : [];
+    $sanitizedPayload = [];
+    foreach ($payload as $key => $value) {
+      $cleanKey = sanitize_key((string)$key);
+      if ($cleanKey === '') {
+        continue;
+      }
+      $sanitizedPayload[$cleanKey] = $this->normalize_link_update_diagnostic_value($value);
+    }
+
+    $entries = get_option(self::LINK_UPDATE_DIAGNOSTIC_OPTION_KEY, []);
+    if (!is_array($entries)) {
+      $entries = [];
+    }
+
+    $entries[] = [
+      'captured_at' => current_time('mysql'),
+      'stage' => sanitize_key((string)$stage),
+      'status' => sanitize_key((string)$status),
+      'request_action' => $this->request_text('action', ''),
+      'request_page' => $this->request_text('page', ''),
+      'request_uri' => isset($_SERVER['REQUEST_URI']) ? sanitize_text_field((string)$_SERVER['REQUEST_URI']) : '',
+      'payload' => $sanitizedPayload,
+    ];
+
+    if (count($entries) > 20) {
+      $entries = array_slice($entries, -20);
+    }
+
+    update_option(self::LINK_UPDATE_DIAGNOSTIC_OPTION_KEY, $entries, false);
+  }
+
+  private function get_link_update_diagnostics() {
+    if (!$this->can_access_debug_diagnostics()) {
+      return [];
+    }
+
+    $entries = get_option(self::LINK_UPDATE_DIAGNOSTIC_OPTION_KEY, []);
+    return is_array($entries) ? $entries : [];
+  }
+
   private function is_lm_request_context() {
     $action = $this->request_key('action', '');
     if ($action !== '' && strpos($action, 'lm_') === 0) {

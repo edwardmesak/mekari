@@ -252,8 +252,131 @@ trait LM_REST_API_Trait {
         if ($storageMode === 'indexed_stream') {
           $finalizeLangQueue = $this->get_indexed_finalize_lang_queue_from_state($state, $wpmlLang);
           $activeFinalizeLang = $this->get_active_indexed_finalize_lang($state, $wpmlLang);
-          $backfillDone = !empty($state['normalized_backfill_done']);
-          if (!$backfillDone) {
+          if ($activeFinalizeLang === 'all') {
+            $finalizeStage = sanitize_key((string)($state['finalize_stage'] ?? 'summary_seed'));
+            if ($finalizeStage === '' || $finalizeStage === 'inbound_finalize') {
+              $finalizeStage = 'summary_seed';
+            }
+
+            if ($finalizeStage === 'summary_seed') {
+              $finalizeLastPostId = max(0, (int)($state['finalize_seed_last_post_id'] ?? 0));
+              $finalizeChunkSize = $this->get_finalize_stage_chunk_size_from_state($state, 'summary_seed');
+              $result = $this->build_indexed_post_summary_all_chunk($finalizeLastPostId, $finalizeChunkSize);
+              $finalizeStepMs = max(0, (int)($result['step_ms'] ?? 0));
+              $state['finalize_stage'] = 'summary_seed';
+              $state['finalize_seed_last_post_id'] = max(0, (int)($result['last_post_id'] ?? $finalizeLastPostId));
+              $state['finalize_seed_processed_posts'] = max(0, (int)($state['finalize_seed_processed_posts'] ?? 0)) + max(0, (int)($result['processed_posts'] ?? 0));
+              $state['finalize_seed_chunk_size'] = $this->tune_finalize_chunk_size($finalizeChunkSize, $finalizeStepMs);
+              $state['finalize_seed_step_ms'] = $finalizeStepMs;
+              $state['finalize_summary_rows'] = max(0, (int)($result['summary_rows'] ?? 0));
+              $state['finalize_last_summary_query_ms'] = $finalizeStepMs;
+              $state['finalize_step_ms'] = $finalizeStepMs;
+              $state['finalize_processed_posts'] = max(0, (int)($state['finalize_seed_processed_posts'] ?? 0));
+              $state['finalize_chunk_size'] = max(0, (int)($state['finalize_seed_chunk_size'] ?? 0));
+              $shouldPauseFinalizing = (empty($result['done']) && $this->should_abort_finalize($crawlStartedAt));
+
+              if (empty($result['done'])) {
+                $state['status'] = 'finalizing';
+                $state['message'] = $shouldPauseFinalizing
+                  ? 'Aggregating global post summaries in smaller steps to avoid server timeouts...'
+                  : 'Aggregating global post summaries...';
+              } else {
+                $state['finalize_stage'] = 'domain_summary_finalize';
+                $state['message'] = 'Aggregating global cited domains summary...';
+              }
+            } elseif ($finalizeStage === 'domain_summary_finalize') {
+              $finalizeLastPostId = max(0, (int)($state['finalize_domain_last_post_id'] ?? 0));
+              $finalizeChunkSize = $this->get_finalize_stage_chunk_size_from_state($state, 'summary_seed');
+              $result = $this->build_indexed_domain_summary_all_chunk($finalizeLastPostId, $finalizeChunkSize);
+              $finalizeStepMs = max(0, (int)($result['step_ms'] ?? 0));
+              $state['finalize_stage'] = 'domain_summary_finalize';
+              $state['finalize_domain_last_post_id'] = max(0, (int)($result['last_post_id'] ?? $finalizeLastPostId));
+              $state['finalize_domain_processed_posts'] = max(0, (int)($state['finalize_domain_processed_posts'] ?? 0)) + max(0, (int)($result['processed_posts'] ?? 0));
+              $state['finalize_domain_chunk_size'] = $this->tune_finalize_chunk_size($finalizeChunkSize, $finalizeStepMs);
+              $state['finalize_domain_step_ms'] = $finalizeStepMs;
+              $state['finalize_domain_rows'] = max(0, (int)($result['summary_rows'] ?? 0));
+              $state['finalize_step_ms'] = $finalizeStepMs;
+              $shouldPauseFinalizing = (empty($result['done']) && $this->should_abort_finalize($crawlStartedAt));
+
+              if (empty($result['done'])) {
+                $state['status'] = 'finalizing';
+                $state['message'] = $shouldPauseFinalizing
+                  ? 'Aggregating global cited domains summary in smaller steps to avoid server timeouts...'
+                  : 'Aggregating global cited domains summary...';
+              } else {
+                $state['finalize_stage'] = 'anchor_summary_finalize';
+                $state['message'] = 'Aggregating global anchor text summary...';
+              }
+            } else {
+              $finalizeLastPostId = max(0, (int)($state['finalize_anchor_last_post_id'] ?? 0));
+              $finalizeChunkSize = $this->get_finalize_stage_chunk_size_from_state($state, 'summary_seed');
+              $result = $this->build_indexed_anchor_summary_all_chunk($finalizeLastPostId, $finalizeChunkSize);
+              $finalizeStepMs = max(0, (int)($result['step_ms'] ?? 0));
+              $state['finalize_stage'] = 'anchor_summary_finalize';
+              $state['finalize_anchor_last_post_id'] = max(0, (int)($result['last_post_id'] ?? $finalizeLastPostId));
+              $state['finalize_anchor_processed_posts'] = max(0, (int)($state['finalize_anchor_processed_posts'] ?? 0)) + max(0, (int)($result['processed_posts'] ?? 0));
+              $state['finalize_anchor_chunk_size'] = $this->tune_finalize_chunk_size($finalizeChunkSize, $finalizeStepMs);
+              $state['finalize_anchor_step_ms'] = $finalizeStepMs;
+              $state['finalize_anchor_rows'] = max(0, (int)($result['summary_rows'] ?? 0));
+              $state['finalize_step_ms'] = $finalizeStepMs;
+              $shouldPauseFinalizing = (empty($result['done']) && $this->should_abort_finalize($crawlStartedAt));
+
+              if (empty($result['done'])) {
+                $state['status'] = 'finalizing';
+                $state['message'] = $shouldPauseFinalizing
+                  ? 'Aggregating global anchor text summary in smaller steps to avoid server timeouts...'
+                  : 'Aggregating global anchor text summary...';
+              } else {
+                $completedFinalizeLang = $activeFinalizeLang;
+                if ($this->advance_indexed_finalize_lang($state, $finalizeLangQueue, $wpmlLang)) {
+                  $nextFinalizeLang = (string)($state['finalize_wpml_lang'] ?? $wpmlLang);
+                  if ($nextFinalizeLang === 'all') {
+                    $state['aggregate_all_started'] = '1';
+                  }
+                  $state['status'] = 'finalizing';
+                  $state['message'] = sprintf('Summary refresh for %s completed. Continuing with %s...', $completedFinalizeLang, $nextFinalizeLang);
+                } else {
+                  $this->clear_cache_payload($scopePostType, $wpmlLang);
+                  update_option($this->cache_scan_option_key($scopePostType, $wpmlLang), gmdate('Y-m-d H:i:s'), false);
+                  $this->bump_dataset_cache_version();
+                  $this->save_last_finalize_metrics([
+                    'captured_at' => current_time('mysql'),
+                    'scope_post_type' => (string)$scopePostType,
+                    'wpml_lang' => 'all',
+                    'status' => 'done',
+                    'finalize_stage' => 'done',
+                    'normalized_backfill_done' => true,
+                    'normalized_backfill_processed' => 0,
+                    'normalized_backfill_step_ms' => 0,
+                    'normalized_backfill_chunk_size' => 0,
+                    'finalize_processed_posts' => max(0, (int)($state['finalize_processed_posts'] ?? 0)),
+                    'finalize_chunk_size' => max(0, (int)($state['finalize_chunk_size'] ?? 0)),
+                    'finalize_step_ms' => max(0, (int)($state['finalize_step_ms'] ?? 0)),
+                    'finalize_seed_processed_posts' => max(0, (int)($state['finalize_seed_processed_posts'] ?? 0)),
+                    'finalize_seed_chunk_size' => max(0, (int)($state['finalize_seed_chunk_size'] ?? 0)),
+                    'finalize_seed_step_ms' => max(0, (int)($state['finalize_seed_step_ms'] ?? 0)),
+                    'finalize_inbound_processed_posts' => 0,
+                    'finalize_inbound_chunk_size' => 0,
+                    'finalize_inbound_step_ms' => 0,
+                    'finalize_last_summary_query_ms' => max(0, (int)($state['finalize_last_summary_query_ms'] ?? 0)),
+                    'finalize_last_inbound_query_ms' => 0,
+                    'finalize_summary_rows' => max(0, (int)($state['finalize_summary_rows'] ?? 0)),
+                    'finalize_inbound_rows' => 0,
+                    'finalize_target_only_rows_added' => 0,
+                    'finalize_domain_rows' => max(0, (int)($state['finalize_domain_rows'] ?? 0)),
+                    'finalize_anchor_rows' => max(0, (int)($state['finalize_anchor_rows'] ?? 0)),
+                  ]);
+                  $state['aggregate_all_done'] = '1';
+                  $state['status'] = 'done';
+                  $state['message'] = '';
+                  unset($state['finalize_lang_queue'], $state['finalize_lang_index'], $state['finalize_wpml_lang']);
+                  unset($state['finalize_stage'], $state['finalize_last_post_id'], $state['finalize_processed_posts'], $state['finalize_chunk_size'], $state['finalize_step_ms'], $state['finalize_summary_rows'], $state['finalize_inbound_rows'], $state['finalize_target_only_rows_added'], $state['finalize_seed_last_post_id'], $state['finalize_seed_processed_posts'], $state['finalize_seed_step_ms'], $state['finalize_seed_chunk_size'], $state['finalize_inbound_last_post_id'], $state['finalize_inbound_processed_posts'], $state['finalize_inbound_step_ms'], $state['finalize_inbound_chunk_size'], $state['finalize_last_summary_query_ms'], $state['finalize_last_inbound_query_ms'], $state['normalized_backfill_last_id'], $state['normalized_backfill_processed'], $state['normalized_backfill_step_ms'], $state['normalized_backfill_chunk_size'], $state['normalized_backfill_done'], $state['finalize_domain_last_post_id'], $state['finalize_domain_processed_posts'], $state['finalize_domain_chunk_size'], $state['finalize_domain_step_ms'], $state['finalize_domain_rows'], $state['finalize_anchor_last_post_id'], $state['finalize_anchor_processed_posts'], $state['finalize_anchor_chunk_size'], $state['finalize_anchor_step_ms'], $state['finalize_anchor_rows']);
+                }
+              }
+            }
+          } else {
+            $backfillDone = !empty($state['normalized_backfill_done']);
+            if (!$backfillDone) {
             $backfillLastId = max(0, (int)($state['normalized_backfill_last_id'] ?? 0));
             $backfillChunkSize = $this->normalize_finalize_chunk_size((int)($state['normalized_backfill_chunk_size'] ?? $this->get_default_finalize_chunk_size()));
             $backfillResult = $this->backfill_normalized_url_chunk_for_lang($activeFinalizeLang, $backfillLastId, $backfillChunkSize);
@@ -270,7 +393,7 @@ trait LM_REST_API_Trait {
             if (!empty($state['normalized_backfill_done']) && empty($state['finalize_stage'])) {
               $state['finalize_stage'] = 'summary_seed';
             }
-          } else {
+            } else {
             $finalizeStage = sanitize_key((string)($state['finalize_stage'] ?? 'summary_seed'));
             if ($finalizeStage === '') {
               $finalizeStage = 'summary_seed';
@@ -429,6 +552,7 @@ trait LM_REST_API_Trait {
                   $nextFinalizeLang = (string)($state['finalize_wpml_lang'] ?? $wpmlLang);
                   if ($nextFinalizeLang === 'all') {
                     $state['aggregate_all_started'] = '1';
+                    $this->clear_indexed_summary_for_lang('all');
                   }
                   $state['status'] = 'finalizing';
                   $state['message'] = sprintf('Summary refresh for %s completed. Continuing with %s...', $completedFinalizeLang, $nextFinalizeLang);
@@ -471,6 +595,7 @@ trait LM_REST_API_Trait {
                 }
               }
             }
+          }
           }
         } else {
           $this->append_rows($allRows, $this->crawl_menus($enabledSources));
