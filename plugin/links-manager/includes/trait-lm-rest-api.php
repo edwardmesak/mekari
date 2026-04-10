@@ -780,48 +780,11 @@ trait LM_REST_API_Trait {
   }
 
   private function load_editor_rest_rows($filters, $context) {
-    $indexedFastResponse = $this->get_indexed_editor_list_fastpath_response($context['scope_post_type'], $context['scope_wpml_lang'], $filters);
-    if (is_array($indexedFastResponse)
-      && isset($indexedFastResponse['items'])
-      && isset($indexedFastResponse['pagination'])
-      && is_array($indexedFastResponse['items'])
-      && is_array($indexedFastResponse['pagination'])) {
-      return [
-        'response' => $indexedFastResponse,
-        'execution_mode' => 'indexed_sql_fastpath',
-      ];
-    }
-
-    $all = null;
-    $executionMode = 'cache_scan_fallback';
-    $usedExistingCache = false;
-
-    if (!is_array($all)) {
-      $all = null;
-    }
-    if (empty($all)) {
-      $all = $this->get_existing_cache_rows_for_rest($context['scope_post_type'], $context['scope_wpml_lang'], false);
-      if (is_array($all)) {
-        $usedExistingCache = true;
-      }
-    }
-    if (!is_array($all)) {
-      $all = $this->get_report_scope_rows_or_empty(
-        $context['scope_post_type'],
-        $context['scope_wpml_lang'],
-        $filters,
-        false
-      );
-    }
-
-    if ($usedExistingCache) {
-      $executionMode = 'cache_scan';
-    }
-
-    return [
-      'rows' => $this->apply_filters_and_group($all, $filters),
-      'execution_mode' => $executionMode,
-    ];
+    return $this->load_editor_rows_for_request(
+      $context['scope_post_type'],
+      $context['scope_wpml_lang'],
+      $filters
+    );
   }
 
   private function paginate_editor_rest_response($rows, $filters) {
@@ -1096,6 +1059,9 @@ trait LM_REST_API_Trait {
       } else {
         $response = $this->paginate_editor_rest_response((array)($editorResult['rows'] ?? []), $filters);
         $response = $this->attach_rest_execution_meta($response, 'editor_list', (string)($editorResult['execution_mode'] ?? 'cache_scan_fallback'), false);
+      }
+      if (!empty($editorResult['warning_notice'])) {
+        $response['warning_notice'] = (string)$editorResult['warning_notice'];
       }
 
       $this->set_rest_response_cache($context['cache_key'], $response);

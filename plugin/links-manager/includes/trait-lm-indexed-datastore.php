@@ -347,7 +347,10 @@ trait LM_Indexed_Datastore_Trait {
       $this->append_indexed_text_match_clause($whereParts, $params, 'page_url', isset($filters['source_contains']) ? $filters['source_contains'] : '', $textMode);
       $this->append_indexed_text_match_clause($whereParts, $params, 'post_title', isset($filters['title_contains']) ? $filters['title_contains'] : '', $textMode);
       $this->append_indexed_text_match_clause($whereParts, $params, 'anchor_text', isset($filters['anchor_contains']) ? $filters['anchor_contains'] : '', $textMode);
+      $this->append_indexed_text_match_clause($whereParts, $params, 'alt_text', isset($filters['alt_contains']) ? $filters['alt_contains'] : '', $textMode);
+      $this->append_indexed_text_match_clause($whereParts, $params, $this->get_indexed_rel_text_sql_expression(), isset($filters['rel_contains']) ? $filters['rel_contains'] : '', $textMode);
       $this->append_indexed_author_filter_clause($whereParts, $params, $selectedAuthorId, $selectedAuthorName);
+      $this->append_indexed_quality_clause($whereParts, $params, isset($filters['quality']) ? (string)$filters['quality'] : 'any');
 
       $publishDateFrom = isset($filters['publish_date_from']) ? trim((string)$filters['publish_date_from']) : '';
       $publishDateTo = isset($filters['publish_date_to']) ? trim((string)$filters['publish_date_to']) : '';
@@ -368,6 +371,21 @@ trait LM_Indexed_Datastore_Trait {
       if ($updatedDateTo !== '') {
         $whereParts[] = 'DATE(post_modified) <= %s';
         $params[] = $updatedDateTo;
+      }
+
+      $postCategoryFilter = isset($filters['post_category']) ? (int)$filters['post_category'] : 0;
+      $postTagFilter = isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0;
+      $allowedPostIds = $this->get_post_ids_by_post_terms($postCategoryFilter, $postTagFilter);
+      if (is_array($allowedPostIds)) {
+        $allowedIds = array_values(array_map('intval', array_keys($allowedPostIds)));
+        if (empty($allowedIds)) {
+          return [];
+        }
+        $inPlaceholders = implode(',', array_fill(0, count($allowedIds), '%d'));
+        $whereParts[] = "post_id IN ($inPlaceholders)";
+        foreach ($allowedIds as $postId) {
+          $params[] = $postId;
+        }
       }
     }
 
@@ -565,19 +583,8 @@ trait LM_Indexed_Datastore_Trait {
 
     $textMode = $this->sanitize_text_match_mode((string)($filters['text_match_mode'] ?? 'contains'));
     if ($textMode === 'regex') return false;
-    $hasEditorTextSearch = false;
-    foreach (['source_contains', 'title_contains', 'anchor_contains', 'rel_contains'] as $textKey) {
-      if (trim((string)($filters[$textKey] ?? '')) !== '') {
-        $hasEditorTextSearch = true;
-        break;
-      }
-    }
-    if ($hasEditorTextSearch && !in_array($textMode, ['exact', 'starts_with'], true)) {
-      return false;
-    }
 
     if ((string)($filters['group'] ?? '0') !== '0') return false;
-    if (trim((string)($filters['alt_contains'] ?? '')) !== '') return false;
 
     $orderby = (string)($filters['orderby'] ?? 'date');
     $allowedOrderby = ['date','title','post_type','post_author','page_url','link','source','link_location','anchor_text','link_type'];
@@ -873,6 +880,7 @@ trait LM_Indexed_Datastore_Trait {
     $this->append_indexed_text_match_clause($whereParts, $params, 'page_url', (string)($filters['source_contains'] ?? ''), $textMode);
     $this->append_indexed_text_match_clause($whereParts, $params, 'post_title', (string)($filters['title_contains'] ?? ''), $textMode);
     $this->append_indexed_text_match_clause($whereParts, $params, 'anchor_text', (string)($filters['anchor_contains'] ?? ''), $textMode);
+    $this->append_indexed_text_match_clause($whereParts, $params, 'alt_text', (string)($filters['alt_contains'] ?? ''), $textMode);
     $this->append_indexed_text_match_clause($whereParts, $params, $this->get_indexed_rel_text_sql_expression(), (string)($filters['rel_contains'] ?? ''), $textMode);
     $this->append_indexed_author_filter_clause($whereParts, $params, $selectedAuthorId, $selectedAuthorName);
 

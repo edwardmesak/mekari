@@ -57,6 +57,8 @@ trait LM_Editor_Admin_Trait {
     $total = max(0, (int)($editorData['total'] ?? 0));
     $paged = max(1, (int)($editorData['paged'] ?? $paged));
     $totalPages = max(1, (int)($editorData['total_pages'] ?? 1));
+    $editorExecutionMode = isset($editorData['data_source']) ? (string)$editorData['data_source'] : 'unknown';
+    $editorWarningNotice = isset($editorData['warning_notice']) ? (string)$editorData['warning_notice'] : '';
     $editorHiddenFields = $this->get_editor_hidden_fields($filters, $perPage, $paged);
 
     echo '<div class="wrap lm-wrap">';
@@ -67,6 +69,7 @@ trait LM_Editor_Admin_Trait {
 
     if ($msg !== '') echo '<div class="notice notice-' . esc_attr($msgClass) . '"><p>' . esc_html($msg) . '</p></div>';
     if ($dataNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($dataNotice) . '</p></div>';
+    if ($editorWarningNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($editorWarningNotice) . '</p></div>';
 
     echo '<div class="lm-grid">';
 
@@ -271,6 +274,9 @@ trait LM_Editor_Admin_Trait {
     echo '<strong>Quality rule:</strong> ';
     echo esc_html($this->get_anchor_quality_status_help_text());
     echo '</div>';
+    echo '<div class="lm-small" style="margin:0 0 10px;">';
+    echo esc_html(sprintf(__('Execution mode: %s', 'links-manager'), str_replace('_', ' ', $editorExecutionMode)));
+    echo '</div>';
     $this->render_pagination($filters, $paged, $totalPages, $total, $perPage);
 
     echo '<div class="lm-table-wrap">';
@@ -345,41 +351,21 @@ trait LM_Editor_Admin_Trait {
       $scopePostType = 'any';
     }
     $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
-    $all = null;
-    $usedExistingCache = false;
-    $indexedFastResponse = $this->get_indexed_editor_list_fastpath_response($scopePostType, $scopeWpmlLang, $filters);
-    if (
-      is_array($indexedFastResponse)
-      && isset($indexedFastResponse['items'])
-      && isset($indexedFastResponse['pagination'])
-      && is_array($indexedFastResponse['items'])
-      && is_array($indexedFastResponse['pagination'])
-    ) {
-      $pagination = (array)$indexedFastResponse['pagination'];
+    $editorResult = $this->load_editor_rows_for_request($scopePostType, $scopeWpmlLang, $filters);
+    if (isset($editorResult['response']) && is_array($editorResult['response'])) {
+      $pagination = (array)($editorResult['response']['pagination'] ?? []);
       return [
-        'items' => array_values((array)$indexedFastResponse['items']),
+        'items' => array_values((array)($editorResult['response']['items'] ?? [])),
         'total' => max(0, (int)($pagination['total'] ?? 0)),
         'per_page' => max(10, (int)($pagination['per_page'] ?? ($filters['per_page'] ?? 25))),
         'paged' => max(1, (int)($pagination['paged'] ?? ($filters['paged'] ?? 1))),
         'total_pages' => max(1, (int)($pagination['total_pages'] ?? 1)),
-        'data_source' => 'indexed_fastpath',
+        'data_source' => (string)($editorResult['execution_mode'] ?? 'indexed_fastpath'),
+        'warning_notice' => isset($editorResult['warning_notice']) ? (string)$editorResult['warning_notice'] : '',
       ];
     }
 
-    if (!is_array($all)) {
-      $all = null;
-    }
-    if (empty($all)) {
-      $all = $this->get_existing_cache_rows_for_rest($scopePostType, $scopeWpmlLang, false);
-      if (is_array($all)) {
-        $usedExistingCache = true;
-      }
-    }
-    if (!is_array($all)) {
-      $all = $this->get_report_scope_rows_or_empty($scopePostType, $scopeWpmlLang, $filters, false);
-    }
-
-    $rows = $this->apply_filters_and_group($all, $filters);
+    $rows = isset($editorResult['rows']) && is_array($editorResult['rows']) ? $editorResult['rows'] : [];
     $total = count($rows);
     $perPage = max(10, (int)($filters['per_page'] ?? 25));
     $requestedPage = max(1, (int)($filters['paged'] ?? 1));
@@ -394,7 +380,116 @@ trait LM_Editor_Admin_Trait {
       'per_page' => $perPage,
       'paged' => $paged,
       'total_pages' => $totalPages,
-      'data_source' => $usedExistingCache ? 'cache' : 'canonical',
+      'data_source' => (string)($editorResult['execution_mode'] ?? 'php_fallback'),
+      'warning_notice' => isset($editorResult['warning_notice']) ? (string)$editorResult['warning_notice'] : '',
+    ];
+  }
+
+  private function can_use_indexed_editor_filtered_rows($filters) {
+    if (!is_array($filters)) {
+      return false;
+    }
+
+    $textMode = $this->sanitize_text_match_mode((string)($filters['text_match_mode'] ?? 'contains'));
+    return $textMode !== 'regex';
+  }
+
+  private function get_editor_php_fallback_block_notice($rowCount, $limit) {
+    $rowCount = max(0, (int)$rowCount);
+    $limit = max(1, (int)$limit);
+
+    return sprintf(
+      __('This filter combination needs a full PHP scan across %1$d rows, which exceeds the safety limit of %2$d rows. Narrow the filters or use a non-regex text mode to avoid a critical error.', 'links-manager'),
+      $rowCount,
+      $limit
+    );
+  }
+
+  private function load_editor_rows_for_request($scopePostType, $scopeWpmlLang, $filters) {
+    $profileStarted = $this->profile_start();
+    $warningNotice = '';
+    $runtimeMeta = $this->get_editor_php_fallback_runtime_meta();
+
+    $indexedFastResponse = $this->get_indexed_editor_list_fastpath_response($scopePostType, $scopeWpmlLang, $filters);
+    if (
+      is_array($indexedFastResponse)
+      && isset($indexedFastResponse['items'])
+      && isset($indexedFastResponse['pagination'])
+      && is_array($indexedFastResponse['items'])
+      && is_array($indexedFastResponse['pagination'])
+    ) {
+      $profileMeta = [
+        'execution_mode' => 'indexed_sql_fastpath',
+        'items' => count((array)$indexedFastResponse['items']),
+        'total' => (int)(($indexedFastResponse['pagination']['total'] ?? 0)),
+      ];
+      $this->profile_end('editor_rows_load', $profileStarted, array_merge($profileMeta, $runtimeMeta));
+      return [
+        'response' => $indexedFastResponse,
+        'execution_mode' => 'indexed_sql_fastpath',
+      ];
+    }
+
+    $executionMode = 'php_fallback';
+    $all = null;
+
+    if ($this->is_indexed_datastore_ready() && $this->can_use_indexed_editor_filtered_rows($filters)) {
+      $all = $this->get_report_scope_rows_or_empty($scopePostType, $scopeWpmlLang, $filters, false);
+      $executionMode = 'indexed_filtered_rows';
+    } else {
+      $fallbackLimit = (int)($runtimeMeta['threshold_rows'] ?? $this->get_editor_php_fallback_row_limit());
+      if ($this->is_indexed_datastore_ready()) {
+        $resolvedScope = $this->resolve_indexed_datastore_scope($scopePostType, $scopeWpmlLang, false);
+        if (is_array($resolvedScope)) {
+          $estimatedRows = $this->get_indexed_fact_count_exact_scope(
+            (string)$resolvedScope['scope_post_type'],
+            (string)$resolvedScope['wpml_lang']
+          );
+          if ($estimatedRows > $fallbackLimit) {
+            $warningNotice = $this->get_editor_php_fallback_block_notice($estimatedRows, $fallbackLimit);
+            $profileMeta = [
+              'execution_mode' => 'php_fallback_blocked',
+              'estimated_rows' => $estimatedRows,
+            ];
+            $this->profile_end('editor_rows_load', $profileStarted, array_merge($profileMeta, $runtimeMeta));
+            return [
+              'rows' => [],
+              'execution_mode' => 'php_fallback_blocked',
+              'warning_notice' => $warningNotice,
+            ];
+          }
+        }
+
+        $all = $this->get_canonical_rows_for_scope($scopePostType, false, $scopeWpmlLang, null, false);
+        $executionMode = 'php_fallback_indexed_scope';
+      } else {
+        $all = $this->get_existing_cache_rows_for_rest($scopePostType, $scopeWpmlLang, false);
+        if (!is_array($all)) {
+          $all = $this->get_report_scope_rows_or_empty($scopePostType, $scopeWpmlLang, null, false);
+          $executionMode = 'php_fallback_canonical_scope';
+        } else {
+          $executionMode = 'cache_scan';
+        }
+      }
+    }
+
+    if (!is_array($all)) {
+      $all = [];
+    }
+
+    $rows = $this->apply_filters_and_group($all, $filters);
+    $profileMeta = [
+      'execution_mode' => $executionMode,
+      'scope_rows' => count($all),
+      'filtered_rows' => count($rows),
+      'warning' => $warningNotice !== '' ? '1' : '0',
+    ];
+    $this->profile_end('editor_rows_load', $profileStarted, array_merge($profileMeta, $runtimeMeta));
+
+    return [
+      'rows' => $rows,
+      'execution_mode' => $executionMode,
+      'warning_notice' => $warningNotice,
     ];
   }
 

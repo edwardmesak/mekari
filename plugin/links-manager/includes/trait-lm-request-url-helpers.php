@@ -451,47 +451,61 @@ trait LM_Request_URL_Helpers_Trait {
   }
 
   private function get_post_ids_by_post_terms($categoryId, $tagId) {
+    static $termFilterCache = [];
+
     $categoryId = (int)$categoryId;
     $tagId = (int)$tagId;
+    $cacheKey = get_current_blog_id() . '|' . $categoryId . '|' . $tagId;
+    if (isset($termFilterCache[$cacheKey])) {
+      return $termFilterCache[$cacheKey];
+    }
 
     if ($categoryId <= 0 && $tagId <= 0) {
+      $termFilterCache[$cacheKey] = null;
       return null;
     }
 
-    $taxQuery = ['relation' => 'AND'];
+    global $wpdb;
+
+    $joins = [];
+    $whereParts = ["p.post_type = 'post'", "p.post_status = 'publish'"];
+    $params = [];
+
     if ($categoryId > 0) {
-      $taxQuery[] = [
-        'taxonomy' => 'category',
-        'field' => 'term_id',
-        'terms' => [$categoryId],
-      ];
+      $joins[] = "INNER JOIN {$wpdb->term_relationships} trc ON p.ID = trc.object_id";
+      $joins[] = "INNER JOIN {$wpdb->term_taxonomy} ttc ON trc.term_taxonomy_id = ttc.term_taxonomy_id";
+      $whereParts[] = 'ttc.taxonomy = %s';
+      $params[] = 'category';
+      $whereParts[] = 'ttc.term_id = %d';
+      $params[] = $categoryId;
     }
+
     if ($tagId > 0) {
-      $taxQuery[] = [
-        'taxonomy' => 'post_tag',
-        'field' => 'term_id',
-        'terms' => [$tagId],
-      ];
+      $joins[] = "INNER JOIN {$wpdb->term_relationships} trt ON p.ID = trt.object_id";
+      $joins[] = "INNER JOIN {$wpdb->term_taxonomy} ttt ON trt.term_taxonomy_id = ttt.term_taxonomy_id";
+      $whereParts[] = 'ttt.taxonomy = %s';
+      $params[] = 'post_tag';
+      $whereParts[] = 'ttt.term_id = %d';
+      $params[] = $tagId;
     }
 
-    $query = new WP_Query([
-      'post_type' => 'post',
-      'post_status' => 'publish',
-      'posts_per_page' => -1,
-      'fields' => 'ids',
-      'no_found_rows' => true,
-      'tax_query' => $taxQuery,
-    ]);
+    $sql = "SELECT DISTINCT p.ID
+      FROM {$wpdb->posts} p
+      " . implode("\n      ", $joins) . "
+      WHERE " . implode(' AND ', $whereParts);
+    $postIds = $wpdb->get_col($wpdb->prepare($sql, $params));
 
-    if (empty($query->posts) || !is_array($query->posts)) {
+    if (empty($postIds) || !is_array($postIds)) {
+      $termFilterCache[$cacheKey] = [];
       return [];
     }
 
     $map = [];
-    foreach ($query->posts as $postId) {
+    foreach ($postIds as $postId) {
       $map[(string)intval($postId)] = true;
     }
 
+    $termFilterCache[$cacheKey] = $map;
     return $map;
   }
 

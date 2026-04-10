@@ -288,6 +288,13 @@ trait LM_Settings_Admin_Trait {
     echo '<tr><th>' . esc_html__('Refresh capacity', 'links-manager') . '</th><td>' . esc_html(sprintf(__('%d pages per request, adjusted automatically for your server.', 'links-manager'), (int)$autoPerformance['crawl_post_batch'])) . '</td></tr>';
     echo '<tr><th>' . esc_html__('Report cache freshness', 'links-manager') . '</th><td>' . esc_html(sprintf(__('Up to %d seconds for repeated admin requests.', 'links-manager'), (int)$autoPerformance['rest_response_cache_ttl_sec'])) . '</td></tr>';
     echo '<tr><th>' . esc_html__('Dashboard stats refresh', 'links-manager') . '</th><td>' . esc_html($this->describe_stats_refresh_minutes((int)$autoPerformance['stats_snapshot_ttl_min'])) . '</td></tr>';
+    $editorFallbackMeta = $this->get_editor_php_fallback_runtime_meta();
+    echo '<tr><th>' . esc_html__('Editor PHP fallback safeguard', 'links-manager') . '</th><td>' . esc_html(sprintf(
+      __('Auto threshold: %1$s rows (memory %2$s, max execution %3$s).', 'links-manager'),
+      number_format((int)($editorFallbackMeta['threshold_rows'] ?? 0)),
+      (string)($editorFallbackMeta['memory_limit_label'] ?? '0 B'),
+      ((int)($editorFallbackMeta['max_execution_time'] ?? 0) > 0 ? number_format((int)($editorFallbackMeta['max_execution_time'] ?? 0)) . 's' : __('unlimited', 'links-manager'))
+    )) . '</td></tr>';
     echo '</tbody>';
     echo '</table>';
     echo '</div>';
@@ -405,6 +412,13 @@ trait LM_Settings_Admin_Trait {
     echo '<tr><th>' . esc_html__('Refresh capacity', 'links-manager') . '</th><td>' . esc_html(sprintf(__('%d pages per request, adjusted automatically for your server.', 'links-manager'), (int)$autoPerformance['crawl_post_batch'])) . '</td></tr>';
     echo '<tr><th>' . esc_html__('Report cache freshness', 'links-manager') . '</th><td>' . esc_html(sprintf(__('Up to %d seconds for repeated admin requests.', 'links-manager'), (int)$autoPerformance['rest_response_cache_ttl_sec'])) . '</td></tr>';
     echo '<tr><th>' . esc_html__('Dashboard stats refresh', 'links-manager') . '</th><td>' . esc_html($this->describe_stats_refresh_minutes((int)$autoPerformance['stats_snapshot_ttl_min'])) . '</td></tr>';
+    $editorFallbackMeta = $this->get_editor_php_fallback_runtime_meta();
+    echo '<tr><th>' . esc_html__('Editor PHP fallback safeguard', 'links-manager') . '</th><td>' . esc_html(sprintf(
+      __('Auto threshold: %1$s rows (memory %2$s, max execution %3$s).', 'links-manager'),
+      number_format((int)($editorFallbackMeta['threshold_rows'] ?? 0)),
+      (string)($editorFallbackMeta['memory_limit_label'] ?? '0 B'),
+      ((int)($editorFallbackMeta['max_execution_time'] ?? 0) > 0 ? number_format((int)($editorFallbackMeta['max_execution_time'] ?? 0)) . 's' : __('unlimited', 'links-manager'))
+    )) . '</td></tr>';
     echo '</tbody>';
     echo '</table>';
     echo '</div>';
@@ -1092,6 +1106,15 @@ trait LM_Settings_Admin_Trait {
     echo '<tr><th>Request URI</th><td><code>' . esc_html((string)($profile['request_uri'] ?? '')) . '</code></td></tr>';
     echo '<tr><th>Total Elapsed</th><td>' . esc_html(number_format($totalElapsedMs, 2)) . ' ms</td></tr>';
     echo '<tr><th>Total Entries</th><td>' . esc_html((string)count($entries)) . '</td></tr>';
+    $editorFallbackMeta = $this->get_editor_php_fallback_runtime_meta();
+    echo '<tr><th>Editor Fallback Threshold</th><td>' . esc_html(number_format((int)($editorFallbackMeta['threshold_rows'] ?? 0))) . ' rows</td></tr>';
+    echo '<tr><th>Editor Runtime Guard</th><td>' . esc_html(sprintf(
+      __('Memory %1$s -> baseline %2$s rows; max_execution_time %3$s -> cap %4$s rows', 'links-manager'),
+      (string)($editorFallbackMeta['memory_limit_label'] ?? '0 B'),
+      number_format((int)($editorFallbackMeta['memory_baseline_rows'] ?? 0)),
+      ((int)($editorFallbackMeta['max_execution_time'] ?? 0) > 0 ? number_format((int)($editorFallbackMeta['max_execution_time'] ?? 0)) . 's' : __('unlimited', 'links-manager')),
+      number_format((int)($editorFallbackMeta['time_cap_rows'] ?? 0))
+    )) . '</td></tr>';
     echo '</tbody>';
     echo '</table>';
 

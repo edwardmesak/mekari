@@ -26,6 +26,58 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
     return $bytes;
   }
 
+  private function get_runtime_max_execution_time_seconds() {
+    $maxExecution = (int)ini_get('max_execution_time');
+    if ($maxExecution < 0) {
+      $maxExecution = 0;
+    }
+    return $maxExecution;
+  }
+
+  private function get_editor_php_fallback_memory_baseline_rows() {
+    $limit = $this->get_effective_memory_limit_bytes();
+    if ($limit <= 268435456) return 4000;
+    if ($limit <= 402653184) return 7000;
+    if ($limit <= 536870912) return 10000;
+    if ($limit <= 805306368) return 14000;
+    return 18000;
+  }
+
+  private function get_editor_php_fallback_time_cap_rows() {
+    $maxExecution = $this->get_runtime_max_execution_time_seconds();
+    if ($maxExecution <= 0) return 20000;
+    if ($maxExecution <= 15) return 5000;
+    if ($maxExecution <= 30) return 9000;
+    if ($maxExecution <= 60) return 14000;
+    return 20000;
+  }
+
+  private function get_editor_php_fallback_runtime_meta() {
+    $memoryLimitBytes = $this->get_effective_memory_limit_bytes();
+    $maxExecution = $this->get_runtime_max_execution_time_seconds();
+    $memoryBaseline = $this->get_editor_php_fallback_memory_baseline_rows();
+    $timeCap = $this->get_editor_php_fallback_time_cap_rows();
+
+    $threshold = min($memoryBaseline, $timeCap, 20000);
+    if ($threshold < 3000) {
+      $threshold = 3000;
+    }
+
+    return [
+      'threshold_rows' => (int)$threshold,
+      'memory_limit_bytes' => (int)$memoryLimitBytes,
+      'memory_limit_label' => function_exists('size_format') ? size_format((int)$memoryLimitBytes) : (string)$memoryLimitBytes,
+      'memory_baseline_rows' => (int)$memoryBaseline,
+      'time_cap_rows' => (int)$timeCap,
+      'max_execution_time' => (int)$maxExecution,
+    ];
+  }
+
+  private function get_editor_php_fallback_row_limit() {
+    $meta = $this->get_editor_php_fallback_runtime_meta();
+    return max(3000, (int)($meta['threshold_rows'] ?? 3000));
+  }
+
   private function get_runtime_max_cache_rows() {
     $limit = $this->get_effective_memory_limit_bytes();
     if ($limit <= 268435456) return 5000;
@@ -56,7 +108,7 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
   }
 
   private function get_crawl_time_budget_seconds() {
-    $maxExecution = (int)ini_get('max_execution_time');
+    $maxExecution = $this->get_runtime_max_execution_time_seconds();
     if ($maxExecution <= 0) {
       return 20;
     }
@@ -88,7 +140,7 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
       return true;
     }
 
-    $memoryLimit = $this->parse_php_bytes(ini_get('memory_limit'));
+    $memoryLimit = $this->get_effective_memory_limit_bytes();
     if ($memoryLimit > 0) {
       $used = memory_get_usage(true);
       if ($used >= (int)($memoryLimit * 0.9)) {

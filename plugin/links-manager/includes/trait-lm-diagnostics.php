@@ -231,6 +231,10 @@ trait LM_Diagnostics_Trait {
       return;
     }
 
+    if (!$this->is_lm_request_context()) {
+      return;
+    }
+
     if (empty($this->runtime_profile_entries)) {
       $startedAt = ($this->runtime_profile_request_started_at !== null)
         ? (float)$this->runtime_profile_request_started_at
@@ -252,11 +256,13 @@ trait LM_Diagnostics_Trait {
 
     $requestPage = $this->request_text('page', '');
     $requestAction = $this->request_text('action', '');
+    $requestLang = $this->request_text('lang', '');
     $requestUri = isset($_SERVER['REQUEST_URI']) ? sanitize_text_field((string)$_SERVER['REQUEST_URI']) : '';
     $payload = [
       'captured_at' => current_time('mysql'),
       'request_page' => $requestPage,
       'request_action' => $requestAction,
+      'request_lang' => $requestLang,
       'request_uri' => $requestUri,
       'entries' => $this->runtime_profile_entries,
     ];
