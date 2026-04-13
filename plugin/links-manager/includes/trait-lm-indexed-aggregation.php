@@ -277,22 +277,70 @@ trait LM_Indexed_Aggregation_Trait {
     return false;
   }
 
+  private function get_structural_summary_scope_state($workload, $filters) {
+    $workload = sanitize_key((string)$workload);
+    $filters = is_array($filters) ? $filters : [];
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+
+    $summaryType = '';
+    $summaryTable = '';
+    if ($workload === 'cited_domains_aggregation') {
+      $summaryType = 'domain';
+      $summaryTable = $this->get_indexed_domain_summary_table();
+    } elseif ($workload === 'all_anchor_text_aggregation') {
+      $summaryType = 'anchor';
+      $summaryTable = $this->get_indexed_anchor_summary_table();
+    }
+
+    if ($summaryType === '' || !$this->indexed_summary_table_exists($summaryTable)) {
+      return [
+        'scope_wpml_lang' => $scopeWpmlLang,
+        'ready' => false,
+        'scope_count' => 0,
+        'all_count' => 0,
+      ];
+    }
+
+    $scopeCount = $this->get_indexed_report_summary_count($summaryType, $scopeWpmlLang);
+    $allCount = ($scopeWpmlLang === 'all') ? $scopeCount : $this->get_indexed_report_summary_count($summaryType, 'all');
+
+    return [
+      'scope_wpml_lang' => $scopeWpmlLang,
+      'ready' => ($scopeCount > 0),
+      'scope_count' => max(0, (int)$scopeCount),
+      'all_count' => max(0, (int)$allCount),
+    ];
+  }
+
   private function get_indexed_aggregation_guard_state($filters, $forceLinkType, $workload, $reportLabel) {
     $runtimeMeta = $this->get_runtime_guard_runtime_meta($workload);
     $estimatedRows = 0;
-    $hasStructuralIndex = $this->has_structural_summary_index_for_workload($workload);
-    $complexityBlocked = $hasStructuralIndex ? false : $this->should_block_indexed_aggregation_by_complexity($filters, $workload);
-
-    if (!$complexityBlocked && !$hasStructuralIndex && $this->is_indexed_datastore_ready()) {
-      $estimatedRows = $this->get_indexed_custom_aggregation_scope_count($filters, $forceLinkType);
-    }
+    $scopeSummaryState = $this->get_structural_summary_scope_state($workload, $filters);
+    $hasStructuralIndex = !empty($scopeSummaryState['ready']);
+    $readinessBlocked = !$hasStructuralIndex;
+    $complexityBlocked = $readinessBlocked ? false : $this->should_block_indexed_aggregation_by_complexity($filters, $workload);
 
     $thresholdRows = max(1, (int)($runtimeMeta['threshold_rows'] ?? 0));
-    $blocked = $complexityBlocked || $estimatedRows > $thresholdRows;
+    $blocked = $readinessBlocked || $complexityBlocked || $estimatedRows > $thresholdRows;
     $warningNotice = '';
 
     if ($blocked) {
-      if ($complexityBlocked) {
+      if ($readinessBlocked) {
+        $rebuildState = $this->get_rebuild_job_state();
+        $rebuildStatus = sanitize_key((string)($rebuildState['status'] ?? 'idle'));
+        $isPreparing = in_array($rebuildStatus, ['running', 'finalizing'], true);
+        if ($isPreparing) {
+          $warningNotice = sprintf(
+            __('%1$s data for the current scope is still being prepared. Wait for Refresh Data to finish before this report becomes available.', 'links-manager'),
+            $reportLabel
+          );
+        } else {
+          $warningNotice = sprintf(
+            __('%1$s data for the current scope is not ready yet. Run or finish Refresh Data before opening this report.', 'links-manager'),
+            $reportLabel
+          );
+        }
+      } elseif ($complexityBlocked) {
         $warningNotice = sprintf(
           __('This filter combination needs a heavy %1$s aggregation that exceeds the current safety limit of %2$d rows. Narrow the text filters or remove some scope filters to avoid a critical error.', 'links-manager'),
           $reportLabel,
@@ -310,10 +358,12 @@ trait LM_Indexed_Aggregation_Trait {
 
     return [
       'blocked' => $blocked,
+      'readiness_blocked' => $readinessBlocked,
       'complexity_blocked' => $complexityBlocked,
       'warning_notice' => $warningNotice,
       'estimated_rows' => $estimatedRows,
       'runtime_meta' => $runtimeMeta,
+      'scope_summary_state' => $scopeSummaryState,
     ];
   }
 
