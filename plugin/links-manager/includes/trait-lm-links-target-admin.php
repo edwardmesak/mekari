@@ -727,7 +727,9 @@ trait LM_Links_Target_Admin_Trait {
       __('Links Manager - Links Target', 'links-manager'),
       __('Manage anchor groups, target phrases, and usage summaries in one responsive workspace.', 'links-manager')
     );
+    $linksTargetWpmlLang = $this->get_requested_view_wpml_lang((string)($this->get_wpml_admin_lang_url_args()['lang'] ?? 'all'));
     if ($msg !== '') echo '<div class="notice notice-' . esc_attr($msgClass) . '"><p>' . esc_html($msg) . '</p></div>';
+    $this->render_refresh_data_status_banner('any', $linksTargetWpmlLang);
 
     echo '<div class="lm-grid">';
     echo '<div class="lm-card lm-card-full">';

@@ -26,6 +26,10 @@ trait LM_Settings_Admin_Trait {
     $settingsCardStyle = 'margin:0 0 12px; padding:12px; border:1px solid #dcdcde; background:#fff; border-radius:8px; box-shadow:0 1px 1px rgba(0,0,0,.02);';
     $settingsCardCompactStyle = 'padding:12px; border:1px solid #dcdcde; background:#fff; border-radius:8px; box-shadow:0 1px 1px rgba(0,0,0,.02);';
     $autoPerformance = $this->get_auto_managed_performance_settings();
+    $autoRefreshSchedule = $this->get_auto_refresh_schedule_config($settings);
+    $autoRefreshTimezoneLabel = $this->get_auto_refresh_schedule_timezone_label();
+    $autoRefreshSchedulePreview = $this->get_auto_refresh_schedule_preview($settings);
+    $autoRefreshWeekdayLabels = $this->get_auto_refresh_weekday_labels();
 
     echo '<div class="wrap lm-wrap">';
     $this->render_admin_page_header(
@@ -206,10 +210,10 @@ trait LM_Settings_Admin_Trait {
 
     echo '<div class="lm-settings-two-col lm-settings-two-col-stack">';
     echo '<p style="margin:0 0 10px;">';
-    echo '<label class="lm-small" style="' . esc_attr($settingsLabelTopStyle) . '">Categories (optional):</label>';
+    echo '<label class="lm-small" style="' . esc_attr($settingsLabelTopStyle) . '">' . esc_html__('Categories (optional):', 'links-manager') . '</label>';
     echo '<span style="display:inline-block; max-height:140px; overflow:auto; border:1px solid #dcdcde; padding:6px 8px; min-width:260px; background:#fff;">';
     if (empty($scanCategoryOptions)) {
-      echo '<span class="lm-small">No categories found.</span>';
+      echo '<span class="lm-small">' . esc_html__('No categories found.', 'links-manager') . '</span>';
     } else {
       foreach ($scanCategoryOptions as $termId => $termLabel) {
         $checked = in_array((int)$termId, $scanCategoryIds, true) ? '1' : '0';
@@ -220,14 +224,14 @@ trait LM_Settings_Admin_Trait {
       }
     }
     echo '</span>';
-    echo '<span class="lm-small" style="display:block; margin-top:4px;">Leave empty to include all categories.</span>';
+    echo '<span class="lm-small" style="display:block; margin-top:4px;">' . esc_html__('Leave empty to include all categories.', 'links-manager') . '</span>';
     echo '</p>';
 
     echo '<p style="margin:0 0 10px;">';
-    echo '<label class="lm-small" style="' . esc_attr($settingsLabelTopStyle) . '">Tags (optional):</label>';
+    echo '<label class="lm-small" style="' . esc_attr($settingsLabelTopStyle) . '">' . esc_html__('Tags (optional):', 'links-manager') . '</label>';
     echo '<span style="display:inline-block; max-height:140px; overflow:auto; border:1px solid #dcdcde; padding:6px 8px; min-width:260px; background:#fff;">';
     if (empty($scanTagOptions)) {
-      echo '<span class="lm-small">No tags found.</span>';
+      echo '<span class="lm-small">' . esc_html__('No tags found.', 'links-manager') . '</span>';
     } else {
       foreach ($scanTagOptions as $termId => $termLabel) {
         $checked = in_array((int)$termId, $scanTagIds, true) ? '1' : '0';
@@ -238,14 +242,14 @@ trait LM_Settings_Admin_Trait {
       }
     }
     echo '</span>';
-    echo '<span class="lm-small" style="display:block; margin-top:4px;">Leave empty to include all tags.</span>';
+    echo '<span class="lm-small" style="display:block; margin-top:4px;">' . esc_html__('Leave empty to include all tags.', 'links-manager') . '</span>';
     echo '</p>';
 
     echo '<p style="margin:0 0 10px;">';
-    echo '<label class="lm-small" style="' . esc_attr($settingsLabelTopStyle) . '">Authors (optional):</label>';
+    echo '<label class="lm-small" style="' . esc_attr($settingsLabelTopStyle) . '">' . esc_html__('Authors (optional):', 'links-manager') . '</label>';
     echo '<span style="display:inline-block; max-height:140px; overflow:auto; border:1px solid #dcdcde; padding:6px 8px; min-width:260px; background:#fff;">';
     if (empty($scanAuthorOptions)) {
-      echo '<span class="lm-small">No authors found.</span>';
+      echo '<span class="lm-small">' . esc_html__('No authors found.', 'links-manager') . '</span>';
     } else {
       foreach ($scanAuthorOptions as $authorId => $authorLabel) {
         $checked = in_array((int)$authorId, $scanAuthorIds, true) ? '1' : '0';
@@ -256,7 +260,7 @@ trait LM_Settings_Admin_Trait {
       }
     }
     echo '</span>';
-    echo '<span class="lm-small" style="display:block; margin-top:4px;">Leave empty to include all authors.</span>';
+    echo '<span class="lm-small" style="display:block; margin-top:4px;">' . esc_html__('Leave empty to include all authors.', 'links-manager') . '</span>';
     echo '</p>';
 
     echo '<p style="margin:0 0 10px;">';
@@ -278,6 +282,73 @@ trait LM_Settings_Admin_Trait {
 
     echo '</div>';
     echo '</details>';
+
+    echo '<div style="' . esc_attr($settingsCardStyle) . '">';
+    echo '<div style="font-weight:600; margin-bottom:6px;">' . esc_html__('Automatic refresh schedule', 'links-manager') . '</div>';
+    echo '<div class="lm-small" style="margin-bottom:8px;">' . esc_html__('Choose when the plugin should run a full background refresh automatically. Post-change updates still run automatically outside this schedule when needed.', 'links-manager') . '</div>';
+    echo '<table class="form-table" role="presentation" style="margin:0;">';
+    echo '<tbody>';
+    echo '<tr>';
+    echo '<th scope="row"><label for="lm_auto_refresh_enabled">' . esc_html__('Automatic refresh', 'links-manager') . '</label></th>';
+    echo '<td>';
+    echo '<label><input type="checkbox" id="lm_auto_refresh_enabled" name="lm_auto_refresh_enabled" value="1"' . checked((string)$autoRefreshSchedule['enabled'], '1', false) . '/> ' . esc_html__('Run scheduled background refresh automatically.', 'links-manager') . '</label>';
+    echo '</td>';
+    echo '</tr>';
+    echo '<tr>';
+    echo '<th scope="row"><label for="lm_auto_refresh_frequency">' . esc_html__('Refresh frequency', 'links-manager') . '</label></th>';
+    echo '<td>';
+    echo '<select id="lm_auto_refresh_frequency" name="lm_auto_refresh_frequency">';
+    echo '<option value="hourly"' . selected((string)$autoRefreshSchedule['frequency'], 'hourly', false) . '>' . esc_html__('Hourly', 'links-manager') . '</option>';
+    echo '<option value="daily"' . selected((string)$autoRefreshSchedule['frequency'], 'daily', false) . '>' . esc_html__('Daily', 'links-manager') . '</option>';
+    echo '<option value="weekly"' . selected((string)$autoRefreshSchedule['frequency'], 'weekly', false) . '>' . esc_html__('Weekly', 'links-manager') . '</option>';
+    echo '<option value="monthly"' . selected((string)$autoRefreshSchedule['frequency'], 'monthly', false) . '>' . esc_html__('Monthly', 'links-manager') . '</option>';
+    echo '</select>';
+    echo '<p class="description">' . esc_html__('Weekly Saturday at 21:00 WIB is used by default on new installs.', 'links-manager') . '</p>';
+    echo '</td>';
+    echo '</tr>';
+    echo '<tr>';
+    echo '<th scope="row"><label for="lm_auto_refresh_hourly_interval">' . esc_html__('Hourly interval', 'links-manager') . '</label></th>';
+    echo '<td>';
+    echo '<input type="number" id="lm_auto_refresh_hourly_interval" name="lm_auto_refresh_hourly_interval" min="1" max="24" value="' . esc_attr((string)$autoRefreshSchedule['hourly_interval']) . '" style="width:90px;" /> ';
+    echo '<span class="lm-small">' . esc_html__('Used only for the Hourly schedule.', 'links-manager') . '</span>';
+    echo '</td>';
+    echo '</tr>';
+    echo '<tr>';
+    echo '<th scope="row"><label for="lm_auto_refresh_time">' . esc_html__('Time', 'links-manager') . '</label></th>';
+    echo '<td>';
+    echo '<input type="time" id="lm_auto_refresh_time" name="lm_auto_refresh_time" value="' . esc_attr((string)$autoRefreshSchedule['time']) . '" step="60" /> ';
+    echo '<span class="lm-small">' . esc_html__('Used for Daily, Weekly, and Monthly schedules.', 'links-manager') . '</span>';
+    echo '</td>';
+    echo '</tr>';
+    echo '<tr>';
+    echo '<th scope="row"><label for="lm_auto_refresh_weekday">' . esc_html__('Day of week', 'links-manager') . '</label></th>';
+    echo '<td>';
+    echo '<select id="lm_auto_refresh_weekday" name="lm_auto_refresh_weekday">';
+    foreach ($autoRefreshWeekdayLabels as $weekdayKey => $weekdayLabel) {
+      echo '<option value="' . esc_attr((string)$weekdayKey) . '"' . selected((string)$autoRefreshSchedule['weekday'], (string)$weekdayKey, false) . '>' . esc_html((string)$weekdayLabel) . '</option>';
+    }
+    echo '</select> ';
+    echo '<span class="lm-small">' . esc_html__('Used only for the Weekly schedule.', 'links-manager') . '</span>';
+    echo '</td>';
+    echo '</tr>';
+    echo '<tr>';
+    echo '<th scope="row"><label for="lm_auto_refresh_monthday">' . esc_html__('Date of month', 'links-manager') . '</label></th>';
+    echo '<td>';
+    echo '<input type="number" id="lm_auto_refresh_monthday" name="lm_auto_refresh_monthday" min="1" max="31" value="' . esc_attr((string)$autoRefreshSchedule['monthday']) . '" style="width:90px;" /> ';
+    echo '<span class="lm-small">' . esc_html__('Used only for the Monthly schedule. Shorter months use the last valid day.', 'links-manager') . '</span>';
+    echo '</td>';
+    echo '</tr>';
+    echo '<tr>';
+    echo '<th scope="row">' . esc_html__('Timezone', 'links-manager') . '</th>';
+    echo '<td>' . esc_html($autoRefreshTimezoneLabel) . '</td>';
+    echo '</tr>';
+    echo '<tr>';
+    echo '<th scope="row">' . esc_html__('Schedule preview', 'links-manager') . '</th>';
+    echo '<td>' . esc_html($autoRefreshSchedulePreview) . '</td>';
+    echo '</tr>';
+    echo '</tbody>';
+    echo '</table>';
+    echo '</div>';
 
     echo '<div style="' . esc_attr($settingsCardStyle) . '">';
     echo '<div style="font-weight:600; margin-bottom:6px;">' . esc_html__('Performance behavior', 'links-manager') . '</div>';
@@ -303,28 +374,37 @@ trait LM_Settings_Admin_Trait {
 
     if ($activeTab === 'status') {
     echo '<h2 style="margin-top:0;">' . esc_html__('Status & Refresh', 'links-manager') . '</h2>';
-    echo '<div class="lm-small">' . esc_html__('Use this tab to monitor global data readiness and run a manual refresh when needed.', 'links-manager') . '</div>';
+    echo '<div class="lm-small">' . esc_html__('Use this tab to monitor dataset readiness, review scheduled refresh timing, and start a manual refresh when needed.', 'links-manager') . '</div>';
     echo '<div style="margin-top:8px;">';
     echo '<div style="margin:0 0 12px; padding:10px; border-left:4px solid #00a32a; background:#f6f7f7;">';
     echo '<div style="font-weight:600; margin-bottom:4px;">' . esc_html__('Global Refresh Status', 'links-manager') . '</div>';
-    echo '<div class="lm-small">' . esc_html__('These details summarize global plugin data across all scopes and languages.', 'links-manager') . '</div>';
+    echo '<div class="lm-small">' . esc_html__('These details summarize refresh health and dataset availability for the current site.', 'links-manager') . '</div>';
     echo '<div class="lm-small" style="margin-top:6px;">Status legend: <span class="lm-pill ok">Green = healthy</span> <span class="lm-pill warn">Amber = monitor</span> <span class="lm-pill bad">Red = action recommended</span>.</div>';
     echo '</div>';
 
+    $schedulerConfig = $this->get_auto_refresh_schedule_config($settings);
     $nextScheduledTs = wp_next_scheduled('lm_scheduled_cache_rebuild');
-    $schedulerEnabled = $nextScheduledTs !== false && $nextScheduledTs > 0;
-    $nextScheduledLabel = $schedulerEnabled ? wp_date('Y-m-d H:i:s', (int)$nextScheduledTs) : 'Not scheduled';
+    $schedulerEnabled = (string)$schedulerConfig['enabled'] === '1';
+    if (!$schedulerEnabled) {
+      $nextScheduledLabel = __('Not scheduled', 'links-manager');
+    } else {
+      $nextScheduledLabel = ($nextScheduledTs !== false && $nextScheduledTs > 0) ? wp_date('Y-m-d H:i:s', (int)$nextScheduledTs) : __('Scheduling next run...', 'links-manager');
+    }
     $schedulerStatusClass = $schedulerEnabled ? 'ok' : 'bad';
+    $schedulerScheduleLabel = $this->get_auto_refresh_schedule_frequency_label($settings);
+    $schedulerPreviewLabel = $this->get_auto_refresh_schedule_preview($settings);
+    $schedulerTimezoneLabel = $this->get_auto_refresh_schedule_timezone_label();
 
     $restState = $this->get_rebuild_job_state();
-    $restStatus = isset($restState['status']) ? sanitize_key((string)$restState['status']) : 'idle';
+    $restPublicState = $this->get_public_rebuild_job_state($restState);
+    $restStatus = isset($restPublicState['status']) ? sanitize_key((string)$restPublicState['status']) : 'idle';
     if ($restStatus === '') $restStatus = 'idle';
-    $restProcessed = isset($restState['processed_posts']) ? max(0, (int)$restState['processed_posts']) : 0;
-    $restTotal = isset($restState['total_posts']) ? max(0, (int)$restState['total_posts']) : 0;
+    $restProcessed = isset($restPublicState['processed_posts']) ? max(0, (int)$restPublicState['processed_posts']) : 0;
+    $restTotal = isset($restPublicState['total_posts']) ? max(0, (int)$restPublicState['total_posts']) : 0;
     $restProgressLabel = $restTotal > 0
       ? number_format($restProcessed) . ' / ' . number_format($restTotal) . ' posts'
       : number_format($restProcessed) . ' posts processed';
-    $restUpdatedAt = isset($restState['updated_at']) ? (string)$restState['updated_at'] : '';
+    $restUpdatedAt = isset($restPublicState['updated_at']) ? (string)$restPublicState['updated_at'] : '';
     if ($restUpdatedAt === '') {
       $restUpdatedAt = '—';
     }
@@ -350,7 +430,7 @@ trait LM_Settings_Admin_Trait {
     $scopedRowsCount = $this->get_indexed_fact_count_exact_scope('any', $readinessWpmlLang);
     $globalRowsCount = $this->get_indexed_fact_count_exact_scope('any', 'all');
     if ($globalRowsCount < 1) {
-      $globalRowsCount = max(0, (int)($restState['rows_count'] ?? 0));
+      $globalRowsCount = max(0, (int)($restPublicState['rows_count'] ?? 0));
     }
     $effectiveCacheRowsCount = $scopedRowsCount;
 
@@ -360,17 +440,32 @@ trait LM_Settings_Admin_Trait {
       $restRecommendation = __('A refresh is currently running. No manual trigger is needed right now.', 'links-manager');
       $restRecommendationClass = 'warn';
     } elseif ($lastScanLabel === 'Never') {
-      $restRecommendation = __('No recent data is available. Recommended: run a manual refresh.', 'links-manager');
+      $restRecommendation = __('No recent dataset is available yet. Start a refresh to prepare report data.', 'links-manager');
       $restRecommendationClass = 'bad';
     } elseif ($effectiveCacheRowsCount === 0 && $readinessWpmlLang !== 'all' && $globalRowsCount > 0) {
-      $restRecommendation = __('Refresh completed successfully. This language scope currently has 0 rows, but the global dataset is available.', 'links-manager');
+      $restRecommendation = __('This language scope currently has 0 rows, but the global dataset is available.', 'links-manager');
       $restRecommendationClass = 'warn';
     } elseif ($effectiveCacheRowsCount === 0) {
-      $restRecommendation = __('Refresh completed successfully, but no link rows were found in the current scope.', 'links-manager');
+      $restRecommendation = __('No link rows are currently available in this scope.', 'links-manager');
       $restRecommendationClass = 'warn';
     } elseif ($cacheAgeHours >= 24) {
       $restRecommendation = __('Data is older than 24 hours. Consider a manual refresh if you need the latest scan.', 'links-manager');
       $restRecommendationClass = 'warn';
+    }
+
+    $restStageLabel = (string)($restPublicState['current_stage_label'] ?? __('Preparing data', 'links-manager'));
+    $restStageIndex = max(1, (int)($restPublicState['current_stage_index'] ?? 1));
+    $restTotalStages = max(1, (int)($restPublicState['total_stages'] ?? 1));
+    $restPercent = max(0, min(100, (int)($restPublicState['progress_percent'] ?? 0)));
+    $restEtaLabel = (string)($restPublicState['estimated_label'] ?? __('ETA not available yet', 'links-manager'));
+    $restLanguageDetail = '';
+    if (!empty($restPublicState['active_language_label']) && (int)($restPublicState['active_language_total'] ?? 0) > 0) {
+      $restLanguageDetail = sprintf(
+        __('Processing %1$s (Language %2$d/%3$d)', 'links-manager'),
+        (string)$restPublicState['active_language_label'],
+        max(1, (int)($restPublicState['active_language_index'] ?? 1)),
+        max(1, (int)($restPublicState['active_language_total'] ?? 1))
+      );
     }
 
     echo '<div style="' . esc_attr($settingsCardStyle) . '">';
@@ -378,10 +473,13 @@ trait LM_Settings_Admin_Trait {
     echo '<table class="widefat striped" style="margin-top:8px; max-width:760px;">';
     echo '<tbody>';
     echo '<tr><th style="width:260px;">' . esc_html__('Automatic refresh', 'links-manager') . '</th><td><span class="lm-pill ' . esc_attr($schedulerStatusClass) . '">' . esc_html($schedulerEnabled ? __('On', 'links-manager') : __('Off', 'links-manager')) . '</span></td></tr>';
+    echo '<tr><th>' . esc_html__('Schedule', 'links-manager') . '</th><td>' . esc_html($schedulerScheduleLabel) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Runs every', 'links-manager') . '</th><td>' . esc_html($schedulerPreviewLabel) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Timezone', 'links-manager') . '</th><td>' . esc_html($schedulerTimezoneLabel) . '</td></tr>';
     echo '<tr><th>' . esc_html__('Next scheduled run', 'links-manager') . '</th><td>' . esc_html($nextScheduledLabel) . '</td></tr>';
     echo '</tbody>';
     echo '</table>';
-    echo '<div class="lm-small" style="margin-top:6px;">' . esc_html__('Automatic refresh runs through WP-Cron and depends on site traffic.', 'links-manager') . '</div>';
+    echo '<div class="lm-small" style="margin-top:6px;">' . esc_html__('Automatic refresh is scheduled through WP-Cron and may be delayed when site traffic is low. Live progress appears in the Refresh Data section below.', 'links-manager') . '</div>';
     echo '</div>';
 
     echo '<div style="' . esc_attr($settingsCardStyle) . '">';
@@ -397,9 +495,6 @@ trait LM_Settings_Admin_Trait {
     }
     echo '<tr><th>' . esc_html__('Last successful refresh', 'links-manager') . '</th><td>' . esc_html($lastScanLabel) . '</td></tr>';
     echo '<tr><th>' . esc_html__('Last global refresh job update', 'links-manager') . '</th><td>' . esc_html($restUpdatedAt) . '</td></tr>';
-    if ($restStatus === 'running') {
-      echo '<tr><th>' . esc_html__('Refresh progress', 'links-manager') . '</th><td>' . esc_html($restProgressLabel) . '</td></tr>';
-    }
     echo '</tbody>';
     echo '</table>';
     echo '<div class="lm-small" style="margin-top:6px;"><strong>' . esc_html__('Recommendation:', 'links-manager') . '</strong> <span class="lm-pill ' . esc_attr($restRecommendationClass) . '">' . esc_html($restRecommendation) . '</span></div>';
@@ -407,12 +502,12 @@ trait LM_Settings_Admin_Trait {
 
     echo '<div style="' . esc_attr($settingsCardStyle) . '">';
     echo '<div style="font-weight:600; margin-bottom:6px;">' . esc_html__('System-managed performance', 'links-manager') . '</div>';
-    echo '<div class="lm-small" style="margin-bottom:8px;">' . esc_html__('These values are shown for awareness only. They are managed automatically by the system.', 'links-manager') . '</div>';
+    echo '<div class="lm-small" style="margin-bottom:8px;">' . esc_html__('These values are shown for awareness only. The plugin adjusts them automatically based on server limits and refresh behavior.', 'links-manager') . '</div>';
     echo '<table class="widefat striped" style="margin-top:8px; max-width:760px;">';
     echo '<tbody>';
-    echo '<tr><th style="width:260px;">' . esc_html__('Refresh method', 'links-manager') . '</th><td>' . esc_html__('Smart incremental refresh with automatic fallback when needed.', 'links-manager') . '</td></tr>';
-    echo '<tr><th>' . esc_html__('Refresh capacity', 'links-manager') . '</th><td>' . esc_html(sprintf(__('%d pages per request, adjusted automatically for your server.', 'links-manager'), (int)$autoPerformance['crawl_post_batch'])) . '</td></tr>';
-    echo '<tr><th>' . esc_html__('Report cache freshness', 'links-manager') . '</th><td>' . esc_html(sprintf(__('Up to %d seconds for repeated admin requests.', 'links-manager'), (int)$autoPerformance['rest_response_cache_ttl_sec'])) . '</td></tr>';
+    echo '<tr><th style="width:260px;">' . esc_html__('Refresh method', 'links-manager') . '</th><td>' . esc_html__('Background refresh with incremental updates when possible, plus a full rebuild when needed.', 'links-manager') . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Refresh capacity', 'links-manager') . '</th><td>' . esc_html(sprintf(__('%d published posts per request, adjusted automatically for your server.', 'links-manager'), (int)$autoPerformance['crawl_post_batch'])) . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Report cache freshness', 'links-manager') . '</th><td>' . esc_html(sprintf(__('Repeated admin requests may reuse cached responses for up to %d seconds.', 'links-manager'), (int)$autoPerformance['rest_response_cache_ttl_sec'])) . '</td></tr>';
     echo '<tr><th>' . esc_html__('Dashboard stats refresh', 'links-manager') . '</th><td>' . esc_html($this->describe_stats_refresh_minutes((int)$autoPerformance['stats_snapshot_ttl_min'])) . '</td></tr>';
     $editorFallbackMeta = $this->get_editor_php_fallback_runtime_meta();
     $domainSummaryCount = $this->get_indexed_report_summary_count('domain', 'all');
@@ -432,16 +527,21 @@ trait LM_Settings_Admin_Trait {
     echo '<hr style="margin:14px 0;"/>';
     echo '<div id="lm-rest-rebuild-controls" style="margin:0 0 12px; padding:12px; border:1px solid #dcdcde; background:#fff; border-radius:4px;">';
     echo '<div style="font-weight:600; margin-bottom:6px;">' . esc_html__('Refresh Data', 'links-manager') . '</div>';
-    echo '<div class="lm-small" style="margin-bottom:10px;">' . esc_html__('Use this when you want to refresh all cached scan data manually across all scopes and languages. System safety limits are applied automatically.', 'links-manager') . '</div>';
+    echo '<div class="lm-small" style="margin-bottom:10px;">' . esc_html__('This is the single live progress area for both automatic and manual refresh jobs. Use the button only when you want to start a refresh manually. System safety limits are applied automatically.', 'links-manager') . '</div>';
     echo '<p style="margin:0 0 10px;">';
     echo '<button type="button" class="button button-secondary" data-lm-rest-rebuild-run>' . esc_html__('Refresh Data Now', 'links-manager') . '</button>';
     echo '</p>';
-    echo '<div data-lm-rest-rebuild-status class="lm-small" style="font-weight:600; margin-bottom:8px;" aria-live="polite" aria-atomic="true">' . esc_html__('Checking status...', 'links-manager') . '</div>';
-    echo '<div style="width:100%; max-width:620px; height:12px; border:1px solid #c3c4c7; border-radius:999px; background:#f0f0f1; overflow:hidden;">';
-    echo '<div data-lm-rest-rebuild-bar role="progressbar" aria-label="REST rebuild progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="height:100%; width:0%; background:#2271b1; transition:width .2s ease;"></div>';
-    echo '</div>';
-    echo '<div data-lm-rest-rebuild-progress class="lm-small" style="margin-top:6px;" aria-live="polite" aria-atomic="true">' . esc_html__('No active refresh job.', 'links-manager') . '</div>';
-    echo '<div data-lm-rest-rebuild-meta class="lm-small" style="margin-top:4px; color:#646970;" aria-live="polite" aria-atomic="true">' . esc_html__('Scope: all scopes / all languages | Status: idle | Rows: 0 | Batch: auto | Updated: -', 'links-manager') . '</div>';
+    echo '<table class="widefat striped" style="margin-top:8px; max-width:760px;">';
+    echo '<tbody>';
+    echo '<tr><th style="width:260px;">' . esc_html__('Refresh status', 'links-manager') . '</th><td data-lm-rest-rebuild-status aria-live="polite" aria-atomic="true">' . esc_html__('Checking refresh status...', 'links-manager') . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Progress bar', 'links-manager') . '</th><td><div style="width:100%; max-width:620px; height:12px; border:1px solid #c3c4c7; border-radius:999px; background:#f0f0f1; overflow:hidden;"><div data-lm-rest-rebuild-bar role="progressbar" aria-label="REST rebuild progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="height:100%; width:0%; background:#2271b1; transition:width .2s ease;"></div></div></td></tr>';
+    echo '<tr><th>' . esc_html__('Refresh progress', 'links-manager') . '</th><td data-lm-rest-rebuild-progress aria-live="polite" aria-atomic="true">' . esc_html__('No active refresh job.', 'links-manager') . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Stage progress', 'links-manager') . '</th><td data-lm-rest-rebuild-stage aria-live="polite" aria-atomic="true">' . esc_html__('Stage: waiting for refresh', 'links-manager') . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Estimated ready time', 'links-manager') . '</th><td data-lm-rest-rebuild-eta aria-live="polite" aria-atomic="true">' . esc_html__('ETA: not available', 'links-manager') . '</td></tr>';
+    echo '<tr><th>' . esc_html__('Refresh details', 'links-manager') . '</th><td data-lm-rest-rebuild-meta class="lm-small" style="color:#646970;" aria-live="polite" aria-atomic="true">' . esc_html__('Scope: all scopes / all languages | Status: idle | Rows: 0 | Batch: auto | Updated: -', 'links-manager') . '</td></tr>';
+    echo '</tbody>';
+    echo '</table>';
+    echo '<div class="lm-small" style="margin-top:6px;">' . esc_html__('A running refresh continues in the background. You can close this page safely and come back later.', 'links-manager') . '</div>';
     echo '</div>';
 
     }
@@ -558,8 +658,9 @@ trait LM_Settings_Admin_Trait {
     }
 
     if ($activeTab === 'debug') {
+      $troubleshootingSchedulerConfig = $this->get_auto_refresh_schedule_config($settings);
       $troubleshootingSchedulerTs = wp_next_scheduled('lm_scheduled_cache_rebuild');
-      $troubleshootingSchedulerOn = $troubleshootingSchedulerTs !== false && $troubleshootingSchedulerTs > 0;
+      $troubleshootingSchedulerOn = (string)$troubleshootingSchedulerConfig['enabled'] === '1';
       $troubleshootingRestState = $this->get_rebuild_job_state();
       $troubleshootingRestStatus = isset($troubleshootingRestState['status']) ? sanitize_key((string)$troubleshootingRestState['status']) : 'idle';
       if ($troubleshootingRestStatus === '') {
@@ -579,6 +680,8 @@ trait LM_Settings_Admin_Trait {
       $troubleshootingIssues = [];
       if (!$troubleshootingSchedulerOn) {
         $troubleshootingIssues[] = __('Automatic refresh is off. Data may become outdated until you run a manual refresh.', 'links-manager');
+      } elseif ($troubleshootingSchedulerTs === false || (int)$troubleshootingSchedulerTs < 1) {
+        $troubleshootingIssues[] = __('Automatic refresh is on, but the next scheduled run is not queued yet.', 'links-manager');
       }
       if ($troubleshootingLastScanLabel === 'Never') {
         $troubleshootingIssues[] = __('No successful refresh has been recorded yet.', 'links-manager');
@@ -1644,6 +1747,19 @@ trait LM_Settings_Admin_Trait {
     ];
   }
 
+  private function get_auto_refresh_schedule_dependency_state($settings) {
+    $config = $this->get_auto_refresh_schedule_config($settings);
+
+    return [
+      'enabled' => (string)$config['enabled'],
+      'frequency' => (string)$config['frequency'],
+      'hourly_interval' => (string)$config['hourly_interval'],
+      'time' => (string)$config['time'],
+      'weekday' => (string)$config['weekday'],
+      'monthday' => (string)$config['monthday'],
+    ];
+  }
+
   private function get_anchor_config_dependency_state($settings) {
     $settings = is_array($settings) ? $settings : [];
 
@@ -1662,8 +1778,9 @@ trait LM_Settings_Admin_Trait {
 
     $settings = $this->get_settings();
     $previousPerformanceState = $this->get_performance_cache_dependency_state($settings);
+    $previousScheduleState = $this->get_auto_refresh_schedule_dependency_state($settings);
     $previousAnchorConfigState = $this->get_anchor_config_dependency_state($settings);
-    $availablePostTypes = $this->get_default_scan_post_types();
+    $availablePostTypes = $this->get_available_post_types();
     $activeTab = $this->request_key('lm_active_tab', 'general');
     if (!in_array($activeTab, ['general', 'performance', 'status', 'data', 'debug'], true)) {
       $activeTab = 'general';
@@ -1709,6 +1826,35 @@ trait LM_Settings_Admin_Trait {
       $scanExcludePatterns = (string)wp_unslash($this->request_raw('lm_scan_exclude_url_patterns', ''));
       $settings['scan_exclude_url_patterns'] = $this->normalize_multiline_textarea($scanExcludePatterns);
 
+      $settings['auto_refresh_enabled'] = $this->request_has('lm_auto_refresh_enabled') ? '1' : '0';
+      $autoRefreshFrequency = $this->request_key('lm_auto_refresh_frequency', 'weekly');
+      if (!in_array($autoRefreshFrequency, ['hourly', 'daily', 'weekly', 'monthly'], true)) {
+        $autoRefreshFrequency = 'weekly';
+      }
+      $settings['auto_refresh_frequency'] = $autoRefreshFrequency;
+
+      $autoRefreshHourlyInterval = $this->request_int('lm_auto_refresh_hourly_interval', 1);
+      if ($autoRefreshHourlyInterval < 1) $autoRefreshHourlyInterval = 1;
+      if ($autoRefreshHourlyInterval > 24) $autoRefreshHourlyInterval = 24;
+      $settings['auto_refresh_hourly_interval'] = (string)$autoRefreshHourlyInterval;
+
+      $autoRefreshTime = $this->request_text('lm_auto_refresh_time', '21:00');
+      if (!preg_match('/^\d{2}:\d{2}$/', (string)$autoRefreshTime)) {
+        $autoRefreshTime = '21:00';
+      }
+      $settings['auto_refresh_time'] = (string)$autoRefreshTime;
+
+      $autoRefreshWeekday = $this->request_key('lm_auto_refresh_weekday', 'saturday');
+      if (!in_array($autoRefreshWeekday, ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], true)) {
+        $autoRefreshWeekday = 'saturday';
+      }
+      $settings['auto_refresh_weekday'] = $autoRefreshWeekday;
+
+      $autoRefreshMonthday = $this->request_int('lm_auto_refresh_monthday', 1);
+      if ($autoRefreshMonthday < 1) $autoRefreshMonthday = 1;
+      if ($autoRefreshMonthday > 31) $autoRefreshMonthday = 31;
+      $settings['auto_refresh_monthday'] = (string)$autoRefreshMonthday;
+
       $settings = array_merge($settings, $this->get_auto_managed_performance_settings());
       $settings['performance_preset'] = 'auto';
     }
@@ -1729,6 +1875,12 @@ trait LM_Settings_Admin_Trait {
       $settings['scan_author_ids'] = [];
       $settings['scan_modified_within_days'] = '0';
       $settings['scan_exclude_url_patterns'] = implode("\n", $this->get_default_scan_exclude_url_patterns());
+      $settings['auto_refresh_enabled'] = '1';
+      $settings['auto_refresh_frequency'] = 'weekly';
+      $settings['auto_refresh_hourly_interval'] = '1';
+      $settings['auto_refresh_time'] = '21:00';
+      $settings['auto_refresh_weekday'] = 'saturday';
+      $settings['auto_refresh_monthday'] = '1';
     }
 
     if ($activeTab === 'data' || $resetDataSettings || $restoredDefaults || $clearedAll) {
@@ -1790,8 +1942,15 @@ trait LM_Settings_Admin_Trait {
 
     $currentPerformanceState = $this->get_performance_cache_dependency_state($settings);
     $performanceChanged = ($currentPerformanceState !== $previousPerformanceState);
+    $currentScheduleState = $this->get_auto_refresh_schedule_dependency_state($settings);
+    $scheduleChanged = ($currentScheduleState !== $previousScheduleState);
     $currentAnchorConfigState = $this->get_anchor_config_dependency_state($settings);
     $anchorConfigChanged = ($currentAnchorConfigState !== $previousAnchorConfigState);
+    if ($scheduleChanged) {
+      $this->reschedule_configured_cache_rebuild($settings);
+    } else {
+      $this->ensure_scheduled_cache_rebuild();
+    }
     if ($performanceChanged) {
       $this->clear_main_cache_all();
       $this->schedule_background_rebuild('any', 'all', 2);

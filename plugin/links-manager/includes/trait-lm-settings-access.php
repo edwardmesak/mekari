@@ -13,6 +13,12 @@ trait LM_Settings_Access_Trait {
 
     $defaults = [
       'debug_mode' => '0',
+      'auto_refresh_enabled' => '1',
+      'auto_refresh_frequency' => 'weekly',
+      'auto_refresh_hourly_interval' => '1',
+      'auto_refresh_time' => '21:00',
+      'auto_refresh_weekday' => 'saturday',
+      'auto_refresh_monthday' => '1',
       'performance_preset' => 'auto',
       'scan_exclude_defaults_initialized' => '0',
       'stats_snapshot_ttl_min' => (string)(int)(self::STATS_SNAPSHOT_TTL / MINUTE_IN_SECONDS),
@@ -52,6 +58,44 @@ trait LM_Settings_Access_Trait {
     }
 
     $opt['debug_mode'] = (isset($opt['debug_mode']) && (string)$opt['debug_mode'] === '1') ? '1' : '0';
+    $opt['auto_refresh_enabled'] = (isset($opt['auto_refresh_enabled']) && (string)$opt['auto_refresh_enabled'] === '0') ? '0' : '1';
+    $autoRefreshFrequency = sanitize_key((string)($opt['auto_refresh_frequency'] ?? 'weekly'));
+    if (!in_array($autoRefreshFrequency, ['hourly', 'daily', 'weekly', 'monthly'], true)) {
+      $autoRefreshFrequency = 'weekly';
+    }
+    $opt['auto_refresh_frequency'] = $autoRefreshFrequency;
+
+    $autoRefreshHourlyInterval = isset($opt['auto_refresh_hourly_interval']) ? (int)$opt['auto_refresh_hourly_interval'] : 1;
+    if ($autoRefreshHourlyInterval < 1) $autoRefreshHourlyInterval = 1;
+    if ($autoRefreshHourlyInterval > 24) $autoRefreshHourlyInterval = 24;
+    $opt['auto_refresh_hourly_interval'] = (string)$autoRefreshHourlyInterval;
+
+    $autoRefreshTime = isset($opt['auto_refresh_time']) ? (string)$opt['auto_refresh_time'] : '21:00';
+    if (!preg_match('/^\d{2}:\d{2}$/', $autoRefreshTime)) {
+      $autoRefreshTime = '21:00';
+    } else {
+      $timeParts = explode(':', $autoRefreshTime);
+      $hours = isset($timeParts[0]) ? (int)$timeParts[0] : 21;
+      $minutes = isset($timeParts[1]) ? (int)$timeParts[1] : 0;
+      if ($hours < 0 || $hours > 23 || $minutes < 0 || $minutes > 59) {
+        $autoRefreshTime = '21:00';
+      } else {
+        $autoRefreshTime = sprintf('%02d:%02d', $hours, $minutes);
+      }
+    }
+    $opt['auto_refresh_time'] = $autoRefreshTime;
+
+    $autoRefreshWeekday = sanitize_key((string)($opt['auto_refresh_weekday'] ?? 'saturday'));
+    if (!in_array($autoRefreshWeekday, ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], true)) {
+      $autoRefreshWeekday = 'saturday';
+    }
+    $opt['auto_refresh_weekday'] = $autoRefreshWeekday;
+
+    $autoRefreshMonthday = isset($opt['auto_refresh_monthday']) ? (int)$opt['auto_refresh_monthday'] : 1;
+    if ($autoRefreshMonthday < 1) $autoRefreshMonthday = 1;
+    if ($autoRefreshMonthday > 31) $autoRefreshMonthday = 31;
+    $opt['auto_refresh_monthday'] = (string)$autoRefreshMonthday;
+
     $opt['scan_exclude_defaults_initialized'] = (isset($opt['scan_exclude_defaults_initialized']) && (string)$opt['scan_exclude_defaults_initialized'] === '1') ? '1' : '0';
     $opt['performance_preset'] = 'auto';
     if (!isset($opt['scan_post_types']) || !is_array($opt['scan_post_types'])) {

@@ -64,8 +64,29 @@ trait LM_Cache_Index_Sync_Trait {
   }
 
   private function clear_cache_payload($scope_post_type, $wpml_lang) {
-    delete_transient($this->cache_key($scope_post_type, $wpml_lang));
+    $this->clear_main_cache_payload($scope_post_type, $wpml_lang);
     delete_transient($this->cache_backup_key($scope_post_type, $wpml_lang));
+  }
+
+  private function clear_main_cache_payload($scope_post_type, $wpml_lang) {
+    delete_transient($this->cache_key($scope_post_type, $wpml_lang));
+  }
+
+  private function restore_indexed_datastore_from_backup($scope_post_type, $wpml_lang) {
+    $scope_post_type = sanitize_key((string)$scope_post_type);
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
+
+    if ($scope_post_type !== 'any') {
+      return false;
+    }
+
+    $backupRows = get_transient($this->cache_backup_key($scope_post_type, $wpml_lang));
+    if (!is_array($backupRows) || empty($backupRows)) {
+      return false;
+    }
+
+    $this->sync_indexed_datastore_from_rows($backupRows, $wpml_lang);
+    return ($this->get_indexed_fact_count('any', $wpml_lang) > 0);
   }
 
   private function normalize_db_datetime_or_null($raw) {

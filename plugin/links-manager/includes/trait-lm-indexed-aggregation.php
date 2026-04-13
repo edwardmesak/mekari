@@ -431,8 +431,8 @@ trait LM_Indexed_Aggregation_Trait {
     if ($scopePostType === '') {
       $scopePostType = 'any';
     }
-    $wpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
-    $resolvedScope = $this->resolve_indexed_datastore_scope($scopePostType, $wpmlLang, !$this->has_exact_language_scope($wpmlLang));
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $resolvedScope = $this->resolve_indexed_datastore_scope($scopePostType, $wpmlLang, false);
     if (!is_array($resolvedScope)) {
       return null;
     }

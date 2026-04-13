@@ -1268,18 +1268,110 @@ trait LM_Indexed_Datastore_Trait {
     $state = $this->get_rebuild_job_state();
     $status = sanitize_key((string)($state['status'] ?? ''));
     if (in_array($status, ['running', 'finalizing'], true)) {
-      return __('Refresh Data is still running. Report data will appear automatically when the refresh completes.', 'links-manager');
+      if ($this->has_refresh_dataset_for_scope($scopePostType, $wpmlLang, false) || $this->has_nonempty_refresh_dataset_for_scope($scopePostType, $wpmlLang, false)) {
+        return __('Refresh Data is running in the background. You can keep using the current data while the latest refresh completes.', 'links-manager');
+      }
+      return __('Data is being prepared automatically. This report will populate as soon as the refresh completes.', 'links-manager');
     }
 
     if (!$this->has_nonempty_refresh_dataset_for_scope('any', 'all', false) && !$this->has_refresh_dataset_for_scope('any', 'all', false)) {
-      return __('No refreshed dataset is available yet. Run Refresh Data first to load report data.', 'links-manager');
+      return __('No refreshed dataset is available yet. The plugin will prepare data automatically in the background.', 'links-manager');
     }
 
     if (!$this->has_nonempty_refresh_dataset_for_scope($scopePostType, $wpmlLang, false) && !$this->has_refresh_dataset_for_scope($scopePostType, $wpmlLang, false)) {
-      return __('No rows are available yet for the current scope. Run Refresh Data or switch to another language scope.', 'links-manager');
+      return __('No rows are available yet for the current scope. Data may still be preparing for this language, or you can switch to another language scope.', 'links-manager');
     }
 
     return '';
+  }
+
+  private function render_refresh_data_status_banner($scopePostType = 'any', $wpmlLang = 'all') {
+    $scopePostType = sanitize_key((string)$scopePostType);
+    if ($scopePostType === '') {
+      $scopePostType = 'any';
+    }
+    $wpmlLang = $this->get_requested_view_wpml_lang((string)$wpmlLang);
+    if ($wpmlLang === '') {
+      $wpmlLang = 'all';
+    }
+
+    $readiness = $this->get_refresh_readiness_state($scopePostType, $wpmlLang);
+    $state = $this->get_public_rebuild_job_state($this->get_rebuild_job_state());
+    $status = sanitize_key((string)($state['status'] ?? 'idle'));
+    $isRunning = in_array($status, ['running', 'finalizing'], true);
+    $languagesMap = $this->get_wpml_languages_map();
+    $langLabel = $wpmlLang === 'all'
+      ? __('All languages', 'links-manager')
+      : (isset($languagesMap[$wpmlLang]) ? (string)$languagesMap[$wpmlLang] : strtoupper($wpmlLang));
+
+    if (!$isRunning && $readiness === 'ready') {
+      return;
+    }
+
+    $noticeClass = 'notice-info';
+    $title = __('Preparing data automatically', 'links-manager');
+    $summary = __('The plugin is preparing report data in the background.', 'links-manager');
+    $detailParts = [];
+
+    if ($readiness === 'stale_but_available') {
+      $title = __('Refreshing in background', 'links-manager');
+      $summary = __('You can keep using the current data while the latest refresh completes.', 'links-manager');
+    } elseif ($readiness === 'current_language_pending') {
+      $title = sprintf(__('%s data is still preparing', 'links-manager'), $langLabel);
+      $summary = __('Global data is available, but this language scope is still being prepared.', 'links-manager');
+      $noticeClass = 'notice-warning';
+    } elseif ($readiness === 'empty' || $readiness === 'initializing') {
+      $title = __('Preparing data for first use', 'links-manager');
+      $summary = __('The plugin is generating its first dataset automatically. No manual refresh is required.', 'links-manager');
+    }
+
+    if ($isRunning) {
+      $detailParts[] = sprintf(
+        __('%1$s%% complete', 'links-manager'),
+        number_format_i18n((int)($state['progress_percent'] ?? 0))
+      );
+      $detailParts[] = sprintf(
+        __('Step %1$d/%2$d: %3$s', 'links-manager'),
+        max(1, (int)($state['current_stage_index'] ?? 1)),
+        max(1, (int)($state['total_stages'] ?? 1)),
+        (string)($state['current_stage_label'] ?? __('Preparing data', 'links-manager'))
+      );
+      if (!empty($state['active_language_label']) && (int)($state['active_language_total'] ?? 0) > 0) {
+        $detailParts[] = sprintf(
+          __('Processing %1$s (Language %2$d/%3$d)', 'links-manager'),
+          (string)$state['active_language_label'],
+          max(1, (int)($state['active_language_index'] ?? 1)),
+          max(1, (int)($state['active_language_total'] ?? 1))
+        );
+      }
+      $detailParts[] = (string)($state['estimated_label'] ?? __('ETA not available yet', 'links-manager'));
+    } elseif (in_array($readiness, ['empty', 'initializing', 'current_language_pending', 'stale_but_available'], true)) {
+      $totalStages = ($wpmlLang === 'all') ? 5 : 4;
+      $detailParts[] = sprintf(
+        __('%1$s%% complete', 'links-manager'),
+        number_format_i18n(0)
+      );
+      $detailParts[] = sprintf(
+        __('Step %1$d/%2$d: %3$s', 'links-manager'),
+        1,
+        $totalStages,
+        __('Preparing refresh job', 'links-manager')
+      );
+
+      if (!empty($state['worker_scheduled'])) {
+        $detailParts[] = __('Background refresh is queued and will continue even if you close this page.', 'links-manager');
+      }
+
+      $detailParts[] = (string)($state['estimated_label'] ?? __('ETA not available yet', 'links-manager'));
+    }
+
+    echo '<div class="notice ' . esc_attr($noticeClass) . '" style="margin-bottom:12px;">';
+    echo '<p><strong>' . esc_html($title) . '</strong> ' . esc_html($summary) . '</p>';
+    if (!empty($detailParts)) {
+      echo '<p class="lm-small" style="margin-top:4px;">' . esc_html(implode(' | ', $detailParts)) . '</p>';
+    }
+    echo '<p class="lm-small" style="margin-top:6px;"><a href="' . esc_url(admin_url('admin.php?page=links-manager-settings&lm_tab=status')) . '">' . esc_html__('View detailed refresh status', 'links-manager') . '</a></p>';
+    echo '</div>';
   }
 
   private function get_report_scope_rows_or_empty($scopePostType = 'any', $wpmlLang = 'all', $filters = null, $allowAnyAllFallback = true) {

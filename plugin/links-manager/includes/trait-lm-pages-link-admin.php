@@ -80,7 +80,12 @@ trait LM_Pages_Link_Admin_Trait {
       $perPage = (int)($pagedResult['per_page'] ?? $filters['per_page']);
       $paged = (int)($pagedResult['paged'] ?? $filters['paged']);
       $totalPages = (int)($pagedResult['total_pages'] ?? max(1, (int)ceil(max(0, $total) / max(1, $perPage))));
-      $pageRows = $pages;
+      $offset = max(0, ($paged - 1) * max(1, $perPage));
+      if ($this->can_use_pages_link_indexed_fastpath($filters)) {
+        $pageRows = $pages;
+      } else {
+        $pageRows = array_slice($pages, $offset, $perPage);
+      }
     } else {
       $total = count($pages);
       $perPage = $filters['per_page'];
@@ -166,6 +171,7 @@ trait LM_Pages_Link_Admin_Trait {
     );
 
     if ($msg !== '') echo '<div class="notice notice-' . esc_attr($msgClass) . '"><p>' . esc_html($msg) . '</p></div>';
+    $this->render_refresh_data_status_banner($scopePostType, $scopeWpmlLang);
     if ($dataNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($dataNotice) . '</p></div>';
 
     echo '<div class="lm-grid">';

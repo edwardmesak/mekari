@@ -87,6 +87,7 @@ trait LM_Cited_Domains_Admin_Trait {
       __('Links Manager - Cited External Domains', 'links-manager'),
       __('Review the domains most often referenced from your content and refine outbound linking with faster filters.', 'links-manager')
     );
+    $this->render_refresh_data_status_banner($scopePostType, $scopeWpmlLang);
     if ($dataNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($dataNotice) . '</p></div>';
     if ($warningNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($warningNotice) . '</p></div>';
 

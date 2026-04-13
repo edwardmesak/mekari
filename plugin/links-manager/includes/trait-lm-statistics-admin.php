@@ -18,7 +18,7 @@ trait LM_Statistics_Admin_Trait {
     if ($statsScopePostType === '') {
       $statsScopePostType = 'any';
     }
-    $statsWpmlLang = $this->get_effective_scan_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $statsWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
     $dataNotice = $this->get_report_data_notice($statsScopePostType, $statsWpmlLang);
 
     echo '<div class="wrap lm-wrap">';
@@ -28,6 +28,7 @@ trait LM_Statistics_Admin_Trait {
     );
 
     if ($msg !== '') echo '<div class="notice notice-' . esc_attr($msgClass) . '"><p>' . esc_html($msg) . '</p></div>';
+    $this->render_refresh_data_status_banner($statsScopePostType, $statsWpmlLang);
     if ($dataNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($dataNotice) . '</p></div>';
 
     $includeOrphanPages = false;

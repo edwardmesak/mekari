@@ -68,6 +68,7 @@ trait LM_Editor_Admin_Trait {
     );
 
     if ($msg !== '') echo '<div class="notice notice-' . esc_attr($msgClass) . '"><p>' . esc_html($msg) . '</p></div>';
+    $this->render_refresh_data_status_banner($scopePostType, $scopeWpmlLang);
     if ($dataNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($dataNotice) . '</p></div>';
     if ($editorWarningNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($editorWarningNotice) . '</p></div>';
 

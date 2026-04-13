@@ -60,6 +60,16 @@ When deleted from WordPress (not just deactivated), the plugin removes:
 - Fixed `All Anchor Text` indexed filtering for quality, usage type, group, min/max thresholds, and sorting so filtered results stay consistent with fallback builders
 - Improved `Statistics` cache invalidation to refresh snapshot data after new `Refresh Data` runs and avoid stale scoped statistics
 - Added active-filter highlighting and active-filter counts in report forms, while excluding modifier-only controls such as sort, pagination, and text-search mode from the active-filter summary
+- Added background-owned manual refresh workers so `Refresh Data` continues running after the admin page is closed, with watchdog rescheduling when a step worker is missing
+- Added richer refresh UX across Settings and report banners, including percentage progress, step counts, stage labels, ETA messaging, and language-aware progress details
+- Consolidated live refresh progress into a single `Refresh Data` panel in Settings and aligned surrounding Status copy so scheduler info, dataset readiness, and live job state are no longer duplicated
+- Added configurable automatic refresh schedules with hourly, daily, weekly, and monthly options, including weekday/date selection, timezone-aware previews, and a weekly Saturday 21:00 WIB default
+- Fixed scheduled-refresh normalization so refreshing the Settings Status page no longer spawns stray automatic rebuilds from overdue or duplicated cron events
+- Hardened refresh polling against transient `502/503/504` gateway failures by retrying safely and falling back more cleanly instead of dumping raw HTML error pages into the UI
+- Fixed `Pages Link` multilingual inbound counting by forcing candidate queries, permalink generation, parity tools, and summary finalization to use the requested WPML language consistently
+- Fixed Settings save/reset handling for scan post types so Performance reset restores valid post-type defaults instead of writing invalid values
+- Preserved indexed refresh backups until a rebuild finishes successfully, and restored the previous indexed dataset automatically when a rebuild errors or stops at a configured partial limit
+- Fixed fresh-install non-WPML refreshes so global `all` summaries are finalized directly from fact rows when no per-language summary buckets exist, while keeping the faster aggregate-from-language-summaries path for WPML sites
 
 ### 4.4.5
 

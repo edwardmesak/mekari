@@ -8,6 +8,85 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Cache_Rebuild_Trait {
+  private function rebuild_step_worker_args() {
+    return [get_current_blog_id()];
+  }
+
+  private function background_rebuild_event_args($scope_post_type = 'any', $wpml_lang = 'all') {
+    $scope_post_type = sanitize_key((string)$scope_post_type);
+    if ($scope_post_type === '') {
+      $scope_post_type = 'any';
+    }
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
+
+    return [$scope_post_type, $wpml_lang];
+  }
+
+  private function rest_list_prewarm_event_args($scope_post_type = 'any', $wpml_lang = 'all') {
+    return $this->background_rebuild_event_args($scope_post_type, $wpml_lang);
+  }
+
+  private function schedule_rebuild_step_worker($delaySeconds = 1) {
+    $delaySeconds = max(1, (int)$delaySeconds);
+    $args = $this->rebuild_step_worker_args();
+    if (!wp_next_scheduled('lm_rebuild_step_worker', $args)) {
+      wp_schedule_single_event(time() + $delaySeconds, 'lm_rebuild_step_worker', $args);
+    }
+  }
+
+  public function ensure_active_rebuild_step_worker() {
+    $state = $this->get_rebuild_job_state();
+    $status = sanitize_key((string)($state['status'] ?? 'idle'));
+    if (!in_array($status, ['running', 'finalizing'], true)) {
+      return;
+    }
+
+    $args = $this->rebuild_step_worker_args();
+    if (!wp_next_scheduled('lm_rebuild_step_worker', $args)) {
+      $state['worker_scheduled'] = '1';
+      $state['updated_at'] = current_time('mysql');
+      $this->save_rebuild_job_state($state);
+      $this->schedule_rebuild_step_worker(1);
+    }
+  }
+
+  public function run_rebuild_step_worker($blogId = 0) {
+    $state = $this->get_rebuild_job_state();
+    if (!is_array($state) || empty($state)) {
+      return;
+    }
+
+    $status = sanitize_key((string)($state['status'] ?? 'idle'));
+    if (!in_array($status, ['running', 'finalizing'], true)) {
+      $state['worker_scheduled'] = '0';
+      $state['last_worker_completed_at'] = current_time('mysql');
+      $state['updated_at'] = current_time('mysql');
+      $this->save_rebuild_job_state($state);
+      return;
+    }
+
+    $state['execution_mode'] = 'background';
+    $state['worker_scheduled'] = '0';
+    $state['last_worker_started_at'] = current_time('mysql');
+    $state['updated_at'] = current_time('mysql');
+    $this->save_rebuild_job_state($state);
+
+    $request = new WP_REST_Request('POST', '/links-manager/v1/rebuild/step');
+    $request->set_param('batch', 0);
+    $this->rest_rebuild_step($request);
+  }
+
+  private function get_auto_refresh_timezone_offset_string($offsetHours = null) {
+    $offsetHours = is_numeric($offsetHours) ? (float)$offsetHours : (float)get_option('gmt_offset', 0);
+    $offsetMinutesTotal = (int)round($offsetHours * 60);
+    $sign = ($offsetMinutesTotal < 0) ? '-' : '+';
+    $offsetMinutesTotal = abs($offsetMinutesTotal);
+    $hours = (int)floor($offsetMinutesTotal / 60);
+    $minutes = (int)($offsetMinutesTotal % 60);
+
+    return sprintf('%s%02d:%02d', $sign, $hours, $minutes);
+  }
+
   private function count_cache_post_ids($post_types, $wpml_lang = 'all', $modified_after_gmt = '') {
     $post_types = array_values(array_unique(array_map('sanitize_key', (array)$post_types)));
     if (empty($post_types)) {
@@ -534,14 +613,9 @@ trait LM_Cache_Rebuild_Trait {
   }
 
   private function schedule_background_rebuild($scope_post_type = 'any', $wpml_lang = 'all', $delaySeconds = 5) {
-    $scope_post_type = sanitize_key((string)$scope_post_type);
-    if ($scope_post_type === '') {
-      $scope_post_type = 'any';
-    }
-    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
     $delaySeconds = max(1, (int)$delaySeconds);
 
-    $args = [$scope_post_type, $wpml_lang];
+    $args = $this->background_rebuild_event_args($scope_post_type, $wpml_lang);
     if (!wp_next_scheduled('lm_background_rebuild_cache', $args)) {
       wp_schedule_single_event(time() + $delaySeconds, 'lm_background_rebuild_cache', $args);
     }
@@ -810,15 +884,16 @@ trait LM_Cache_Rebuild_Trait {
   }
 
   private function schedule_rest_list_prewarm($scope_post_type = 'any', $wpml_lang = 'all', $delaySeconds = 2) {
-    $scope_post_type = sanitize_key((string)$scope_post_type);
-    if ($scope_post_type === '') {
-      $scope_post_type = 'any';
-    }
-    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
     $delaySeconds = max(1, (int)$delaySeconds);
 
-    $args = [$scope_post_type, $wpml_lang];
+    $args = $this->rest_list_prewarm_event_args($scope_post_type, $wpml_lang);
     if (!wp_next_scheduled('lm_prewarm_rest_list_cache', $args)) {
+      $state = $this->get_rebuild_job_state();
+      if (is_array($state) && !empty($state)) {
+        $state['prewarm_pending'] = '1';
+        $state['updated_at'] = current_time('mysql');
+        $this->save_rebuild_job_state($state);
+      }
       wp_schedule_single_event(time() + $delaySeconds, 'lm_prewarm_rest_list_cache', $args);
     }
   }
@@ -850,6 +925,13 @@ trait LM_Cache_Rebuild_Trait {
       if (defined('WP_DEBUG') && WP_DEBUG) {
         error_log('LM REST prewarm error: ' . sanitize_text_field($e->getMessage()));
       }
+    } finally {
+      $state = $this->get_rebuild_job_state();
+      if (is_array($state) && !empty($state)) {
+        unset($state['prewarm_pending']);
+        $state['updated_at'] = current_time('mysql');
+        $this->save_rebuild_job_state($state);
+      }
     }
   }
 
@@ -857,22 +939,323 @@ trait LM_Cache_Rebuild_Trait {
     return 'lm_bg_rebuild_lock_' . md5(get_current_blog_id() . '|' . (string)$scope_post_type . '|' . (string)$wpml_lang);
   }
 
-  public function ensure_scheduled_cache_rebuild() {
-    if (!wp_next_scheduled('lm_scheduled_cache_rebuild')) {
-      wp_schedule_event(time() + (5 * MINUTE_IN_SECONDS), 'hourly', 'lm_scheduled_cache_rebuild');
+  private function get_auto_refresh_schedule_config($settings = null) {
+    $settings = is_array($settings) ? $settings : $this->get_settings();
+
+    $frequency = sanitize_key((string)($settings['auto_refresh_frequency'] ?? 'weekly'));
+    if (!in_array($frequency, ['hourly', 'daily', 'weekly', 'monthly'], true)) {
+      $frequency = 'weekly';
     }
+
+    $hourlyInterval = isset($settings['auto_refresh_hourly_interval']) ? (int)$settings['auto_refresh_hourly_interval'] : 1;
+    $hourlyInterval = max(1, min(24, $hourlyInterval));
+
+    $timeValue = isset($settings['auto_refresh_time']) ? (string)$settings['auto_refresh_time'] : '21:00';
+    if (!preg_match('/^\d{2}:\d{2}$/', $timeValue)) {
+      $timeValue = '21:00';
+    }
+    $timeParts = explode(':', $timeValue);
+    $hour = isset($timeParts[0]) ? max(0, min(23, (int)$timeParts[0])) : 21;
+    $minute = isset($timeParts[1]) ? max(0, min(59, (int)$timeParts[1])) : 0;
+    $timeValue = sprintf('%02d:%02d', $hour, $minute);
+
+    $weekday = sanitize_key((string)($settings['auto_refresh_weekday'] ?? 'saturday'));
+    if (!in_array($weekday, ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], true)) {
+      $weekday = 'saturday';
+    }
+
+    $monthday = isset($settings['auto_refresh_monthday']) ? (int)$settings['auto_refresh_monthday'] : 1;
+    $monthday = max(1, min(31, $monthday));
+
+    return [
+      'enabled' => ((string)($settings['auto_refresh_enabled'] ?? '1') === '0') ? '0' : '1',
+      'frequency' => $frequency,
+      'hourly_interval' => $hourlyInterval,
+      'time' => $timeValue,
+      'hour' => $hour,
+      'minute' => $minute,
+      'weekday' => $weekday,
+      'monthday' => $monthday,
+    ];
+  }
+
+  private function get_auto_refresh_schedule_timezone() {
+    if (function_exists('wp_timezone')) {
+      try {
+        $timezone = wp_timezone();
+        if ($timezone instanceof DateTimeZone) {
+          return $timezone;
+        }
+      } catch (Throwable $e) {
+      }
+    }
+
+    try {
+      $tzString = wp_timezone_string();
+      if (is_string($tzString) && trim($tzString) !== '') {
+        return new DateTimeZone($tzString);
+      }
+    } catch (Throwable $e) {
+    }
+
+    try {
+      return new DateTimeZone($this->get_auto_refresh_timezone_offset_string());
+    } catch (Throwable $e) {
+      return new DateTimeZone('UTC');
+    }
+  }
+
+  private function get_auto_refresh_schedule_timezone_label() {
+    $timezone = $this->get_auto_refresh_schedule_timezone();
+    $timezoneName = (string)$timezone->getName();
+
+    $now = new DateTimeImmutable('now', $timezone);
+    $offsetSeconds = (int)$now->getOffset();
+    $offsetSign = ($offsetSeconds < 0) ? '-' : '+';
+    $offsetSeconds = abs($offsetSeconds);
+    $offsetHours = (int)floor($offsetSeconds / HOUR_IN_SECONDS);
+    $offsetMinutes = (int)floor(($offsetSeconds % HOUR_IN_SECONDS) / MINUTE_IN_SECONDS);
+    $offsetLabel = sprintf('UTC%s%02d:%02d', $offsetSign, $offsetHours, $offsetMinutes);
+
+    if (preg_match('/^[+-]\d{2}:\d{2}$/', $timezoneName)) {
+      return $offsetLabel;
+    }
+
+    return sprintf('%s (%s)', $timezoneName, $offsetLabel);
+  }
+
+  private function get_auto_refresh_weekday_labels() {
+    return [
+      'monday' => __('Monday', 'links-manager'),
+      'tuesday' => __('Tuesday', 'links-manager'),
+      'wednesday' => __('Wednesday', 'links-manager'),
+      'thursday' => __('Thursday', 'links-manager'),
+      'friday' => __('Friday', 'links-manager'),
+      'saturday' => __('Saturday', 'links-manager'),
+      'sunday' => __('Sunday', 'links-manager'),
+    ];
+  }
+
+  private function get_auto_refresh_schedule_preview($settings = null) {
+    $config = $this->get_auto_refresh_schedule_config($settings);
+    if ((string)$config['enabled'] !== '1') {
+      return __('Automatic refresh is turned off.', 'links-manager');
+    }
+
+    $timezoneLabel = $this->get_auto_refresh_schedule_timezone_label();
+    $timeLabel = (string)$config['time'];
+    $weekdayLabels = $this->get_auto_refresh_weekday_labels();
+
+    if ($config['frequency'] === 'hourly') {
+      return sprintf(
+        _n('Runs every %d hour in the background. Times follow %s.', 'Runs every %d hours in the background. Times follow %s.', (int)$config['hourly_interval'], 'links-manager'),
+        (int)$config['hourly_interval'],
+        $timezoneLabel
+      );
+    }
+
+    if ($config['frequency'] === 'daily') {
+      return sprintf(__('Runs every day at %1$s %2$s.', 'links-manager'), $timeLabel, $timezoneLabel);
+    }
+
+    if ($config['frequency'] === 'monthly') {
+      return sprintf(__('Runs on day %1$d of each month at %2$s %3$s. If a month is shorter, the last day is used.', 'links-manager'), (int)$config['monthday'], $timeLabel, $timezoneLabel);
+    }
+
+    $weekdayLabel = isset($weekdayLabels[$config['weekday']]) ? $weekdayLabels[$config['weekday']] : ucfirst((string)$config['weekday']);
+    return sprintf(__('Runs every %1$s at %2$s %3$s.', 'links-manager'), $weekdayLabel, $timeLabel, $timezoneLabel);
+  }
+
+  private function get_auto_refresh_schedule_frequency_label($settings = null) {
+    $config = $this->get_auto_refresh_schedule_config($settings);
+    switch ((string)$config['frequency']) {
+      case 'hourly':
+        return __('Hourly', 'links-manager');
+      case 'daily':
+        return __('Daily', 'links-manager');
+      case 'monthly':
+        return __('Monthly', 'links-manager');
+      default:
+        return __('Weekly', 'links-manager');
+    }
+  }
+
+  private function get_next_configured_cache_rebuild_timestamp($settings = null, $referenceTimestamp = null) {
+    $config = $this->get_auto_refresh_schedule_config($settings);
+    if ((string)$config['enabled'] !== '1') {
+      return 0;
+    }
+
+    $timezone = $this->get_auto_refresh_schedule_timezone();
+    $referenceTs = (int)$referenceTimestamp;
+    if ($referenceTs < 1) {
+      $referenceTs = time();
+    }
+    $now = (new DateTimeImmutable('@' . $referenceTs))->setTimezone($timezone);
+
+    if ($config['frequency'] === 'hourly') {
+      $candidate = $now->setTime((int)$now->format('G'), 0, 0)->modify('+1 hour');
+      while (((int)$candidate->format('G')) % (int)$config['hourly_interval'] !== 0) {
+        $candidate = $candidate->modify('+1 hour');
+      }
+      return (int)$candidate->getTimestamp();
+    }
+
+    if ($config['frequency'] === 'daily') {
+      $candidate = $now->setTime((int)$config['hour'], (int)$config['minute'], 0);
+      if ($candidate <= $now) {
+        $candidate = $candidate->modify('+1 day');
+      }
+      return (int)$candidate->getTimestamp();
+    }
+
+    if ($config['frequency'] === 'weekly') {
+      $weekdayMap = [
+        'monday' => 1,
+        'tuesday' => 2,
+        'wednesday' => 3,
+        'thursday' => 4,
+        'friday' => 5,
+        'saturday' => 6,
+        'sunday' => 7,
+      ];
+      $targetWeekday = isset($weekdayMap[$config['weekday']]) ? (int)$weekdayMap[$config['weekday']] : 6;
+      $candidate = $now->setTime((int)$config['hour'], (int)$config['minute'], 0);
+      while (((int)$candidate->format('N') !== $targetWeekday) || $candidate <= $now) {
+        $candidate = $candidate->modify('+1 day');
+      }
+      return (int)$candidate->getTimestamp();
+    }
+
+    $year = (int)$now->format('Y');
+    $month = (int)$now->format('n');
+    $targetDay = (int)$config['monthday'];
+    $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
+    $clampedDay = min($targetDay, $daysInMonth);
+    $candidate = $now->setDate($year, $month, $clampedDay)->setTime((int)$config['hour'], (int)$config['minute'], 0);
+    if ($candidate <= $now) {
+      $nextMonth = $now->modify('first day of next month');
+      $year = (int)$nextMonth->format('Y');
+      $month = (int)$nextMonth->format('n');
+      $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
+      $clampedDay = min($targetDay, $daysInMonth);
+      $candidate = $nextMonth->setDate($year, $month, $clampedDay)->setTime((int)$config['hour'], (int)$config['minute'], 0);
+    }
+
+    return (int)$candidate->getTimestamp();
+  }
+
+  private function clear_configured_cache_rebuild_schedule() {
+    wp_clear_scheduled_hook('lm_scheduled_cache_rebuild');
+  }
+
+  private function get_configured_cache_rebuild_schedule_timestamps() {
+    $cron = _get_cron_array();
+    if (!is_array($cron) || empty($cron)) {
+      return [];
+    }
+
+    $timestamps = [];
+    foreach ($cron as $timestamp => $hooks) {
+      if (!isset($hooks['lm_scheduled_cache_rebuild']) || !is_array($hooks['lm_scheduled_cache_rebuild'])) {
+        continue;
+      }
+      foreach ($hooks['lm_scheduled_cache_rebuild'] as $event) {
+        $args = isset($event['args']) && is_array($event['args']) ? $event['args'] : [];
+        if (!empty($args)) {
+          continue;
+        }
+        $timestamps[] = (int)$timestamp;
+      }
+    }
+
+    sort($timestamps, SORT_NUMERIC);
+    return array_values(array_unique(array_filter($timestamps, function($timestamp) {
+      return (int)$timestamp > 0;
+    })));
+  }
+
+  private function normalize_configured_cache_rebuild_schedule($settings = null) {
+    $settings = is_array($settings) ? $settings : $this->get_settings();
+    $config = $this->get_auto_refresh_schedule_config($settings);
+    if ((string)$config['enabled'] !== '1') {
+      $this->clear_configured_cache_rebuild_schedule();
+      return 0;
+    }
+
+    $desiredNextTs = $this->get_next_configured_cache_rebuild_timestamp($settings);
+    $scheduledTimestamps = $this->get_configured_cache_rebuild_schedule_timestamps();
+    $now = time();
+
+    $needsReset = false;
+    if ($desiredNextTs < 1) {
+      $needsReset = true;
+    } elseif (count($scheduledTimestamps) !== 1) {
+      $needsReset = true;
+    } else {
+      $scheduledTs = (int)$scheduledTimestamps[0];
+      if ($scheduledTs < ($now - MINUTE_IN_SECONDS)) {
+        $needsReset = true;
+      } elseif (abs($scheduledTs - $desiredNextTs) > MINUTE_IN_SECONDS) {
+        $needsReset = true;
+      }
+    }
+
+    if ($needsReset) {
+      $this->clear_configured_cache_rebuild_schedule();
+      return $this->schedule_next_configured_cache_rebuild($settings);
+    }
+
+    return (int)$scheduledTimestamps[0];
+  }
+
+  private function schedule_next_configured_cache_rebuild($settings = null) {
+    $nextTs = $this->get_next_configured_cache_rebuild_timestamp($settings);
+    if ($nextTs < 1) {
+      return 0;
+    }
+
+    if (!wp_next_scheduled('lm_scheduled_cache_rebuild')) {
+      wp_schedule_single_event($nextTs, 'lm_scheduled_cache_rebuild');
+    }
+
+    return $nextTs;
+  }
+
+  private function reschedule_configured_cache_rebuild($settings = null) {
+    $this->clear_configured_cache_rebuild_schedule();
+    return $this->schedule_next_configured_cache_rebuild($settings);
+  }
+
+  public function ensure_scheduled_cache_rebuild() {
+    $this->normalize_configured_cache_rebuild_schedule();
+  }
+
+  private function get_scheduled_cache_rebuild_debounce_key() {
+    return 'lm_scheduled_cache_rebuild_last_run_' . get_current_blog_id();
   }
 
   public function run_scheduled_cache_rebuild() {
-    $this->run_background_rebuild_cache('any', 'all');
+    $debounceKey = $this->get_scheduled_cache_rebuild_debounce_key();
+    $lastRunTs = (int)get_transient($debounceKey);
+    $now = time();
+    if ($lastRunTs > 0 && ($now - $lastRunTs) < 300) {
+      $this->schedule_next_configured_cache_rebuild();
+      return;
+    }
+
+    set_transient($debounceKey, $now, 10 * MINUTE_IN_SECONDS);
+    try {
+      $this->run_background_rebuild_cache('any', 'all');
+    } finally {
+      $this->schedule_next_configured_cache_rebuild();
+    }
   }
 
   public function run_background_rebuild_cache($scope_post_type = 'any', $wpml_lang = 'all') {
-    $scope_post_type = sanitize_key((string)$scope_post_type);
-    if ($scope_post_type === '') {
-      $scope_post_type = 'any';
-    }
-    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
+    $args = $this->background_rebuild_event_args($scope_post_type, $wpml_lang);
+    $scope_post_type = (string)$args[0];
+    $wpml_lang = (string)$args[1];
 
     $lockKey = $this->background_rebuild_lock_key($scope_post_type, $wpml_lang);
     if (get_transient($lockKey)) {
@@ -881,9 +1264,10 @@ trait LM_Cache_Rebuild_Trait {
 
     set_transient($lockKey, '1', 5 * MINUTE_IN_SECONDS);
     try {
-      // Background refresh must bypass the warm main cache, otherwise scheduled
-      // rebuilds can devolve into cache reads and never rescan content.
-      $this->build_or_get_cache($scope_post_type, true, $wpml_lang, false, true);
+      $request = new WP_REST_Request('POST', '/links-manager/v1/rebuild/start');
+      $request->set_param('post_type', $scope_post_type);
+      $request->set_param('wpml_lang', $wpml_lang);
+      $this->rest_rebuild_start($request);
     } catch (Throwable $e) {
       if (defined('WP_DEBUG') && WP_DEBUG) {
         error_log('LM background rebuild error: ' . sanitize_text_field($e->getMessage()));

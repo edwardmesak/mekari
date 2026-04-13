@@ -163,11 +163,13 @@ class LM_Links_Manager {
 
     add_action('init', [$this, 'ensure_scheduled_cache_rebuild']);
     add_action('admin_init', [$this, 'run_daily_maintenance']);
+    add_action('admin_init', [$this, 'ensure_active_rebuild_step_worker'], 6);
     add_action('shutdown', [$this, 'capture_fatal_diagnostic']);
     add_action('shutdown', [$this, 'persist_runtime_profile']);
     add_action('lm_background_rebuild_cache', [$this, 'run_background_rebuild_cache'], 10, 2);
     add_action('lm_scheduled_cache_rebuild', [$this, 'run_scheduled_cache_rebuild']);
     add_action('lm_prewarm_rest_list_cache', [$this, 'run_rest_list_prewarm'], 10, 2);
+    add_action('lm_rebuild_step_worker', [$this, 'run_rebuild_step_worker'], 10, 1);
     add_action('save_post', [$this, 'handle_post_change_schedule_incremental_refresh'], 20, 3);
     add_action('before_delete_post', [$this, 'handle_deleted_post_schedule_incremental_refresh'], 20, 2);
   }
@@ -1437,12 +1439,13 @@ class LM_Links_Manager {
         const runBtn = rebuildRoot.querySelector('[data-lm-rest-rebuild-run]');
         const statusEl = rebuildRoot.querySelector('[data-lm-rest-rebuild-status]');
         const progressEl = rebuildRoot.querySelector('[data-lm-rest-rebuild-progress]');
+        const stageEl = rebuildRoot.querySelector('[data-lm-rest-rebuild-stage]');
+        const etaEl = rebuildRoot.querySelector('[data-lm-rest-rebuild-eta]');
         const metaEl = rebuildRoot.querySelector('[data-lm-rest-rebuild-meta]');
         const barEl = rebuildRoot.querySelector('[data-lm-rest-rebuild-bar]');
         const config = (window.LM_REBUILD_REST && typeof window.LM_REBUILD_REST === 'object') ? window.LM_REBUILD_REST : null;
 
         let loopTimer = null;
-        let isLooping = false;
         const scopePostType = (config && config.scope_post_type) ? String(config.scope_post_type) : 'any';
         const scopeWpmlLang = (config && config.scope_wpml_lang) ? String(config.scope_wpml_lang) : 'all';
         const scopeLabel = (config && config.scope_label) ? String(config.scope_label) : 'all scopes / all languages';
@@ -1465,10 +1468,14 @@ class LM_Links_Manager {
           const processed = Math.max(0, parseInt((state && state.processed_posts) ? state.processed_posts : 0, 10) || 0);
           const rows = Math.max(0, parseInt((state && state.rows_count) ? state.rows_count : 0, 10) || 0);
           const status = String((state && state.status) ? state.status : 'idle');
-          const runningPct = total > 0 ? Math.max(0, Math.min(99, Math.floor((processed / total) * 100))) : 0;
-          const pct = (status === 'done' || status === 'partial')
-            ? 100
-            : (status === 'finalizing' ? 99 : runningPct);
+          const pct = Math.max(0, Math.min(100, parseInt((state && state.progress_percent) ? state.progress_percent : 0, 10) || 0));
+          const stageIndex = Math.max(1, parseInt((state && state.current_stage_index) ? state.current_stage_index : 1, 10) || 1);
+          const totalStages = Math.max(1, parseInt((state && state.total_stages) ? state.total_stages : 1, 10) || 1);
+          const stageLabel = state && state.current_stage_label ? String(state.current_stage_label) : 'Preparing data';
+          const etaLabel = state && state.estimated_label ? String(state.estimated_label) : 'ETA not available yet';
+          const activeLanguageLabel = state && state.active_language_label ? String(state.active_language_label) : '';
+          const activeLanguageIndex = Math.max(0, parseInt((state && state.active_language_index) ? state.active_language_index : 0, 10) || 0);
+          const activeLanguageTotal = Math.max(0, parseInt((state && state.active_language_total) ? state.active_language_total : 0, 10) || 0);
 
           if (progressEl) {
             if (status === 'partial' && total > 0) {
@@ -1476,10 +1483,25 @@ class LM_Links_Manager {
             } else if (total > 0) {
               progressEl.textContent = processed.toLocaleString() + ' / ' + total.toLocaleString() + ' posts (' + pct + '%)';
             } else if (status === 'running' || status === 'finalizing' || status === 'done' || status === 'partial') {
-              progressEl.textContent = processed.toLocaleString() + ' posts processed';
+              progressEl.textContent = processed.toLocaleString() + ' posts processed (' + pct + '%)';
             } else {
               progressEl.textContent = " . wp_json_encode(__('No active refresh job.', 'links-manager')) . ";
             }
+          }
+
+          if (stageEl) {
+            let stageText = 'Stage: waiting for refresh';
+            if (status === 'running' || status === 'finalizing' || status === 'done' || status === 'partial') {
+              stageText = 'Step ' + stageIndex + '/' + totalStages + ': ' + stageLabel;
+              if (activeLanguageLabel && activeLanguageTotal > 0) {
+                stageText += ' | Processing ' + activeLanguageLabel + ' (Language ' + activeLanguageIndex + '/' + activeLanguageTotal + ')';
+              }
+            }
+            stageEl.textContent = stageText;
+          }
+
+          if (etaEl) {
+            etaEl.textContent = 'ETA: ' + etaLabel;
           }
 
           if (metaEl) {
@@ -1497,7 +1519,51 @@ class LM_Links_Manager {
         const ajaxActionMap = {
           start: 'lm_rebuild_start_ajax',
           status: 'lm_rebuild_status_ajax',
-          step: 'lm_rebuild_step_ajax',
+        };
+
+        const summarizeErrorMessage = (rawMessage) => {
+          const message = String(rawMessage == null ? '' : rawMessage).trim();
+          if (!message) {
+            return 'Temporary connection issue while checking refresh status.';
+          }
+          const lowered = message.toLowerCase();
+          if (lowered.indexOf('502 bad gateway') !== -1) {
+            return 'Temporary 502 gateway error while checking refresh status.';
+          }
+          if (lowered.indexOf('503 service unavailable') !== -1) {
+            return 'Temporary 503 service error while checking refresh status.';
+          }
+          if (lowered.indexOf('504 gateway timeout') !== -1) {
+            return 'Temporary 504 timeout while checking refresh status.';
+          }
+          if (lowered.indexOf('<html') !== -1 || lowered.indexOf('<!doctype') !== -1) {
+            return 'Temporary HTML error response while checking refresh status.';
+          }
+          if (message.length > 180) {
+            return message.slice(0, 177) + '...';
+          }
+          return message;
+        };
+
+        const shouldFallbackToAjax = (statusCode, message) => {
+          const normalizedStatus = parseInt(statusCode || 0, 10) || 0;
+          const lowered = String(message == null ? '' : message).toLowerCase();
+          if (normalizedStatus >= 500) {
+            return true;
+          }
+          if (normalizedStatus === 404 || lowered.indexOf('rest_no_route') !== -1) {
+            return true;
+          }
+          if (lowered.indexOf('<html') !== -1 || lowered.indexOf('<!doctype') !== -1) {
+            return true;
+          }
+          if (lowered.indexOf('bad gateway') !== -1 || lowered.indexOf('service unavailable') !== -1 || lowered.indexOf('gateway timeout') !== -1) {
+            return true;
+          }
+          if (lowered.indexOf('failed to fetch') !== -1 || lowered.indexOf('networkerror') !== -1 || lowered.indexOf('load failed') !== -1) {
+            return true;
+          }
+          return false;
         };
 
         const ajaxFallbackCall = (endpointKey, body) => {
@@ -1558,18 +1624,28 @@ class LM_Links_Manager {
               if (!r.ok) {
                 return r.text().then(t => {
                   const text = t || ('HTTP ' + r.status);
-                  const lowered = text.toLowerCase();
-                  if (r.status === 404 || lowered.indexOf('rest_no_route') !== -1) {
+                  if (shouldFallbackToAjax(r.status, text)) {
+                    return ajaxFallbackCall(endpointKey, body);
+                  }
+                  const err = new Error(text);
+                  err.statusCode = r.status;
+                  throw err;
+                });
+              }
+              return r.json().catch(() => {
+                return r.text().then(t => {
+                  const text = t || 'Invalid JSON response';
+                  if (shouldFallbackToAjax(r.status, text)) {
                     return ajaxFallbackCall(endpointKey, body);
                   }
                   throw new Error(text);
                 });
-              }
-              return r.json();
+              });
             })
             .catch(err => {
               const message = String((err && err.message) ? err.message : err);
-              if (message.toLowerCase().indexOf('rest_no_route') !== -1) {
+              const statusCode = err && typeof err.statusCode !== 'undefined' ? err.statusCode : 0;
+              if (shouldFallbackToAjax(statusCode, message)) {
                 return ajaxFallbackCall(endpointKey, body);
               }
               throw err;
@@ -1582,68 +1658,48 @@ class LM_Links_Manager {
               updateProgress(state || {});
               const status = String((state && state.status) ? state.status : 'idle');
               if (status === 'running') {
-                setStatusText('Refresh is running for ' + scopeLabel + '. Progress updates will appear automatically.', false);
+                setStatusText('A refresh is currently running for ' + scopeLabel + '. Progress updates will appear here automatically.', false);
               } else if (status === 'finalizing') {
-                const detail = String((state && state.message) ? state.message : 'Refresh is finalizing cached summaries...');
+                const detail = String((state && state.message) ? state.message : 'Refresh is finalizing summary data...');
                 setStatusText(detail, false);
               } else if (status === 'done') {
-                setStatusText('Refresh finished for ' + scopeLabel + '. Cached data is up to date.', false);
+                setStatusText('Refresh finished for ' + scopeLabel + '. Data is ready to use.', false);
               } else if (status === 'partial') {
-                const detail = String((state && state.message) ? state.message : 'Refresh stopped before the full scope completed.');
+                const detail = String((state && state.message) ? state.message : 'Refresh paused before the full scope completed.');
                 setStatusText(detail, true);
               } else if (status === 'error') {
                 setStatusText('Refresh failed: ' + String((state && state.last_error) ? state.last_error : 'Unknown error'), true);
               } else {
-                setStatusText(" . wp_json_encode(__('No active refresh job.', 'links-manager')) . ", false);
+                setStatusText('No refresh is currently running.', false);
               }
               return state;
             });
         };
 
-        const runStepLoop = () => {
-          if (isLooping) return;
-          isLooping = true;
-          setRunningUi(true);
-
-          const iterate = () => {
-            apiCall('step', config.step_url, 'POST', {})
+        const ensureStatusPolling = (delay) => {
+          if (loopTimer) {
+            window.clearTimeout(loopTimer);
+            loopTimer = null;
+          }
+          const nextDelay = Number.isFinite(delay) ? Math.max(500, Math.min(5000, delay)) : 1200;
+          loopTimer = window.setTimeout(() => {
+            refreshStatus()
               .then(state => {
-                updateProgress(state || {});
                 const status = String((state && state.status) ? state.status : 'idle');
                 if (status === 'running' || status === 'finalizing') {
-                  if (status === 'finalizing') {
-                    const detail = String((state && state.message) ? state.message : 'Refresh is finalizing cached summaries...');
-                    setStatusText(detail, false);
-                  } else {
-                  setStatusText('Refresh in progress for ' + scopeLabel + '...', false);
-                  }
-                  const hinted = parseInt((state && state.poll_ms) ? state.poll_ms : 400, 10);
-                  const delay = Number.isFinite(hinted) ? Math.max(200, Math.min(5000, hinted)) : 400;
-                  loopTimer = window.setTimeout(iterate, delay);
-                  return;
-                }
-
-                isLooping = false;
-                setRunningUi(false);
-                if (status === 'done') {
-                  setStatusText('Refresh finished for ' + scopeLabel + '. Cached data is up to date.', false);
-                } else if (status === 'partial') {
-                  const detail = String((state && state.message) ? state.message : 'Refresh stopped before the full scope completed.');
-                  setStatusText(detail, true);
-                } else if (status === 'error') {
-                  setStatusText('Refresh failed: ' + String((state && state.last_error) ? state.last_error : 'Unknown error'), true);
+                  setRunningUi(true);
+                  const hinted = parseInt((state && state.poll_ms) ? state.poll_ms : 1200, 10);
+                  ensureStatusPolling(hinted);
                 } else {
-                  setStatusText(" . wp_json_encode(__('No active refresh job.', 'links-manager')) . ", false);
+                  setRunningUi(false);
                 }
               })
               .catch(err => {
-                isLooping = false;
-                setRunningUi(false);
-                setStatusText('Refresh error: ' + err.message, true);
+                setRunningUi(true);
+                setStatusText('Refresh status check retrying: ' + summarizeErrorMessage(err && err.message ? err.message : err), true);
+                ensureStatusPolling(3000);
               });
-          };
-
-          iterate();
+          }, nextDelay);
         };
 
         if (runBtn) {
@@ -1670,7 +1726,7 @@ class LM_Links_Manager {
                   return;
                 }
                 if (status === 'partial') {
-                  const detail = String((state && state.message) ? state.message : 'Refresh stopped before the full scope completed.');
+                  const detail = String((state && state.message) ? state.message : 'Refresh paused before the full scope completed.');
                   setStatusText(detail, true);
                   setRunningUi(false);
                   return;
@@ -1680,8 +1736,9 @@ class LM_Links_Manager {
                   setRunningUi(false);
                   return;
                 }
-                setStatusText('Refresh started for ' + scopeLabel + '. Processing chunks...', false);
-                runStepLoop();
+                setStatusText('Refresh started for ' + scopeLabel + '. It will continue in the background even if you close this page.', false);
+                setRunningUi(true);
+                ensureStatusPolling(parseInt((state && state.poll_ms) ? state.poll_ms : 1200, 10));
               })
               .catch(err => {
                 setRunningUi(false);
@@ -1694,14 +1751,16 @@ class LM_Links_Manager {
           .then(state => {
             const status = String((state && state.status) ? state.status : 'idle');
             if (status === 'running' || status === 'finalizing') {
-              runStepLoop();
+              setStatusText('A refresh is running in the background. You can close this page safely and come back later.', false);
+              setRunningUi(true);
+              ensureStatusPolling(parseInt((state && state.poll_ms) ? state.poll_ms : 1200, 10));
             } else {
               setRunningUi(false);
             }
           })
           .catch(err => {
             setRunningUi(false);
-            setStatusText('REST status error: ' + err.message, true);
+            setStatusText('Refresh status check failed: ' + summarizeErrorMessage(err && err.message ? err.message : err), true);
           });
       }
 

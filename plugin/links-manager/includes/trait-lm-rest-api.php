@@ -119,6 +119,7 @@ trait LM_REST_API_Trait {
       $runningScope = sanitize_key((string)($currentState['scope_post_type'] ?? 'any'));
       $runningLang = $this->normalize_rebuild_wpml_lang((string)($currentState['wpml_lang'] ?? 'all'));
       if ($runningScope === $scopePostType && $runningLang === $wpmlLang) {
+        $this->ensure_active_rebuild_step_worker();
         $currentState['message'] = ((string)($currentState['status'] ?? '') === 'finalizing')
           ? 'Rebuild job is still finalizing. Continuing existing job.'
           : 'Rebuild job is already running. Continuing existing job.';
@@ -155,6 +156,10 @@ trait LM_REST_API_Trait {
       'rows_count' => 0,
       'started_at' => current_time('mysql'),
       'updated_at' => current_time('mysql'),
+      'execution_mode' => 'background',
+      'worker_scheduled' => '0',
+      'last_worker_started_at' => '',
+      'last_worker_completed_at' => '',
       'last_error' => '',
     ];
 
@@ -186,10 +191,14 @@ trait LM_REST_API_Trait {
 
     if ((string)$job['storage_mode'] === 'indexed_stream') {
       $this->reset_indexed_datastore_for_refresh_scope($wpmlLang);
-      $this->clear_cache_payload($scopePostType, $wpmlLang);
+      $this->clear_main_cache_payload($scopePostType, $wpmlLang);
     } else {
       set_transient($this->rebuild_job_partial_rows_key($scopePostType, $wpmlLang), [], self::CACHE_TTL);
     }
+    $this->save_rebuild_job_state($job);
+    $this->schedule_rebuild_step_worker(1);
+    $job['worker_scheduled'] = '1';
+    $job['updated_at'] = current_time('mysql');
     $this->save_rebuild_job_state($job);
 
     return rest_ensure_response($this->get_public_rebuild_job_state($job));
@@ -252,7 +261,15 @@ trait LM_REST_API_Trait {
         if ($storageMode === 'indexed_stream') {
           $finalizeLangQueue = $this->get_indexed_finalize_lang_queue_from_state($state, $wpmlLang);
           $activeFinalizeLang = $this->get_active_indexed_finalize_lang($state, $wpmlLang);
+          $allFinalizeStrategy = ($activeFinalizeLang === 'all')
+            ? $this->get_indexed_all_finalize_strategy($state, $wpmlLang)
+            : '';
           if ($activeFinalizeLang === 'all') {
+            $state['finalize_all_strategy'] = ($allFinalizeStrategy !== '') ? $allFinalizeStrategy : 'direct_from_all_facts';
+          } else {
+            unset($state['finalize_all_strategy']);
+          }
+          if ($activeFinalizeLang === 'all' && $allFinalizeStrategy === 'aggregate_from_language_summaries') {
             $finalizeStage = sanitize_key((string)($state['finalize_stage'] ?? 'summary_seed'));
             if ($finalizeStage === '' || $finalizeStage === 'inbound_finalize') {
               $finalizeStage = 'summary_seed';
@@ -336,7 +353,7 @@ trait LM_REST_API_Trait {
                   $state['status'] = 'finalizing';
                   $state['message'] = sprintf('Summary refresh for %s completed. Continuing with %s...', $completedFinalizeLang, $nextFinalizeLang);
                 } else {
-                  $this->clear_cache_payload($scopePostType, $wpmlLang);
+                  $this->clear_main_cache_payload($scopePostType, $wpmlLang);
                   update_option($this->cache_scan_option_key($scopePostType, $wpmlLang), gmdate('Y-m-d H:i:s'), false);
                   $this->bump_dataset_cache_version();
                   $this->save_last_finalize_metrics([
@@ -557,7 +574,7 @@ trait LM_REST_API_Trait {
                   $state['status'] = 'finalizing';
                   $state['message'] = sprintf('Summary refresh for %s completed. Continuing with %s...', $completedFinalizeLang, $nextFinalizeLang);
                 } else {
-                  $this->clear_cache_payload($scopePostType, $wpmlLang);
+                  $this->clear_main_cache_payload($scopePostType, $wpmlLang);
                   update_option($this->cache_scan_option_key($scopePostType, $wpmlLang), gmdate('Y-m-d H:i:s'), false);
                   $this->bump_dataset_cache_version();
                   $this->save_last_finalize_metrics([
@@ -615,6 +632,11 @@ trait LM_REST_API_Trait {
       } catch (Throwable $e) {
         $state['status'] = 'error';
         $state['last_error'] = sanitize_text_field($e->getMessage());
+        if ($storageMode === 'indexed_stream') {
+          $this->restore_indexed_datastore_from_backup($scopePostType, $wpmlLang);
+        }
+        $state['worker_scheduled'] = '0';
+        $state['last_worker_completed_at'] = current_time('mysql');
       } finally {
         if ($lockAcquired) {
           $this->release_rebuild_job_lock();
@@ -623,6 +645,14 @@ trait LM_REST_API_Trait {
       $state['updated_at'] = current_time('mysql');
       $state['batch_size'] = $batch;
       $state['step_ms'] = max(0, (int)round((microtime(true) - $crawlStartedAt) * 1000));
+      $state['execution_mode'] = 'background';
+      $state['last_worker_completed_at'] = current_time('mysql');
+      if (in_array((string)($state['status'] ?? ''), ['running', 'finalizing'], true)) {
+        $this->schedule_rebuild_step_worker(1);
+        $state['worker_scheduled'] = '1';
+      } else {
+        $state['worker_scheduled'] = '0';
+      }
       $this->save_rebuild_job_state($state);
       return rest_ensure_response($this->get_public_rebuild_job_state($state));
     }
@@ -689,6 +719,11 @@ trait LM_REST_API_Trait {
     } catch (Throwable $e) {
       $state['status'] = 'error';
       $state['last_error'] = sanitize_text_field($e->getMessage());
+      if ($storageMode === 'indexed_stream') {
+        $this->restore_indexed_datastore_from_backup($scopePostType, $wpmlLang);
+      }
+      $state['worker_scheduled'] = '0';
+      $state['last_worker_completed_at'] = current_time('mysql');
       $state['updated_at'] = current_time('mysql');
       $this->save_rebuild_job_state($state);
       return rest_ensure_response($this->get_public_rebuild_job_state($state));
@@ -776,6 +811,9 @@ trait LM_REST_API_Trait {
         unset($state['finalize_stage'], $state['finalize_last_post_id'], $state['finalize_processed_posts'], $state['finalize_chunk_size'], $state['finalize_step_ms'], $state['finalize_summary_rows'], $state['finalize_inbound_rows'], $state['finalize_target_only_rows_added'], $state['finalize_seed_last_post_id'], $state['finalize_seed_processed_posts'], $state['finalize_seed_step_ms'], $state['finalize_seed_chunk_size'], $state['finalize_inbound_last_post_id'], $state['finalize_inbound_processed_posts'], $state['finalize_inbound_step_ms'], $state['finalize_inbound_chunk_size'], $state['finalize_last_summary_query_ms'], $state['finalize_last_inbound_query_ms'], $state['normalized_backfill_last_id'], $state['normalized_backfill_processed'], $state['normalized_backfill_step_ms'], $state['normalized_backfill_chunk_size'], $state['normalized_backfill_done']);
       }
       if ($hitMaxPosts) {
+        if ($storageMode === 'indexed_stream') {
+          $this->restore_indexed_datastore_from_backup($scopePostType, $wpmlLang);
+        }
         $state['status'] = 'partial';
         $state['message'] = sprintf(
           'Refresh stopped at the configured post limit (%1$s posts) before all posts were scanned.',
@@ -801,8 +839,16 @@ trait LM_REST_API_Trait {
     $state['updated_at'] = current_time('mysql');
     $state['batch_size'] = $batch;
     $state['step_ms'] = max(0, (int)round((microtime(true) - $crawlStartedAt) * 1000));
+    $state['execution_mode'] = 'background';
+    $state['last_worker_completed_at'] = current_time('mysql');
     if (in_array((string)$state['status'], ['running', 'finalizing'], true) && !isset($state['message'])) {
       $state['message'] = '';
+    }
+    if (in_array((string)($state['status'] ?? ''), ['running', 'finalizing'], true)) {
+      $this->schedule_rebuild_step_worker(1);
+      $state['worker_scheduled'] = '1';
+    } else {
+      $state['worker_scheduled'] = '0';
     }
     $this->save_rebuild_job_state($state);
 
@@ -1070,7 +1116,7 @@ trait LM_REST_API_Trait {
       $nextCursor = $this->encode_editor_keyset_cursor(
         (string)$lastMeta['value'],
         (int)($last['post_id'] ?? 0),
-        (int)($last['row_id'] ?? 0)
+        (string)($last['row_id'] ?? '')
       );
     }
 
@@ -1396,6 +1442,18 @@ trait LM_REST_API_Trait {
     }
 
     return $queue;
+  }
+
+  private function get_indexed_all_finalize_strategy($state, $jobWpmlLang = 'all') {
+    $queue = $this->get_indexed_finalize_lang_queue_from_state($state, $jobWpmlLang);
+    foreach ((array)$queue as $lang) {
+      $lang = $this->sanitize_wpml_lang_filter((string)$lang);
+      if ($lang !== '' && $lang !== 'all') {
+        return 'aggregate_from_language_summaries';
+      }
+    }
+
+    return 'direct_from_all_facts';
   }
 
   private function get_active_rebuild_crawl_lang(&$state, $requestedWpmlLang = 'all') {

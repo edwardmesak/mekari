@@ -120,6 +120,7 @@ trait LM_All_Anchor_Text_Admin_Trait {
       __('Links Manager - All Anchor Text', 'links-manager'),
       __('Explore anchor text usage across internal and external links, then spot overused, weak, or missing patterns more quickly.', 'links-manager')
     );
+    $this->render_refresh_data_status_banner($scopePostType, $scopeWpmlLang);
     if ($dataNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($dataNotice) . '</p></div>';
     if ($warningNotice !== '') echo '<div class="notice notice-warning"><p>' . esc_html($warningNotice) . '</p></div>';
 
