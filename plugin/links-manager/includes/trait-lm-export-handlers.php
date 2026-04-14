@@ -642,8 +642,15 @@ trait LM_Export_Handlers_Trait {
     if (!empty($indexedRows)) {
       $rows = $indexedRows;
     } else {
-      $scopeRows = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
-      $rows = $this->build_all_anchor_text_rows($scopeRows, $filters);
+      $rebuildState = $this->get_rebuild_job_state();
+      $rebuildStatus = sanitize_key((string)($rebuildState['status'] ?? 'idle'));
+      $useStaleRows = in_array($rebuildStatus, ['running', 'finalizing'], true);
+      if ($useStaleRows) {
+        $rows = $this->get_stale_indexed_all_anchor_text_summary_rows($filters);
+      } else {
+        $scopeRows = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
+        $rows = $this->build_all_anchor_text_rows($scopeRows, $filters);
+      }
     }
 
     $filename = 'links-manager-all-anchor-text-export-' . date('Y-m-d-His') . '.csv';

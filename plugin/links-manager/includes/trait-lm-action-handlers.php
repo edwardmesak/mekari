@@ -796,7 +796,7 @@ trait LM_Action_Handlers_Trait {
     $mode = $this->request_text('lm_anchor_mode', 'only');
     if (!in_array($mode, ['only', 'group'], true)) $mode = 'only';
 
-    $targetsRaw = (string)$this->request_raw('lm_anchor_targets', '');
+    $targetsRaw = (string)wp_unslash($this->request_raw('lm_anchor_targets', ''));
     $targets = [];
     $groups = $this->get_anchor_groups();
     $existingTargets = $this->get_anchor_targets();

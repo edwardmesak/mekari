@@ -529,7 +529,7 @@ trait LM_Request_URL_Helpers_Trait {
     if (!$this->request_has($key)) {
       return (string)$default;
     }
-    return sanitize_text_field((string)$this->request_raw($key, ''));
+    return sanitize_text_field((string)wp_unslash($this->request_raw($key, '')));
   }
 
   private function request_key($key, $default = '') {

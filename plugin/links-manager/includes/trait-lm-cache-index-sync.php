@@ -4,6 +4,59 @@
  */
 
 trait LM_Cache_Index_Sync_Trait {
+  private function stale_indexed_anchor_summary_backup_key($wpml_lang = 'all') {
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
+    return 'lm_anchor_summary_backup_' . md5($wpml_lang . '|' . get_current_blog_id());
+  }
+
+  private function backup_indexed_anchor_summary_for_lang($wpml_lang = 'all') {
+    global $wpdb;
+
+    $summaryTable = $wpdb->prefix . 'lm_anchor_text_summary';
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
+    $rows = $wpdb->get_results(
+      $wpdb->prepare(
+        "SELECT
+          wpml_lang,
+          post_id,
+          post_title,
+          post_type,
+          post_author,
+          post_author_id,
+          post_date,
+          post_modified,
+          page_url,
+          source_type,
+          link_location,
+          link_type,
+          rel_nofollow,
+          rel_sponsored,
+          rel_ugc,
+          anchor_text,
+          anchor_hash,
+          quality,
+          link_url,
+          link_hash,
+          uses
+         FROM $summaryTable
+         WHERE wpml_lang = %s",
+        $wpml_lang
+      ),
+      ARRAY_A
+    );
+
+    if (is_array($rows) && !empty($rows)) {
+      set_transient($this->stale_indexed_anchor_summary_backup_key($wpml_lang), $rows, self::CACHE_BASE_TTL);
+      return;
+    }
+
+    delete_transient($this->stale_indexed_anchor_summary_backup_key($wpml_lang));
+  }
+
+  private function clear_indexed_anchor_summary_backup_for_lang($wpml_lang = 'all') {
+    delete_transient($this->stale_indexed_anchor_summary_backup_key($wpml_lang));
+  }
+
   private function get_dataset_cache_version() {
     return (int)get_option('lm_dataset_cache_version', 1);
   }
@@ -129,6 +182,7 @@ trait LM_Cache_Index_Sync_Trait {
     $anchorSummaryTable = $wpdb->prefix . 'lm_anchor_text_summary';
 
     $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
+    $this->backup_indexed_anchor_summary_for_lang($wpml_lang);
     $wpdb->query($wpdb->prepare("DELETE FROM $factTable WHERE wpml_lang = %s", $wpml_lang));
     $wpdb->query($wpdb->prepare("DELETE FROM $summaryTable WHERE wpml_lang = %s", $wpml_lang));
     $wpdb->query($wpdb->prepare("DELETE FROM $domainSummaryTable WHERE wpml_lang = %s", $wpml_lang));

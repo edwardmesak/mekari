@@ -565,6 +565,7 @@ trait LM_REST_API_Trait {
                   : 'Building anchor text summary index...';
               } else {
                 $completedFinalizeLang = $activeFinalizeLang;
+                $this->clear_indexed_anchor_summary_backup_for_lang($completedFinalizeLang);
                 if ($this->advance_indexed_finalize_lang($state, $finalizeLangQueue, $wpmlLang)) {
                   $nextFinalizeLang = (string)($state['finalize_wpml_lang'] ?? $wpmlLang);
                   if ($nextFinalizeLang === 'all') {

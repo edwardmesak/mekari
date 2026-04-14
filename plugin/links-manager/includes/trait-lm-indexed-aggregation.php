@@ -745,6 +745,27 @@ trait LM_Indexed_Aggregation_Trait {
       return [];
     }
 
+    return $this->filter_indexed_anchor_summary_aggregate_rows($rows, $filters);
+  }
+
+  private function get_stale_indexed_all_anchor_text_summary_rows($filters) {
+    $filters = is_array($filters) ? $filters : [];
+    $scopeWpmlLang = $this->get_requested_view_wpml_lang((string)($filters['wpml_lang'] ?? 'all'));
+    $rows = get_transient($this->stale_indexed_anchor_summary_backup_key($scopeWpmlLang));
+    if (!is_array($rows) || empty($rows)) {
+      return [];
+    }
+
+    return $this->build_all_anchor_text_rows_from_summary_source_rows($rows, $filters);
+  }
+
+  private function filter_indexed_anchor_summary_aggregate_rows($rows, $filters) {
+    $rows = is_array($rows) ? $rows : [];
+    $filters = is_array($filters) ? $filters : [];
+    if (empty($rows)) {
+      return [];
+    }
+
     $anchorToGroups = [];
     foreach ($this->get_anchor_groups() as $g) {
       $groupName = trim((string)($g['name'] ?? ''));
@@ -904,6 +925,110 @@ trait LM_Indexed_Aggregation_Trait {
     });
 
     return $filteredRows;
+  }
+
+  private function build_all_anchor_text_rows_from_summary_source_rows($rows, $filters) {
+    $rows = is_array($rows) ? $rows : [];
+    $filters = is_array($filters) ? $filters : [];
+    if (empty($rows)) {
+      return [];
+    }
+
+    $textMode = (string)($filters['search_mode'] ?? 'contains');
+    $allowedPostIds = $this->get_post_ids_by_post_terms(
+      isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
+      isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0
+    );
+
+    $aggregate = [];
+    foreach ($rows as $row) {
+      if (is_array($allowedPostIds)) {
+        $rowPostId = isset($row['post_id']) ? (string)intval($row['post_id']) : '';
+        if ($rowPostId === '' || !isset($allowedPostIds[$rowPostId])) continue;
+      }
+      if (($filters['post_type'] ?? 'any') !== 'any' && (string)($row['post_type'] ?? '') !== (string)$filters['post_type']) continue;
+      if (($filters['location'] ?? 'any') !== 'any' && (string)($row['link_location'] ?? '') !== (string)$filters['location']) continue;
+      if (($filters['source_type'] ?? 'any') !== 'any' && (string)($row['source_type'] ?? '') !== (string)$filters['source_type']) continue;
+      if (($filters['link_type'] ?? 'any') !== 'any' && (string)($row['link_type'] ?? '') !== (string)$filters['link_type']) continue;
+
+      if ((string)($filters['value_contains'] ?? '') !== '' && !$this->text_matches((string)($row['link_url'] ?? ''), (string)$filters['value_contains'], $textMode)) continue;
+      if ((string)($filters['source_contains'] ?? '') !== '' && !$this->text_matches((string)($row['page_url'] ?? ''), (string)$filters['source_contains'], $textMode)) continue;
+      if ((string)($filters['title_contains'] ?? '') !== '' && !$this->text_matches((string)($row['post_title'] ?? ''), (string)$filters['title_contains'], $textMode)) continue;
+      if (!$this->row_matches_author_filter($row, isset($filters['author']) ? (int)$filters['author'] : 0)) continue;
+
+      $seoFlag = (string)($filters['seo_flag'] ?? 'any');
+      if ($seoFlag !== 'any') {
+        $nofollow = (string)($row['rel_nofollow'] ?? '0') === '1';
+        $sponsored = (string)($row['rel_sponsored'] ?? '0') === '1';
+        $ugc = (string)($row['rel_ugc'] ?? '0') === '1';
+        if ($seoFlag === 'dofollow' && ($nofollow || $sponsored || $ugc)) continue;
+        if ($seoFlag === 'nofollow' && !$nofollow) continue;
+        if ($seoFlag === 'sponsored' && !$sponsored) continue;
+        if ($seoFlag === 'ugc' && !$ugc) continue;
+      }
+
+      $anchor = $this->normalize_anchor_text_value((string)($row['anchor_text'] ?? ''), true);
+      $key = strtolower($anchor);
+      if (!isset($aggregate[$key])) {
+        $aggregate[$key] = [
+          'anchor_text' => $anchor,
+          'quality' => sanitize_key((string)($row['quality'] ?? $this->get_anchor_quality_label($anchor))),
+          'total' => 0,
+          'inlink' => 0,
+          'outbound' => 0,
+          'source_pages' => [],
+          'destinations' => [],
+          'source_types' => [],
+        ];
+      }
+
+      $uses = max(0, (int)($row['uses'] ?? 0));
+      $aggregate[$key]['total'] += $uses;
+      if (($row['link_type'] ?? '') === 'inlink') $aggregate[$key]['inlink'] += $uses;
+      if (($row['link_type'] ?? '') === 'exlink') $aggregate[$key]['outbound'] += $uses;
+
+      $postId = isset($row['post_id']) ? (int)$row['post_id'] : 0;
+      if ($postId > 0) {
+        $aggregate[$key]['source_pages'][(string)$postId] = true;
+      }
+      $linkHash = trim((string)($row['link_hash'] ?? ''));
+      if ($linkHash !== '') {
+        $aggregate[$key]['destinations'][$linkHash] = true;
+      }
+      $sourceType = trim((string)($row['source_type'] ?? ''));
+      if ($sourceType !== '') {
+        $aggregate[$key]['source_types'][$sourceType] = true;
+      }
+    }
+
+    $summaryRows = [];
+    foreach ($aggregate as $item) {
+      $inlink = (int)$item['inlink'];
+      $outbound = (int)$item['outbound'];
+      $usageType = 'mixed';
+      if ($inlink > 0 && $outbound === 0) {
+        $usageType = 'inlink_only';
+      } elseif ($outbound > 0 && $inlink === 0) {
+        $usageType = 'outbound_only';
+      }
+
+      $sourceTypes = array_keys((array)$item['source_types']);
+      sort($sourceTypes);
+
+      $summaryRows[] = [
+        'anchor_text' => (string)$item['anchor_text'],
+        'quality' => sanitize_key((string)$item['quality']),
+        'usage_type' => $usageType,
+        'total' => (int)$item['total'],
+        'inlink' => $inlink,
+        'outbound' => $outbound,
+        'source_pages' => count((array)$item['source_pages']),
+        'destinations' => count((array)$item['destinations']),
+        'source_types' => implode(', ', $sourceTypes),
+      ];
+    }
+
+    return $this->filter_indexed_anchor_summary_aggregate_rows($summaryRows, $filters);
   }
 
   private function can_use_indexed_all_anchor_text_paged_fastpath($filters) {

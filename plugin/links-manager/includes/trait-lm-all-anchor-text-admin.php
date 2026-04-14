@@ -45,6 +45,22 @@ trait LM_All_Anchor_Text_Admin_Trait {
     if (!empty($guardState['blocked'])) {
       $warningNotice = (string)($guardState['warning_notice'] ?? '');
       $executionMode = 'all_anchor_text_aggregation_blocked';
+      $rebuildState = $this->get_rebuild_job_state();
+      $rebuildStatus = sanitize_key((string)($rebuildState['status'] ?? 'idle'));
+      $canServeStaleRows = !empty($guardState['readiness_blocked'])
+        && in_array($rebuildStatus, ['running', 'finalizing'], true);
+      if ($canServeStaleRows) {
+        $rows = $this->get_stale_indexed_all_anchor_text_summary_rows($filters);
+        if (!empty($rows)) {
+          $executionMode = 'all_anchor_text_php_summary_stale';
+          $total = count($rows);
+          $perPage = $filters['per_page'];
+          $totalPages = max(1, (int)ceil($total / $perPage));
+          if ($filters['paged'] > $totalPages) $filters['paged'] = $totalPages;
+          $offset = ($filters['paged'] - 1) * $perPage;
+          $pageRows = array_slice($rows, $offset, $perPage);
+        }
+      }
     } else {
       $indexedPaged = $this->get_indexed_all_anchor_text_paged_result($filters);
       if (is_array($indexedPaged)
