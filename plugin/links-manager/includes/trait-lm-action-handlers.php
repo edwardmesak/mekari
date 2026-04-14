@@ -855,6 +855,8 @@ trait LM_Action_Handlers_Trait {
       exit;
     }
 
+    $oldVal = trim((string)$targets[$idx]);
+
     if ($newVal === '') {
       wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Target cannot be empty.']));
       exit;
@@ -863,6 +865,38 @@ trait LM_Action_Handlers_Trait {
     $targets[$idx] = $newVal;
     $targets = $this->normalize_anchor_list(implode("\n", $targets));
     $this->save_anchor_targets($targets);
+
+    if ($oldVal !== '' && strtolower($oldVal) !== strtolower($newVal)) {
+      $groups = $this->get_anchor_groups();
+      $groupsChanged = false;
+      foreach ($groups as &$group) {
+        $anchors = isset($group['anchors']) ? (array)$group['anchors'] : [];
+        $updatedAnchors = [];
+        $localChanged = false;
+        foreach ($anchors as $anchor) {
+          $anchor = trim((string)$anchor);
+          if ($anchor === '') {
+            continue;
+          }
+          if (strtolower($anchor) === strtolower($oldVal)) {
+            $updatedAnchors[] = $newVal;
+            $localChanged = true;
+          } else {
+            $updatedAnchors[] = $anchor;
+          }
+        }
+
+        if ($localChanged) {
+          $group['anchors'] = $this->normalize_anchor_list(implode("\n", $updatedAnchors));
+          $groupsChanged = true;
+        }
+      }
+      unset($group);
+
+      if ($groupsChanged) {
+        $this->save_anchor_groups($groups);
+      }
+    }
 
     wp_safe_redirect($this->admin_page_url('links-manager-target', ['lm_msg' => 'Target updated.']));
     exit;

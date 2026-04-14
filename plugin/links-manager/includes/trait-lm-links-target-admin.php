@@ -1330,7 +1330,7 @@ trait LM_Links_Target_Admin_Trait {
 
     echo '<div style="margin:8px 0; font-weight:bold;">Total: <span id="lm-total-filtered">' . esc_html((string)$totalFiltered) . '</span> target anchors</div>';
     echo '<div class="lm-table-wrap lm-summary-table-wrap">';
-    echo '<table class="widefat striped lm-table">';
+    echo '<table class="widefat striped lm-table lm-target-summary-table">';
     echo '<thead><tr>';
     echo '<th class="lm-col-block"><input type="checkbox" id="lm-select-all-targets" /></th>';
     echo $this->table_header_with_tooltip('lm-col-postid', '#', 'Row number in current result page.', 'left');

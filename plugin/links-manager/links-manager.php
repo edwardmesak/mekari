@@ -500,6 +500,60 @@ class LM_Links_Manager {
       padding:0 2px;
       font-weight:600;
     }
+    .lm-target-summary-table th,
+    .lm-target-summary-table td{
+      padding:8px 10px;
+      line-height:1.3;
+    }
+    .lm-target-summary-table .lm-col-group,
+    .lm-target-summary-table .lm-col-anchor{
+      min-width:160px;
+    }
+    .lm-target-summary-table .lm-col-total{
+      width:180px;
+    }
+    .lm-target-summary-table .lm-col-inlink,
+    .lm-target-summary-table .lm-col-outbound{
+      width:110px;
+    }
+    .lm-target-summary-table .lm-col-action{
+      width:200px;
+    }
+    .lm-target-summary-table .lm-col-action .button-small{
+      min-height:26px;
+      line-height:24px;
+      padding:0 10px;
+      margin:0 4px 4px 0;
+    }
+    .lm-target-summary-table .lm-target-group-form{
+      margin-top:4px !important;
+      display:flex;
+      flex-wrap:wrap;
+      align-items:center;
+      gap:6px;
+    }
+    .lm-target-summary-table .lm-target-group-form .lm-form-msg{
+      flex:1 0 100%;
+      margin:0;
+    }
+    .lm-target-summary-table .lm-group-picker{
+      margin-right:0 !important;
+      min-width:0 !important;
+    }
+    .lm-target-summary-table .lm-group-picker > summary.button{
+      min-height:26px;
+      line-height:24px;
+      padding:0 10px;
+    }
+    .lm-target-summary-table .lm-checklist{
+      margin-top:4px !important;
+      padding:6px !important;
+      max-height:150px !important;
+    }
+    .lm-target-summary-table .lm-checklist label{
+      margin:0 0 4px !important;
+      line-height:1.25;
+    }
     @keyframes lmUpdatedBadgeIn{
       0%{transform:translateY(-3px); opacity:0;}
       100%{transform:translateY(0); opacity:1;}
