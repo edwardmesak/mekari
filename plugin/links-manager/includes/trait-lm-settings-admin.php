@@ -9,11 +9,12 @@ if (!defined('ABSPATH')) {
 
 trait LM_Settings_Admin_Trait {
   public function render_admin_settings_page() {
-    if (!current_user_can('manage_options')) wp_die($this->unauthorized_message());
+    if (!$this->current_user_can_access_settings()) wp_die($this->unauthorized_message());
 
     $profileStarted = $this->profile_start();
 
     $settings = $this->get_settings();
+    $canManageAccessControl = current_user_can('manage_options');
     $debugModeEnabled = isset($settings['debug_mode']) && (string)$settings['debug_mode'] === '1';
     $msg = $this->request_text('lm_msg', '');
     $msgClass = $this->notice_class_for_message($msg, 'success');
@@ -57,25 +58,56 @@ trait LM_Settings_Admin_Trait {
     if ($activeTab === 'general') {
       $this->render_admin_section_intro(
         __('Access Control', 'links-manager'),
-        __('Choose which user roles can use this plugin. Administrator access always remains enabled.', 'links-manager')
+        __('Choose which user roles can use this plugin and which roles can open the Settings area. Administrator access always remains enabled.', 'links-manager')
       );
       echo '<div style="' . esc_attr($settingsCardStyle) . '">';
-      echo '<div class="lm-settings-role-grid">';
       $rolesMap = $this->get_all_roles_map();
       $allowedRoles = $this->get_allowed_roles_from_settings();
-      foreach ($rolesMap as $roleKey => $roleLabel) {
-        $isChecked = in_array((string)$roleKey, $allowedRoles, true) ? '1' : '0';
-        $isAdminRole = ((string)$roleKey === 'administrator');
-        echo '<label class="lm-settings-role-item' . ($isAdminRole ? ' is-required' : '') . '">';
-        echo '<input type="checkbox" name="lm_allowed_roles[]" value="' . esc_attr((string)$roleKey) . '"' . checked($isChecked, '1', false) . ($isAdminRole ? ' disabled' : '') . '/> ';
-        echo esc_html((string)$roleLabel);
-        if ($isAdminRole) {
-          echo ' <span class="lm-small">(' . esc_html__('required', 'links-manager') . ')</span>';
-          echo '<input type="hidden" name="lm_allowed_roles[]" value="administrator"/>';
+      $settingsAllowedRoles = $this->get_settings_allowed_roles_from_settings();
+      if ($canManageAccessControl) {
+        echo '<div style="font-weight:600; margin-bottom:6px;">' . esc_html__('Plugin access', 'links-manager') . '</div>';
+        echo '<div class="lm-small" style="margin-bottom:8px;">' . esc_html__('Selected roles can use the main Links Manager screens.', 'links-manager') . '</div>';
+        echo '<div class="lm-settings-role-grid">';
+        foreach ($rolesMap as $roleKey => $roleLabel) {
+          $isChecked = in_array((string)$roleKey, $allowedRoles, true) ? '1' : '0';
+          $isAdminRole = ((string)$roleKey === 'administrator');
+          echo '<label class="lm-settings-role-item' . ($isAdminRole ? ' is-required' : '') . '">';
+          echo '<input type="checkbox" name="lm_allowed_roles[]" value="' . esc_attr((string)$roleKey) . '"' . checked($isChecked, '1', false) . ($isAdminRole ? ' disabled' : '') . '/> ';
+          echo esc_html((string)$roleLabel);
+          if ($isAdminRole) {
+            echo ' <span class="lm-small">(' . esc_html__('required', 'links-manager') . ')</span>';
+            echo '<input type="hidden" name="lm_allowed_roles[]" value="administrator"/>';
+          }
+          echo '</label>';
         }
-        echo '</label>';
+        echo '</div>';
+
+        echo '<hr style="margin:14px 0;"/>';
+        echo '<div style="font-weight:600; margin-bottom:6px;">' . esc_html__('Settings access', 'links-manager') . '</div>';
+        echo '<div class="lm-small" style="margin-bottom:8px;">' . esc_html__('Selected roles can open the Settings page. Only administrators can change access control on this tab.', 'links-manager') . '</div>';
+        echo '<div class="lm-settings-role-grid">';
+        foreach ($rolesMap as $roleKey => $roleLabel) {
+          $isChecked = in_array((string)$roleKey, $settingsAllowedRoles, true) ? '1' : '0';
+          $isAdminRole = ((string)$roleKey === 'administrator');
+          echo '<label class="lm-settings-role-item' . ($isAdminRole ? ' is-required' : '') . '">';
+          echo '<input type="checkbox" name="lm_settings_allowed_roles[]" value="' . esc_attr((string)$roleKey) . '"' . checked($isChecked, '1', false) . ($isAdminRole ? ' disabled' : '') . '/> ';
+          echo esc_html((string)$roleLabel);
+          if ($isAdminRole) {
+            echo ' <span class="lm-small">(' . esc_html__('required', 'links-manager') . ')</span>';
+            echo '<input type="hidden" name="lm_settings_allowed_roles[]" value="administrator"/>';
+          }
+          echo '</label>';
+        }
+        echo '</div>';
+      } else {
+        echo '<p class="lm-small" style="margin:0 0 10px;">' . esc_html__('Only administrators can change which roles are allowed to access the plugin or the Settings page.', 'links-manager') . '</p>';
+        echo '<table class="widefat striped" style="max-width:760px;">';
+        echo '<tbody>';
+        echo '<tr><th style="width:220px;">' . esc_html__('Plugin access roles', 'links-manager') . '</th><td>' . esc_html(implode(', ', array_intersect_key($rolesMap, array_flip($allowedRoles)))) . '</td></tr>';
+        echo '<tr><th>' . esc_html__('Settings access roles', 'links-manager') . '</th><td>' . esc_html(implode(', ', array_intersect_key($rolesMap, array_flip($settingsAllowedRoles)))) . '</td></tr>';
+        echo '</tbody>';
+        echo '</table>';
       }
-      echo '</div>';
       echo '</div>';
 
     }
@@ -876,12 +908,17 @@ trait LM_Settings_Admin_Trait {
     echo '<div class="lm-settings-actions">';
     if ($activeTab !== 'status') {
       echo '<div class="lm-settings-actions-primary">';
-      submit_button(__('Save Settings', 'links-manager'), 'primary', 'submit', false);
-      echo '<div class="lm-small lm-help-tip">' . esc_html__('Save your current tab settings.', 'links-manager') . '</div>';
+      if ($activeTab === 'general' && !$canManageAccessControl) {
+        echo '<div class="button button-primary disabled" aria-disabled="true">' . esc_html__('Save Settings', 'links-manager') . '</div>';
+        echo '<div class="lm-small lm-help-tip">' . esc_html__('Only administrators can save Access Control changes.', 'links-manager') . '</div>';
+      } else {
+        submit_button(__('Save Settings', 'links-manager'), 'primary', 'submit', false);
+        echo '<div class="lm-small lm-help-tip">' . esc_html__('Save your current tab settings.', 'links-manager') . '</div>';
+      }
       echo '</div>';
     }
 
-    if ($activeTab === 'general') {
+    if ($activeTab === 'general' && $canManageAccessControl) {
       echo '<div class="lm-settings-actions-card" style="' . esc_attr($settingsCardCompactStyle) . '">';
       echo '<div class="lm-settings-actions-title">' . esc_html__('General Actions', 'links-manager') . '</div>';
       echo '<div class="lm-small lm-settings-actions-note">' . esc_html__('Restore General tab configuration to safe defaults.', 'links-manager') . '</div>';
@@ -1356,21 +1393,7 @@ trait LM_Settings_Admin_Trait {
   }
 
   private function sanitize_allowed_roles($roles) {
-    $roles = is_array($roles) ? $roles : [];
-    $validRoles = array_keys($this->get_all_roles_map());
-    $sanitized = [];
-
-    foreach ($roles as $role) {
-      $role = sanitize_key((string)$role);
-      if ($role !== '' && in_array($role, $validRoles, true)) {
-        $sanitized[] = $role;
-      }
-    }
-
-    $sanitized[] = 'administrator';
-    $sanitized = array_values(array_unique($sanitized));
-
-    return $sanitized;
+    return $this->sanitize_role_selection($roles, ['administrator']);
   }
 
   private function get_auto_managed_performance_settings() {
@@ -1771,7 +1794,7 @@ trait LM_Settings_Admin_Trait {
   }
 
   public function handle_save_settings() {
-    if (!current_user_can('manage_options')) wp_die($this->unauthorized_message());
+    if (!$this->current_user_can_access_settings()) wp_die($this->unauthorized_message());
 
     $nonce = $this->request_text(self::NONCE_NAME, '');
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
@@ -1792,9 +1815,11 @@ trait LM_Settings_Admin_Trait {
     $restoredDefaults = $this->request_has('lm_restore_weak_anchor_patterns');
     $clearedAll = $this->request_has('lm_clear_weak_anchor_patterns');
 
-    if ($activeTab === 'general' || $resetGeneralSettings) {
+    if (($activeTab === 'general' || $resetGeneralSettings) && current_user_can('manage_options')) {
       $allowedRolesRaw = $this->request_array('lm_allowed_roles');
       $settings['allowed_roles'] = $this->sanitize_allowed_roles($allowedRolesRaw);
+      $settingsAllowedRolesRaw = $this->request_array('lm_settings_allowed_roles');
+      $settings['settings_allowed_roles'] = $this->sanitize_allowed_roles($settingsAllowedRolesRaw);
     }
 
     if ($activeTab === 'debug') {
@@ -1859,8 +1884,9 @@ trait LM_Settings_Admin_Trait {
       $settings['performance_preset'] = 'auto';
     }
 
-    if ($resetGeneralSettings) {
+    if ($resetGeneralSettings && current_user_can('manage_options')) {
       $settings['allowed_roles'] = ['administrator'];
+      $settings['settings_allowed_roles'] = ['administrator'];
       $settings['debug_mode'] = '0';
     }
 

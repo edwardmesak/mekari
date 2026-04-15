@@ -49,12 +49,16 @@ trait LM_Settings_Access_Trait {
       'anchor_poor_long_max' => '100',
       'weak_anchor_patterns' => implode("\n", $this->get_default_weak_anchor_patterns()),
       'allowed_roles' => ['administrator'],
+      'settings_allowed_roles' => ['administrator'],
     ];
     $opt = get_option('lm_settings', []);
     if (!is_array($opt)) $opt = [];
 
     if (!isset($opt['allowed_roles']) || !is_array($opt['allowed_roles'])) {
       $opt['allowed_roles'] = ['administrator'];
+    }
+    if (!isset($opt['settings_allowed_roles']) || !is_array($opt['settings_allowed_roles'])) {
+      $opt['settings_allowed_roles'] = ['administrator'];
     }
 
     $opt['debug_mode'] = (isset($opt['debug_mode']) && (string)$opt['debug_mode'] === '1') ? '1' : '0';
@@ -179,21 +183,39 @@ trait LM_Settings_Access_Trait {
     return $map;
   }
 
-  private function get_allowed_roles_from_settings() {
-    $settings = $this->get_settings();
-    $stored = isset($settings['allowed_roles']) && is_array($settings['allowed_roles']) ? $settings['allowed_roles'] : ['administrator'];
+  private function sanitize_role_selection($roles, $requiredRoles = []) {
+    $roles = is_array($roles) ? $roles : [];
+    $requiredRoles = is_array($requiredRoles) ? $requiredRoles : [];
     $validRoles = array_keys($this->get_all_roles_map());
     $clean = [];
-    foreach ($stored as $role) {
+
+    foreach ($roles as $role) {
       $roleKey = sanitize_key((string)$role);
       if ($roleKey !== '' && in_array($roleKey, $validRoles, true)) {
         $clean[] = $roleKey;
       }
     }
-    if (!in_array('administrator', $clean, true)) {
-      $clean[] = 'administrator';
+
+    foreach ($requiredRoles as $role) {
+      $roleKey = sanitize_key((string)$role);
+      if ($roleKey !== '' && in_array($roleKey, $validRoles, true)) {
+        $clean[] = $roleKey;
+      }
     }
+
     return array_values(array_unique($clean));
+  }
+
+  private function get_allowed_roles_from_settings() {
+    $settings = $this->get_settings();
+    $stored = isset($settings['allowed_roles']) && is_array($settings['allowed_roles']) ? $settings['allowed_roles'] : ['administrator'];
+    return $this->sanitize_role_selection($stored, ['administrator']);
+  }
+
+  private function get_settings_allowed_roles_from_settings() {
+    $settings = $this->get_settings();
+    $stored = isset($settings['settings_allowed_roles']) && is_array($settings['settings_allowed_roles']) ? $settings['settings_allowed_roles'] : ['administrator'];
+    return $this->sanitize_role_selection($stored, ['administrator']);
   }
 
   private function current_user_can_access_plugin() {
@@ -209,6 +231,23 @@ trait LM_Settings_Access_Trait {
         return true;
       }
     }
+    return false;
+  }
+
+  private function current_user_can_access_settings() {
+    if (!is_user_logged_in()) return false;
+    if (current_user_can('manage_options')) return true;
+
+    $allowedRoles = $this->get_settings_allowed_roles_from_settings();
+    $user = wp_get_current_user();
+    $userRoles = is_array($user->roles ?? null) ? $user->roles : [];
+
+    foreach ($userRoles as $role) {
+      if (in_array((string)$role, $allowedRoles, true)) {
+        return true;
+      }
+    }
+
     return false;
   }
 

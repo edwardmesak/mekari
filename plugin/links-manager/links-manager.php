@@ -176,7 +176,10 @@ class LM_Links_Manager {
 
   
   public function admin_menu() {
-    if (!$this->current_user_can_access_plugin()) {
+    $canAccessPlugin = $this->current_user_can_access_plugin();
+    $canAccessSettings = $this->current_user_can_access_settings();
+
+    if (!$canAccessPlugin && !$canAccessSettings) {
       return;
     }
 
@@ -186,73 +189,77 @@ class LM_Links_Manager {
       __('Links Manager', 'links-manager'),
       'read',
       self::PAGE_SLUG,
-      [$this, 'render_admin_editor_page'],
+      $canAccessPlugin ? [$this, 'render_admin_editor_page'] : [$this, 'render_admin_settings_page'],
       'dashicons-admin-links',
       80
     );
 
-    add_submenu_page(
-      self::PAGE_SLUG,
-      __('Statistics', 'links-manager'),
-      __('Statistics', 'links-manager'),
-      'read',
-      'links-manager-stats',
-      [$this, 'render_admin_stats_page']
-    );
+    if ($canAccessPlugin) {
+      add_submenu_page(
+        self::PAGE_SLUG,
+        __('Statistics', 'links-manager'),
+        __('Statistics', 'links-manager'),
+        'read',
+        'links-manager-stats',
+        [$this, 'render_admin_stats_page']
+      );
 
-    add_submenu_page(
-      self::PAGE_SLUG,
-      __('Links Editor', 'links-manager'),
-      __('Links Editor', 'links-manager'),
-      'read',
-      self::PAGE_SLUG,
-      [$this, 'render_admin_editor_page']
-    );
+      add_submenu_page(
+        self::PAGE_SLUG,
+        __('Links Editor', 'links-manager'),
+        __('Links Editor', 'links-manager'),
+        'read',
+        self::PAGE_SLUG,
+        [$this, 'render_admin_editor_page']
+      );
 
-    add_submenu_page(
-      self::PAGE_SLUG,
-      __('Pages Link', 'links-manager'),
-      __('Pages Link', 'links-manager'),
-      'read',
-      'links-manager-pages-link',
-      [$this, 'render_admin_pages_link_page']
-    );
+      add_submenu_page(
+        self::PAGE_SLUG,
+        __('Pages Link', 'links-manager'),
+        __('Pages Link', 'links-manager'),
+        'read',
+        'links-manager-pages-link',
+        [$this, 'render_admin_pages_link_page']
+      );
 
-    add_submenu_page(
-      self::PAGE_SLUG,
-      __('Links Target', 'links-manager'),
-      __('Links Target', 'links-manager'),
-      'read',
-      'links-manager-target',
-      [$this, 'render_admin_links_target_page']
-    );
+      add_submenu_page(
+        self::PAGE_SLUG,
+        __('Links Target', 'links-manager'),
+        __('Links Target', 'links-manager'),
+        'read',
+        'links-manager-target',
+        [$this, 'render_admin_links_target_page']
+      );
 
-    add_submenu_page(
-      self::PAGE_SLUG,
-      __('Cited External Domains', 'links-manager'),
-      __('Cited Domains', 'links-manager'),
-      'read',
-      'links-manager-cited-domains',
-      [$this, 'render_admin_cited_domains_page']
-    );
+      add_submenu_page(
+        self::PAGE_SLUG,
+        __('Cited External Domains', 'links-manager'),
+        __('Cited Domains', 'links-manager'),
+        'read',
+        'links-manager-cited-domains',
+        [$this, 'render_admin_cited_domains_page']
+      );
 
-    add_submenu_page(
-      self::PAGE_SLUG,
-      __('All Anchor Text', 'links-manager'),
-      __('All Anchor Text', 'links-manager'),
-      'read',
-      'links-manager-all-anchor-text',
-      [$this, 'render_admin_all_anchor_text_page']
-    );
+      add_submenu_page(
+        self::PAGE_SLUG,
+        __('All Anchor Text', 'links-manager'),
+        __('All Anchor Text', 'links-manager'),
+        'read',
+        'links-manager-all-anchor-text',
+        [$this, 'render_admin_all_anchor_text_page']
+      );
+    }
 
-    add_submenu_page(
-      self::PAGE_SLUG,
-      __('Settings', 'links-manager'),
-      __('Settings', 'links-manager'),
-      'manage_options',
-      'links-manager-settings',
-      [$this, 'render_admin_settings_page']
-    );
+    if ($canAccessSettings) {
+      add_submenu_page(
+        self::PAGE_SLUG,
+        __('Settings', 'links-manager'),
+        __('Settings', 'links-manager'),
+        'read',
+        'links-manager-settings',
+        [$this, 'render_admin_settings_page']
+      );
+    }
 
     // Hide the auto-added top-level submenu entry
     remove_submenu_page(self::PAGE_SLUG, self::PAGE_SLUG);
