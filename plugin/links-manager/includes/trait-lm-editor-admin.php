@@ -568,7 +568,7 @@ trait LM_Editor_Admin_Trait {
         echo '<input type="hidden" name="occurrence" value="' . esc_attr((string)($r['occurrence'] ?? '0')) . '"/>';
         echo '<input type="text" name="new_link" placeholder="New URL" />';
         echo '<input type="text" name="new_anchor" placeholder="New anchor text" />';
-        echo '<input type="text" name="new_rel" placeholder="New rel (optional), e.g. nofollow sponsored" />';
+        echo '<input type="text" name="new_rel" value="' . esc_attr((string)($r['rel_raw'] ?? '')) . '" placeholder="New rel (optional), e.g. nofollow sponsored" />';
         echo '<div class="lm-form-msg"></div>';
         echo '<button type="button" class="button button-secondary lm-edit-submit">Update</button>';
         echo '</form>';

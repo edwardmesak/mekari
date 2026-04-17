@@ -24,7 +24,7 @@ trait LM_Link_Update_Helpers_Trait {
     return (string)$html;
   }
 
-  private function update_single_occurrence_in_html_dom($html, $old_link, $occurrence, $new_link, $new_rel = '', $new_anchor = null, $page_url = '') {
+  private function update_single_occurrence_in_html_dom($html, $old_link, $occurrence, $new_link, $new_rel = '', $new_anchor = null, $page_url = '', $relProvided = false) {
     if (!is_string($html) || trim($html) === '') {
       return ['html' => $html, 'changed' => 0, 'error' => 'empty_html'];
     }
@@ -88,8 +88,12 @@ trait LM_Link_Update_Helpers_Trait {
     }
 
     $targetNode->setAttribute('href', (string)$new_link);
-    if ($new_rel !== '') {
-      $targetNode->setAttribute('rel', (string)$new_rel);
+    if ($relProvided) {
+      if ($new_rel !== '') {
+        $targetNode->setAttribute('rel', (string)$new_rel);
+      } else {
+        $targetNode->removeAttribute('rel');
+      }
     }
 
     if ($new_anchor !== null) {
@@ -105,7 +109,7 @@ trait LM_Link_Update_Helpers_Trait {
     return ['html' => $newHtml !== '' ? $newHtml : $html, 'changed' => 1, 'error' => ''];
   }
 
-  private function update_single_occurrence_in_html($html, $old_link, $occurrence, $new_link, $new_rel = '', $new_anchor = null, $page_url = '') {
+  private function update_single_occurrence_in_html($html, $old_link, $occurrence, $new_link, $new_rel = '', $new_anchor = null, $page_url = '', $relProvided = false) {
     if (!is_string($html) || trim($html) === '') return ['html' => $html, 'changed' => 0, 'error' => 'empty_html'];
 
     $oldC = $this->normalize_for_compare($old_link);
@@ -158,12 +162,16 @@ trait LM_Link_Update_Helpers_Trait {
 
       $tag2 = preg_replace('/\bhref\s*=\s*(["\'])(.*?)\1/i', 'href=' . $quote . esc_attr($new_link) . $quote, $openTag, 1);
 
-      if ($new_rel !== '') {
-        if (preg_match('/\brel\s*=\s*(["\'])(.*?)\1/i', $tag2)) {
-          $tag2 = preg_replace('/\brel\s*=\s*(["\'])(.*?)\1/i', 'rel=' . $quote . esc_attr($new_rel) . $quote, $tag2, 1);
+      if ($relProvided) {
+        if ($new_rel !== '') {
+          if (preg_match('/\brel\s*=\s*(["\'])(.*?)\1/i', $tag2)) {
+            $tag2 = preg_replace('/\brel\s*=\s*(["\'])(.*?)\1/i', 'rel=' . $quote . esc_attr($new_rel) . $quote, $tag2, 1);
+          } else {
+            $tag2 = rtrim($tag2, '>');
+            $tag2 .= ' rel=' . $quote . esc_attr($new_rel) . $quote . '>';
+          }
         } else {
-          $tag2 = rtrim($tag2, '>');
-          $tag2 .= ' rel=' . $quote . esc_attr($new_rel) . $quote . '>';
+          $tag2 = preg_replace('/\s*\brel\s*=\s*(["\'])(.*?)\1/i', '', $tag2, 1);
         }
       }
 
@@ -207,12 +215,16 @@ trait LM_Link_Update_Helpers_Trait {
 
         $tag2 = preg_replace('/\bhref\s*=\s*(["\'])(.*?)\1/i', 'href=' . $quote . esc_attr($new_link) . $quote, $openTag, 1);
 
-        if ($new_rel !== '') {
-          if (preg_match('/\brel\s*=\s*(["\'])(.*?)\1/i', $tag2)) {
-            $tag2 = preg_replace('/\brel\s*=\s*(["\'])(.*?)\1/i', 'rel=' . $quote . esc_attr($new_rel) . $quote, $tag2, 1);
+        if ($relProvided) {
+          if ($new_rel !== '') {
+            if (preg_match('/\brel\s*=\s*(["\'])(.*?)\1/i', $tag2)) {
+              $tag2 = preg_replace('/\brel\s*=\s*(["\'])(.*?)\1/i', 'rel=' . $quote . esc_attr($new_rel) . $quote, $tag2, 1);
+            } else {
+              $tag2 = rtrim($tag2, '>');
+              $tag2 .= ' rel=' . $quote . esc_attr($new_rel) . $quote . '>';
+            }
           } else {
-            $tag2 = rtrim($tag2, '>');
-            $tag2 .= ' rel=' . $quote . esc_attr($new_rel) . $quote . '>';
+            $tag2 = preg_replace('/\s*\brel\s*=\s*(["\'])(.*?)\1/i', '', $tag2, 1);
           }
         }
 
@@ -231,7 +243,7 @@ trait LM_Link_Update_Helpers_Trait {
     }
 
     if ($changed !== 1) {
-      $domFallback = $this->update_single_occurrence_in_html_dom($html, $old_link, $occurrence, $new_link, $new_rel, $new_anchor, $page_url);
+      $domFallback = $this->update_single_occurrence_in_html_dom($html, $old_link, $occurrence, $new_link, $new_rel, $new_anchor, $page_url, $relProvided);
       if ((int)($domFallback['changed'] ?? 0) === 1) {
         return $domFallback;
       }
@@ -391,7 +403,7 @@ trait LM_Link_Update_Helpers_Trait {
     return ['ok' => true, 'row' => $rows[$occurrence]];
   }
 
-  private function update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $new_link, $new_rel = '', $new_anchor = null) {
+  private function update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $new_link, $new_rel = '', $new_anchor = null, $currentRow = null, $relProvided = false) {
     $source = (string)$source;
     $location = (string)$location;
     $block_index = (string)$block_index;
@@ -508,12 +520,18 @@ trait LM_Link_Update_Helpers_Trait {
       $isClassicContentTarget = ($location === 'classic' || trim((string)$block_index) === '');
 
       if (empty($blocks) || $isClassicContentTarget) {
-        $res = $this->update_single_occurrence_in_html($content, $old_link, $occurrence, $new_link, $new_rel, $new_anchor, (string)$pageUrl);
+        $res = $this->update_single_occurrence_in_html($content, $old_link, $occurrence, $new_link, $new_rel, $new_anchor, (string)$pageUrl, $relProvided);
         if ($res['changed'] !== 1) {
           return ['ok' => false, 'msg' => 'Target link not found (content changed?)'];
         }
+        if (is_array($currentRow) && !empty($currentRow)) {
+          $this->queue_incremental_row_patch($post_id, $currentRow, $new_link, $new_rel, $new_anchor);
+        }
         $u = wp_update_post(['ID' => $post_id, 'post_content' => $res['html']], true);
-        if (is_wp_error($u)) return ['ok' => false, 'msg' => $u->get_error_message()];
+        if (is_wp_error($u)) {
+          $this->clear_incremental_row_patch($post_id);
+          return ['ok' => false, 'msg' => $u->get_error_message()];
+        }
         return ['ok' => true, 'msg' => 'Successfully updated 1 link in content.'];
       }
 
@@ -539,7 +557,7 @@ trait LM_Link_Update_Helpers_Trait {
         return ['ok' => false, 'msg' => 'Block has no editable HTML (fail-safe).'];
       }
 
-      $res = $this->update_single_occurrence_in_html($html, $old_link, $occurrence, $new_link, $new_rel, $new_anchor, (string)$pageUrl);
+      $res = $this->update_single_occurrence_in_html($html, $old_link, $occurrence, $new_link, $new_rel, $new_anchor, (string)$pageUrl, $relProvided);
       if ($res['changed'] !== 1) {
         return ['ok' => false, 'msg' => 'Target link not found in block (content changed?)'];
       }
@@ -557,18 +575,30 @@ trait LM_Link_Update_Helpers_Trait {
       }
 
       $newContent = serialize_blocks($blocks);
+      if (is_array($currentRow) && !empty($currentRow)) {
+        $this->queue_incremental_row_patch($post_id, $currentRow, $new_link, $new_rel, $new_anchor);
+      }
       $u = wp_update_post(['ID' => $post_id, 'post_content' => $newContent], true);
-      if (is_wp_error($u)) return ['ok' => false, 'msg' => $u->get_error_message()];
+      if (is_wp_error($u)) {
+        $this->clear_incremental_row_patch($post_id);
+        return ['ok' => false, 'msg' => $u->get_error_message()];
+      }
 
       return ['ok' => true, 'msg' => 'Successfully updated 1 link in block content.'];
     }
 
     if ($source === 'excerpt') {
       $excerpt = (string)$post->post_excerpt;
-      $res = $this->update_single_occurrence_in_html($excerpt, $old_link, $occurrence, $new_link, $new_rel, $new_anchor, (string)$pageUrl);
+      $res = $this->update_single_occurrence_in_html($excerpt, $old_link, $occurrence, $new_link, $new_rel, $new_anchor, (string)$pageUrl, $relProvided);
       if ($res['changed'] !== 1) return ['ok' => false, 'msg' => 'Target link not found in excerpt (content changed?)'];
+      if (is_array($currentRow) && !empty($currentRow)) {
+        $this->queue_incremental_row_patch($post_id, $currentRow, $new_link, $new_rel, $new_anchor);
+      }
       $u = wp_update_post(['ID' => $post_id, 'post_excerpt' => $res['html']], true);
-      if (is_wp_error($u)) return ['ok' => false, 'msg' => $u->get_error_message()];
+      if (is_wp_error($u)) {
+        $this->clear_incremental_row_patch($post_id);
+        return ['ok' => false, 'msg' => $u->get_error_message()];
+      }
       return ['ok' => true, 'msg' => 'Successfully updated 1 link in excerpt.'];
     }
 
@@ -584,7 +614,7 @@ trait LM_Link_Update_Helpers_Trait {
       $val = get_post_meta($post_id, $key, true);
       if (!is_string($val)) return ['ok' => false, 'msg' => 'Meta value is not a string.'];
 
-      $res = $this->update_single_occurrence_in_html($val, $old_link, $occurrence, $new_link, $new_rel, $new_anchor, (string)$pageUrl);
+      $res = $this->update_single_occurrence_in_html($val, $old_link, $occurrence, $new_link, $new_rel, $new_anchor, (string)$pageUrl, $relProvided);
       if ($res['changed'] !== 1) return ['ok' => false, 'msg' => 'Target link not found in meta (content changed?)'];
 
       update_post_meta($post_id, $key, $res['html']);

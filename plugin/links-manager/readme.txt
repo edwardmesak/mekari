@@ -4,7 +4,7 @@ Tags: seo, links, internal links, external links, link audit
 Requires at least: 5.0
 Tested up to: 6.7
 Requires PHP: 7.2
-Stable tag: 4.4.6
+Stable tag: 4.4.7
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -59,6 +59,21 @@ Links Manager includes Statistics, Links Editor, Pages Link, Cited External Doma
 When the plugin is deleted from WordPress, it removes plugin options, transient caches, scheduled events, and plugin database tables.
 
 == Changelog ==
+
+= 4.4.7 =
+* Synced Links Editor row updates with the indexed datastore used after reload, so edited rows no longer revert to stale values in the table.
+* Fixed Links Editor update failures after Refresh Data or reloads where stale table rows could trigger "Link target changed" even though the frontend content had already changed.
+* Tightened incremental refresh behavior so single-row, bulk, editor-content, excerpt, meta, and menu changes patch only the affected rows or contexts instead of invalidating broader datasets.
+* Kept Links Editor, Pages Link, Cited Domains, All Anchor Text, Links Target, and Anchor Grouping exports aligned with the same data sources and column sets shown in their tables.
+* Fixed row update safety checks and rel editing flows, including explicit blank-rel clears, row_id fail-safe validation, and stable inline edit state after AJAX saves.
+* Restored bulk row-id lookup fallback to the global `any/all` indexed scope for older or imported CSV updates that do not have a complete language-scoped lookup map.
+* Improved Links Target admin consistency with sticky summary headers, full-width layout alignment, and matching mobile scroll behavior.
+* Fixed incremental delete handling for menu items so removed menu links are cleared from cache and indexed tables instead of being reinserted until the next broad rebuild.
+* Added status-transition incremental sync for post trash, unpublish, and restore flows so dataset updates do not rely only on `save_post` timing.
+* Kept manual Refresh Data flexible with Fast Refresh and Full Rebuild options in the UI, while making scheduled refresh default to changed-only incremental scans.
+* Hardened refresh self-healing so Fast Refresh automatically falls back to a full rebuild when the indexed dataset is missing or unsafe to reuse.
+* Synced indexed datastore updates for menu-only and zero-post refresh branches so completed refresh jobs no longer leave tables or summaries stale.
+* Reduced unnecessary Fast Refresh finalization work by limiting language-level summary rebuilds to languages that actually had changed posts, while still preserving accurate global aggregation.
 
 = 4.4.6 =
 * Migrated report pages fully to the Refresh Data workflow so report screens no longer depend on the old per-page rebuild cache flow.
@@ -131,6 +146,9 @@ When the plugin is deleted from WordPress, it removes plugin options, transient 
 * Versions prior to 4.4.0 are not documented in this repository's current changelog history.
 
 == Upgrade Notice ==
+
+= 4.4.7 =
+Recommended update for Links Editor data consistency after reloads, safer precise row updates, synchronized exports, and more reliable Links Target admin behavior.
 
 = 4.4.6 =
 Recommended update for the new Refresh Data-only workflow, safer first-run behavior after reinstall, stronger WPML language scoping, more stable report filtering, and clearer active-filter UI across report pages.

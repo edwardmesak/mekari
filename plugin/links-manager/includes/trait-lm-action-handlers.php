@@ -48,6 +48,7 @@ trait LM_Action_Handlers_Trait {
     $request = new WP_REST_Request('POST', '/links-manager/v1/rebuild/start');
     $request->set_param('post_type', $this->request_text('post_type', ''));
     $request->set_param('wpml_lang', $this->request_text('wpml_lang', ''));
+    $request->set_param('refresh_mode', $this->request_text('refresh_mode', ''));
     $this->send_ajax_rebuild_response($this->rest_rebuild_start($request));
   }
 
@@ -108,7 +109,9 @@ trait LM_Action_Handlers_Trait {
     $post_id = $this->request_int('post_id', 0);
     $old_link = $this->request_text('old_link', '');
     $new_link = $this->request_has('new_link') ? esc_url_raw((string)$this->request_raw('new_link', '')) : '';
-    $new_rel  = $this->request_text('new_rel', '');
+    $old_rel = $this->request_text('old_rel', '');
+    $new_rel_provided = $this->request_has('new_rel');
+    $new_rel  = $new_rel_provided ? $this->request_text('new_rel', '') : '';
     $old_anchor = $this->request_text('old_anchor', '');
     $new_anchor_raw = $this->request_has('new_anchor') ? (string)$this->request_raw('new_anchor', '') : null;
     $new_anchor = $this->normalize_new_anchor_input($new_anchor_raw, $old_anchor);
@@ -134,7 +137,8 @@ trait LM_Action_Handlers_Trait {
 
     $row_id = $this->request_text('row_id', '');
 
-    $has_change = ($new_link !== '') || ($new_rel !== '') || ($new_anchor !== null);
+    $rel_changed = $new_rel_provided && $new_rel !== $old_rel;
+    $has_change = ($new_link !== '') || $rel_changed || ($new_anchor !== null);
     $effective_new_link = $new_link !== '' ? $new_link : $old_link;
 
     $isMenuSource = ($source === 'menu');
@@ -193,8 +197,20 @@ trait LM_Action_Handlers_Trait {
       ]);
       $this->safe_redirect_back($filters, ['lm_msg' => __('Failed: Link target changed. Reload this page or run Refresh Data and try again.', 'links-manager')]);
     }
+    if ((string)($currentRow['row_id'] ?? '') !== $row_id) {
+      $this->record_link_update_diagnostic('single_update_row_id_compare', 'failed', [
+        'post_id' => $post_id,
+        'source' => $source,
+        'link_location' => $location,
+        'block_index' => $block_index,
+        'occurrence' => $occurrence,
+        'row_id' => $row_id,
+        'current_row_id' => (string)($currentRow['row_id'] ?? ''),
+      ]);
+      $this->safe_redirect_back($filters, ['lm_msg' => __('Failed: Link row changed. Reload this page or run Refresh Data and try again.', 'links-manager')]);
+    }
 
-    $res = $this->update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $effective_new_link, $new_rel, $new_anchor);
+    $res = $this->update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $effective_new_link, $new_rel, $new_anchor, $currentRow, $new_rel_provided);
     if (!$res['ok']) {
       $this->record_link_update_diagnostic('single_update_apply', 'failed', [
         'post_id' => $post_id,
@@ -209,9 +225,17 @@ trait LM_Action_Handlers_Trait {
       ]);
     }
 
-    $this->clear_cache_all();
+    if ($res['ok'] && $source === 'meta') {
+      $post = get_post($post_id);
+      if (!$this->patch_existing_caches_for_row_change($post, $currentRow, $effective_new_link, $new_rel, $new_anchor)) {
+        $this->clear_cache_all();
+      }
+    } elseif ($res['ok'] && $source === 'menu') {
+      if (!$this->patch_existing_caches_for_menu_row_change($currentRow, $effective_new_link, $new_anchor)) {
+        $this->clear_cache_all();
+      }
+    }
 
-    $old_rel = $this->request_text('old_rel', '');
     $this->log_audit_trail(
       'update_single',
       $post_id,
@@ -243,7 +267,9 @@ trait LM_Action_Handlers_Trait {
     $post_id = $this->request_int('post_id', 0);
     $old_link = $this->request_text('old_link', '');
     $new_link = $this->request_has('new_link') ? esc_url_raw((string)$this->request_raw('new_link', '')) : '';
-    $new_rel  = $this->request_text('new_rel', '');
+    $old_rel = $this->request_text('old_rel', '');
+    $new_rel_provided = $this->request_has('new_rel');
+    $new_rel  = $new_rel_provided ? $this->request_text('new_rel', '') : '';
     $old_anchor = $this->request_text('old_anchor', '');
     $new_anchor_raw = $this->request_has('new_anchor') ? (string)$this->request_raw('new_anchor', '') : null;
     $new_anchor = $this->normalize_new_anchor_input($new_anchor_raw, $old_anchor);
@@ -259,7 +285,8 @@ trait LM_Action_Handlers_Trait {
       wp_send_json_error(['msg' => $this->unauthorized_message()], 403);
     }
 
-    $has_change = ($new_link !== '') || ($new_rel !== '') || ($new_anchor !== null);
+    $rel_changed = $new_rel_provided && $new_rel !== $old_rel;
+    $has_change = ($new_link !== '') || $rel_changed || ($new_anchor !== null);
     $effective_new_link = $new_link !== '' ? $new_link : $old_link;
     $isMenuSource = ($source === 'menu');
 
@@ -312,8 +339,20 @@ trait LM_Action_Handlers_Trait {
       ]);
       wp_send_json_error(['msg' => __('Failed: Link target changed. Reload this page or run Refresh Data and try again.', 'links-manager')], 409);
     }
+    if ((string)($currentRow['row_id'] ?? '') !== $row_id) {
+      $this->record_link_update_diagnostic('ajax_update_row_id_compare', 'failed', [
+        'post_id' => $post_id,
+        'source' => $source,
+        'link_location' => $location,
+        'block_index' => $block_index,
+        'occurrence' => $occurrence,
+        'row_id' => $row_id,
+        'current_row_id' => (string)($currentRow['row_id'] ?? ''),
+      ]);
+      wp_send_json_error(['msg' => __('Failed: Link row changed. Reload this page or run Refresh Data and try again.', 'links-manager')], 409);
+    }
 
-    $res = $this->update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $effective_new_link, $new_rel, $new_anchor);
+    $res = $this->update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $effective_new_link, $new_rel, $new_anchor, $currentRow, $new_rel_provided);
     if (!$res['ok']) {
       $this->record_link_update_diagnostic('ajax_update_apply', 'failed', [
         'post_id' => $post_id,
@@ -327,9 +366,17 @@ trait LM_Action_Handlers_Trait {
         'message' => isset($res['msg']) ? (string)$res['msg'] : '',
       ]);
     }
-    $this->clear_cache_all();
+    if ($res['ok'] && $source === 'meta') {
+      $post = get_post($post_id);
+      if (!$this->patch_existing_caches_for_row_change($post, $currentRow, $effective_new_link, $new_rel, $new_anchor)) {
+        $this->clear_cache_all();
+      }
+    } elseif ($res['ok'] && $source === 'menu') {
+      if (!$this->patch_existing_caches_for_menu_row_change($currentRow, $effective_new_link, $new_anchor)) {
+        $this->clear_cache_all();
+      }
+    }
 
-    $old_rel = $this->request_text('old_rel', '');
     $this->log_audit_trail(
       'update_single',
       $post_id,
@@ -342,7 +389,7 @@ trait LM_Action_Handlers_Trait {
       $res['msg']
     );
 
-    $effective_rel_raw = $new_rel !== '' ? $new_rel : $old_rel;
+    $effective_rel_raw = $new_rel_provided ? $new_rel : $old_rel;
     $effective_flags = $this->parse_rel_flags($effective_rel_raw);
     $effective_rel_parts = [];
     if ($effective_flags['nofollow']) $effective_rel_parts[] = 'nofollow';
@@ -446,6 +493,7 @@ trait LM_Action_Handlers_Trait {
       }
     }
 
+    $hasNewRel = isset($idx['new_rel']);
     $hasSource = isset($idx['source']);
     $hasLocation = isset($idx['link_location']);
     $hasBlockIndex = isset($idx['block_index']);
@@ -460,7 +508,8 @@ trait LM_Action_Handlers_Trait {
         'old_link' => sanitize_text_field((string)($rawRow[$idx['old_link']] ?? '')),
         'row_id' => sanitize_text_field((string)($rawRow[$idx['row_id']] ?? '')),
         'new_link' => isset($idx['new_link']) ? esc_url_raw((string)($rawRow[$idx['new_link']] ?? '')) : '',
-        'new_rel' => isset($idx['new_rel']) ? sanitize_text_field((string)($rawRow[$idx['new_rel']] ?? '')) : '',
+        'new_rel' => $hasNewRel ? sanitize_text_field((string)($rawRow[$idx['new_rel']] ?? '')) : '',
+        'new_rel_provided' => $hasNewRel,
         'new_anchor' => array_key_exists('new_anchor', $idx)
           ? $this->normalize_new_anchor_input((string)($rawRow[$idx['new_anchor']] ?? ''), null)
           : null,
@@ -492,6 +541,7 @@ trait LM_Action_Handlers_Trait {
     $totalRows = 0;
     $ok = 0;
     $fail = 0;
+    $needsGlobalCacheInvalidation = false;
 
     foreach ($parsedRows as $entry) {
       $totalRows++;
@@ -501,18 +551,18 @@ trait LM_Action_Handlers_Trait {
       $row_id = (string)$entry['row_id'];
       $new_link = (string)$entry['new_link'];
       $new_rel = (string)$entry['new_rel'];
+      $new_rel_provided = !empty($entry['new_rel_provided']);
       $new_anchor = $entry['new_anchor'];
 
-      $has_change = ($new_link !== '') || ($new_rel !== '') || ($new_anchor !== null);
       $effective_new_link = $new_link !== '' ? $new_link : $old_link;
 
-      if ($old_link === '' || $row_id === '' || $effective_new_link === '' || !$has_change) {
+      if ($old_link === '' || $row_id === '' || $effective_new_link === '') {
         $this->record_link_update_diagnostic('bulk_update_validate', 'failed', [
           'post_id' => $post_id,
           'row_id' => $row_id,
           'old_link' => $old_link,
           'effective_new_link' => $effective_new_link,
-          'has_change' => $has_change,
+          'has_change' => false,
         ]);
         $fail++;
         continue;
@@ -623,8 +673,36 @@ trait LM_Action_Handlers_Trait {
         $fail++;
         continue;
       }
+      if ((string)($currentRow['row_id'] ?? '') !== $row_id) {
+        $this->record_link_update_diagnostic('bulk_update_row_id_compare', 'failed', [
+          'post_id' => $post_id,
+          'row_id' => $row_id,
+          'source' => $source,
+          'link_location' => $location,
+          'block_index' => $block_index,
+          'occurrence' => $occurrence,
+          'current_row_id' => (string)($currentRow['row_id'] ?? ''),
+        ]);
+        $fail++;
+        continue;
+      }
 
-      $res = $this->update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $effective_new_link, $new_rel, $new_anchor);
+      $current_rel = sanitize_text_field((string)($currentRow['rel_raw'] ?? ''));
+      $rel_changed = $new_rel_provided && $new_rel !== $current_rel;
+      $has_change = ($new_link !== '') || $rel_changed || ($new_anchor !== null);
+      if (!$has_change) {
+        $this->record_link_update_diagnostic('bulk_update_validate', 'failed', [
+          'post_id' => $post_id,
+          'row_id' => $row_id,
+          'old_link' => $old_link,
+          'effective_new_link' => $effective_new_link,
+          'has_change' => false,
+        ]);
+        $fail++;
+        continue;
+      }
+
+      $res = $this->update_post_by_context($post_id, $old_link, $source, $location, $block_index, $occurrence, $effective_new_link, $new_rel, $new_anchor, $currentRow, $new_rel_provided);
       if (!$res['ok']) {
         $this->record_link_update_diagnostic('bulk_update_apply', 'failed', [
           'post_id' => $post_id,
@@ -651,11 +729,26 @@ trait LM_Action_Handlers_Trait {
         $res['msg']
       );
 
-      if ($res['ok']) $ok++;
-      else $fail++;
+      if ($res['ok']) {
+        if ($source === 'meta') {
+          $post = get_post($post_id);
+          if (!$this->patch_existing_caches_for_row_change($post, $currentRow, $effective_new_link, $new_rel, $new_anchor)) {
+            $needsGlobalCacheInvalidation = true;
+          }
+        } elseif ($source === 'menu') {
+          if (!$this->patch_existing_caches_for_menu_row_change($currentRow, $effective_new_link, $new_anchor)) {
+            $needsGlobalCacheInvalidation = true;
+          }
+        }
+        $ok++;
+      } else {
+        $fail++;
+      }
     }
 
-    $this->clear_cache_all();
+    if ($needsGlobalCacheInvalidation) {
+      $this->clear_cache_all();
+    }
 
     $filters['post_type'] = 'any';
     $filters['post_category'] = 0;

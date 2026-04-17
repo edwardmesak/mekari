@@ -8,6 +8,34 @@ if (!defined('ABSPATH')) {
 }
 
 trait LM_Export_Handlers_Trait {
+  private function get_export_quality_label($quality, $anchorText = '') {
+    $qualityKey = sanitize_key((string)$quality);
+    if ($qualityKey === '') {
+      $qualityKey = $this->get_anchor_quality_label((string)$anchorText);
+    }
+
+    if ($qualityKey === 'bad') {
+      return 'Bad';
+    }
+    if ($qualityKey === 'poor') {
+      return 'Poor';
+    }
+
+    return 'Good';
+  }
+
+  private function get_export_usage_type_label($usageType) {
+    $usageType = sanitize_key((string)$usageType);
+    if ($usageType === 'inlink_only') {
+      return 'Inlink Only';
+    }
+    if ($usageType === 'outbound_only') {
+      return 'Outbound Only';
+    }
+
+    return 'Mixed';
+  }
+
   private function csv_write_row($out, $row, $delimiter = ',', $enclosure = '"') {
     $escaped = [];
     foreach ((array)$row as $value) {
@@ -90,6 +118,7 @@ trait LM_Export_Handlers_Trait {
           $r['link'] ?? '',
           $r['link'] ?? '',
           $r['anchor_text'] ?? '',
+          $this->get_export_quality_label('', (string)($r['anchor_text'] ?? '')),
           $r['alt_text'] ?? '',
           $r['snippet'] ?? '',
           $r['link_type'] ?? '',
@@ -109,6 +138,143 @@ trait LM_Export_Handlers_Trait {
     return true;
   }
 
+  private function get_pages_link_export_rows($filters) {
+    $filters = is_array($filters) ? $filters : [];
+    $exportFilters = $filters;
+    $exportFilters['paged'] = 1;
+    $exportFilters['per_page'] = max(500, (int)($filters['per_page'] ?? 25));
+
+    if ($this->can_use_pages_link_indexed_fastpath($exportFilters)) {
+      $rows = [];
+      $page = 1;
+      do {
+        $exportFilters['paged'] = $page;
+        $pagedResult = $this->get_pages_link_paged_result_from_indexed_summary($exportFilters);
+        if (!is_array($pagedResult)) {
+          break;
+        }
+        $batch = array_values((array)($pagedResult['pages'] ?? []));
+        foreach ($batch as &$batchRow) {
+          if ((string)($batchRow['page_url'] ?? '') === '') {
+            $batchRow['page_url'] = (string)get_permalink((int)($batchRow['post_id'] ?? 0));
+          }
+        }
+        unset($batchRow);
+        $this->append_rows($rows, $batch);
+        $totalPages = max(1, (int)($pagedResult['total_pages'] ?? 1));
+        $page++;
+      } while ($page <= $totalPages);
+
+      return $rows;
+    }
+
+    if ($this->can_use_pages_link_indexed_summary_path($exportFilters)) {
+      return $this->get_pages_with_inbound_counts_from_indexed_summary($exportFilters);
+    }
+
+    $all = $this->get_pages_link_runtime_rows($exportFilters, isset($exportFilters['wpml_lang']) ? $exportFilters['wpml_lang'] : 'all', false);
+    return $this->get_pages_with_inbound_counts($all, $exportFilters, true);
+  }
+
+  private function get_indexed_cited_domains_export_rows($filters) {
+    $filters = is_array($filters) ? $filters : [];
+    $exportFilters = $filters;
+    $exportFilters['paged'] = 1;
+    $exportFilters['per_page'] = max(500, (int)($filters['per_page'] ?? 25));
+
+    $rows = [];
+    $page = 1;
+    do {
+      $exportFilters['paged'] = $page;
+      $pagedResult = $this->get_indexed_cited_domains_paged_result($exportFilters);
+      if (!is_array($pagedResult)) {
+        return [];
+      }
+
+      $batch = array_values((array)($pagedResult['items'] ?? []));
+      $this->append_rows($rows, $batch);
+      $pagination = isset($pagedResult['pagination']) && is_array($pagedResult['pagination']) ? $pagedResult['pagination'] : [];
+      $totalPages = max(1, (int)($pagination['total_pages'] ?? 1));
+      $page++;
+    } while ($page <= $totalPages);
+
+    return $rows;
+  }
+
+  private function get_cited_domains_export_rows($filters) {
+    $filters = is_array($filters) ? $filters : [];
+    $guardState = $this->get_indexed_aggregation_guard_state($filters, 'exlink', 'cited_domains_aggregation', 'Cited Domains');
+    if (!empty($guardState['blocked'])) {
+      return [];
+    }
+
+    $rows = $this->get_indexed_cited_domains_export_rows($filters);
+    if (!empty($rows)) {
+      return $rows;
+    }
+
+    $rows = $this->get_indexed_cited_domains_summary_rows($filters);
+    if (!empty($rows)) {
+      return $rows;
+    }
+
+    $scopeRows = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
+    return $this->build_cited_domains_summary_rows($scopeRows, $filters);
+  }
+
+  private function get_indexed_all_anchor_text_export_rows($filters) {
+    $filters = is_array($filters) ? $filters : [];
+    $exportFilters = $filters;
+    $exportFilters['paged'] = 1;
+    $exportFilters['per_page'] = max(500, (int)($filters['per_page'] ?? 25));
+
+    $rows = [];
+    $page = 1;
+    do {
+      $exportFilters['paged'] = $page;
+      $pagedResult = $this->get_indexed_all_anchor_text_paged_result($exportFilters);
+      if (!is_array($pagedResult)) {
+        return [];
+      }
+
+      $batch = array_values((array)($pagedResult['items'] ?? []));
+      $this->append_rows($rows, $batch);
+      $pagination = isset($pagedResult['pagination']) && is_array($pagedResult['pagination']) ? $pagedResult['pagination'] : [];
+      $totalPages = max(1, (int)($pagination['total_pages'] ?? 1));
+      $page++;
+    } while ($page <= $totalPages);
+
+    return $rows;
+  }
+
+  private function get_all_anchor_text_export_rows($filters) {
+    $filters = is_array($filters) ? $filters : [];
+    $guardState = $this->get_indexed_aggregation_guard_state($filters, 'any', 'all_anchor_text_aggregation', 'All Anchor Text');
+    if (!empty($guardState['blocked'])) {
+      $rebuildState = $this->get_rebuild_job_state();
+      $rebuildStatus = sanitize_key((string)($rebuildState['status'] ?? 'idle'));
+      $canServeStaleRows = !empty($guardState['readiness_blocked'])
+        && in_array($rebuildStatus, ['running', 'finalizing'], true);
+      if ($canServeStaleRows) {
+        return $this->get_stale_indexed_all_anchor_text_summary_rows($filters);
+      }
+      return [];
+    }
+
+    $rows = $this->get_indexed_all_anchor_text_export_rows($filters);
+    if (!empty($rows)) {
+      return $rows;
+    }
+
+    $rows = $this->get_indexed_all_anchor_text_summary_rows($filters);
+    if (!empty($rows)) {
+      return $rows;
+    }
+
+    $scopeRows = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
+    return $this->build_all_anchor_text_rows($scopeRows, $filters);
+  }
+
   public function handle_export_pages_link_csv() {
     if (!$this->current_user_can_access_plugin()) wp_die($this->unauthorized_message());
 
@@ -116,10 +282,7 @@ trait LM_Export_Handlers_Trait {
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $filters = $this->get_pages_link_filters_from_request();
-    // Pages Link export must count links from all source post types into the selected candidate posts.
-    // Use row-based counting so export stays consistent with the editor rows and does not undercount inbound.
-    $all = $this->get_pages_link_runtime_rows($filters, isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', false);
-    $rows = $this->get_pages_with_inbound_counts($all, $filters, true);
+    $rows = $this->get_pages_link_export_rows($filters);
 
     $filename = 'links-manager-pages-link-export-' . date('Y-m-d-His') . '.csv';
 
@@ -150,11 +313,27 @@ trait LM_Export_Handlers_Trait {
       $post_id = (int)($r['post_id'] ?? 0);
       if ($post_id <= 0) continue;
 
+      $post = get_post($post_id);
       $title = wp_specialchars_decode(wp_strip_all_tags((string)($r['post_title'] ?? '')), ENT_QUOTES);
+      if ($title === '' && $post) {
+        $title = wp_specialchars_decode(wp_strip_all_tags((string)get_the_title($post_id)), ENT_QUOTES);
+      }
       $author = (string)($r['author_name'] ?? '');
+      if ($author === '' && $post) {
+        $author = $post->post_author ? (string)get_the_author_meta('display_name', $post->post_author) : '';
+      }
       $date = (string)($r['post_date'] ?? '');
+      if ($date === '' && $post) {
+        $date = (string)$post->post_date;
+      }
       $updated = (string)($r['post_modified'] ?? '');
+      if ($updated === '' && $post) {
+        $updated = (string)$post->post_modified;
+      }
       $ptype = (string)($r['post_type'] ?? '');
+      if ($ptype === '' && $post) {
+        $ptype = (string)$post->post_type;
+      }
       $url = (string)($r['page_url'] ?? '');
       if ($url === '') {
         $url = (string)get_permalink($post_id);
@@ -193,38 +372,7 @@ trait LM_Export_Handlers_Trait {
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $filters = $this->get_cited_domains_filters_from_request();
-    $summaryRows = $this->get_indexed_cited_domains_summary_rows($filters);
-    $all = [];
-    if (empty($summaryRows)) {
-      $all = $this->get_indexed_rows_for_custom_aggregation($filters, 'exlink');
-      if (empty($all)) {
-        $all = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
-      }
-      $summaryRows = $this->build_cited_domains_summary_rows($all, $filters);
-    } else {
-      $all = $this->get_indexed_rows_for_custom_aggregation($filters, 'exlink');
-      if (empty($all)) {
-        $all = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
-      }
-    }
-
-    $allowedDomains = [];
-    $domainStats = [];
-    foreach ($summaryRows as $r) {
-      $domain = strtolower((string)($r['domain'] ?? ''));
-      if ($domain === '') continue;
-      $allowedDomains[$domain] = true;
-      $domainStats[$domain] = [
-        'cites' => (int)($r['cites'] ?? 0),
-        'pages' => (int)($r['pages'] ?? 0),
-      ];
-    }
-
-    $allowedPostIds = $this->get_post_ids_by_post_terms(
-      isset($filters['post_category']) ? (int)$filters['post_category'] : 0,
-      isset($filters['post_tag']) ? (int)$filters['post_tag'] : 0
-    );
-    $textMode = (string)($filters['search_mode'] ?? 'contains');
+    $rows = $this->get_cited_domains_export_rows($filters);
 
     $filename = 'links-manager-cited-domains-export-' . date('Y-m-d-His') . '.csv';
 
@@ -237,64 +385,17 @@ trait LM_Export_Handlers_Trait {
 
     $this->csv_write_row($out, [
       'domain',
-      'domain_cited_count',
-      'domain_unique_source_pages',
-      'destination_url',
-      'source_page_url',
-      'source_post_id',
-      'source_post_title',
-      'source_post_type',
-      'source_link_location',
-      'anchor_text',
-      'rel_raw',
+      'cited_count',
+      'unique_source_pages',
+      'sample_url',
     ]);
 
-    foreach ($all as $row) {
-      if (is_array($allowedPostIds)) {
-        $rowPostId = isset($row['post_id']) ? (string)intval($row['post_id']) : '';
-        if ($rowPostId === '' || !isset($allowedPostIds[$rowPostId])) continue;
-      }
-
-      if (($row['link_type'] ?? '') !== 'exlink') continue;
-      if (($filters['post_type'] ?? 'any') !== 'any' && (string)($row['post_type'] ?? '') !== (string)$filters['post_type']) continue;
-      if (($filters['location'] ?? 'any') !== 'any' && (string)($row['link_location'] ?? '') !== (string)$filters['location']) continue;
-      if (($filters['source_type'] ?? 'any') !== 'any' && (string)($row['source'] ?? '') !== (string)$filters['source_type']) continue;
-
-      if ((string)($filters['value_contains'] ?? '') !== '' && !$this->text_matches((string)($row['link'] ?? ''), (string)$filters['value_contains'], $textMode)) continue;
-      if ((string)($filters['source_contains'] ?? '') !== '' && !$this->text_matches((string)($row['page_url'] ?? ''), (string)$filters['source_contains'], $textMode)) continue;
-      if ((string)($filters['title_contains'] ?? '') !== '' && !$this->text_matches((string)($row['post_title'] ?? ''), (string)$filters['title_contains'], $textMode)) continue;
-      if (!$this->row_matches_author_filter($row, isset($filters['author']) ? (int)$filters['author'] : 0)) continue;
-      if ((string)($filters['anchor_contains'] ?? '') !== '' && !$this->text_matches((string)($row['anchor_text'] ?? ''), (string)$filters['anchor_contains'], $textMode)) continue;
-
-      $seoFlag = (string)($filters['seo_flag'] ?? 'any');
-      if ($seoFlag !== 'any') {
-        $nofollow = (string)($row['rel_nofollow'] ?? '0') === '1';
-        $sponsored = (string)($row['rel_sponsored'] ?? '0') === '1';
-        $ugc = (string)($row['rel_ugc'] ?? '0') === '1';
-        if ($seoFlag === 'dofollow' && ($nofollow || $sponsored || $ugc)) continue;
-        if ($seoFlag === 'nofollow' && !$nofollow) continue;
-        if ($seoFlag === 'sponsored' && !$sponsored) continue;
-        if ($seoFlag === 'ugc' && !$ugc) continue;
-      }
-
-      $destination = $this->normalize_url((string)($row['link'] ?? ''));
-      $domain = strtolower((string)parse_url($destination, PHP_URL_HOST));
-      if ($domain === '' || !isset($allowedDomains[$domain])) continue;
-
-      $stats = $domainStats[$domain] ?? ['cites' => 0, 'pages' => 0];
-
+    foreach ($rows as $row) {
       $this->csv_write_row($out, [
-        $domain,
-        (int)$stats['cites'],
-        (int)$stats['pages'],
-        $destination,
-        (string)($row['page_url'] ?? ''),
-        (string)($row['post_id'] ?? ''),
-        (string)($row['post_title'] ?? ''),
-        (string)($row['post_type'] ?? ''),
-        (string)($row['link_location'] ?? ''),
-        (string)($row['anchor_text'] ?? ''),
-        (string)($row['rel_raw'] ?? ''),
+        (string)($row['domain'] ?? ''),
+        (int)($row['cites'] ?? 0),
+        (int)($row['pages'] ?? 0),
+        (string)($row['sample_url'] ?? ''),
       ]);
     }
 
@@ -637,21 +738,7 @@ trait LM_Export_Handlers_Trait {
     if (!wp_verify_nonce($nonce, self::NONCE_ACTION)) wp_die($this->invalid_nonce_message());
 
     $filters = $this->get_all_anchor_text_filters_from_request();
-    $rows = [];
-    $indexedRows = $this->get_indexed_all_anchor_text_summary_rows($filters);
-    if (!empty($indexedRows)) {
-      $rows = $indexedRows;
-    } else {
-      $rebuildState = $this->get_rebuild_job_state();
-      $rebuildStatus = sanitize_key((string)($rebuildState['status'] ?? 'idle'));
-      $useStaleRows = in_array($rebuildStatus, ['running', 'finalizing'], true);
-      if ($useStaleRows) {
-        $rows = $this->get_stale_indexed_all_anchor_text_summary_rows($filters);
-      } else {
-        $scopeRows = $this->get_report_scope_rows_or_empty('any', isset($filters['wpml_lang']) ? $filters['wpml_lang'] : 'all', $filters, false);
-        $rows = $this->build_all_anchor_text_rows($scopeRows, $filters);
-      }
-    }
+    $rows = $this->get_all_anchor_text_export_rows($filters);
 
     $filename = 'links-manager-all-anchor-text-export-' . date('Y-m-d-His') . '.csv';
 
@@ -677,8 +764,8 @@ trait LM_Export_Handlers_Trait {
     foreach ($rows as $row) {
       $this->csv_write_row($out, [
         (string)$row['anchor_text'],
-        (string)$row['quality'],
-        (string)$row['usage_type'],
+        $this->get_export_quality_label((string)($row['quality'] ?? ''), (string)($row['anchor_text'] ?? '')),
+        $this->get_export_usage_type_label((string)($row['usage_type'] ?? '')),
         (int)$row['total'],
         (int)$row['inlink'],
         (int)$row['outbound'],
@@ -713,7 +800,7 @@ trait LM_Export_Handlers_Trait {
       'post_id', 'old_link', 'row_id', 'new_link', 'new_rel', 'new_anchor',
       'source', 'link_location', 'block_index', 'occurrence',
       'post_title', 'post_type', 'post_author', 'post_date', 'post_modified',
-      'page_url', 'link_resolved', 'link_raw', 'anchor_text', 'alt_text', 'snippet',
+      'page_url', 'link_resolved', 'link_raw', 'anchor_text', 'quality', 'alt_text', 'snippet',
       'link_type', 'relationship', 'value_type', 'count'
     ]);
 
@@ -746,6 +833,7 @@ trait LM_Export_Handlers_Trait {
         $r['link'],
         $r['link_raw'],
         $r['anchor_text'],
+        $this->get_export_quality_label('', (string)($r['anchor_text'] ?? '')),
         $r['alt_text'],
         $r['snippet'],
         $r['link_type'],

@@ -28,6 +28,11 @@ trait LM_REST_API_Trait {
           'type' => 'string',
           'sanitize_callback' => 'sanitize_key',
         ],
+        'refresh_mode' => [
+          'required' => false,
+          'type' => 'string',
+          'sanitize_callback' => 'sanitize_key',
+        ],
       ],
     ]);
 
@@ -109,16 +114,42 @@ trait LM_REST_API_Trait {
     if ($wpmlLang === '') $wpmlLang = 'all';
     $wpmlLang = $this->normalize_rebuild_wpml_lang($wpmlLang);
 
+    $requestedRefreshMode = sanitize_key((string)$request->get_param('refresh_mode'));
+    if (!in_array($requestedRefreshMode, ['changed_only', 'full_rebuild'], true)) {
+      $requestedRefreshMode = 'full_rebuild';
+    }
+    $refreshMode = $requestedRefreshMode;
+
     $enabledPostTypes = $this->get_enabled_scan_post_types();
     $postTypes = ($scopePostType === 'any')
       ? $enabledPostTypes
       : (in_array($scopePostType, $enabledPostTypes, true) ? [$scopePostType] : []);
 
+    $lastScanGmt = (string)get_option($this->cache_scan_option_key($scopePostType, $wpmlLang), '');
+    $hasIndexedDataset = $this->is_indexed_datastore_ready() && $this->indexed_dataset_has_rows($scopePostType, $wpmlLang);
+    $mainTransientRows = get_transient($this->cache_key($scopePostType, $wpmlLang));
+    $backupTransientRows = get_transient($this->cache_backup_key($scopePostType, $wpmlLang));
+    $hasTransientDataset = is_array($mainTransientRows) || is_array($backupTransientRows);
+    $hasExistingDataset = ($hasIndexedDataset || $hasTransientDataset);
+
+    if ($refreshMode === 'changed_only') {
+      if (
+        $scopePostType !== 'any'
+        || !$this->is_indexed_datastore_ready()
+        || !$hasIndexedDataset
+        || !$hasExistingDataset
+        || $lastScanGmt === ''
+      ) {
+        $refreshMode = 'full_rebuild';
+      }
+    }
+
     $currentState = $this->recover_stale_rebuild_job($this->get_rebuild_job_state(), 1800);
     if (!empty($currentState) && in_array((string)($currentState['status'] ?? ''), ['running', 'finalizing'], true)) {
       $runningScope = sanitize_key((string)($currentState['scope_post_type'] ?? 'any'));
       $runningLang = $this->normalize_rebuild_wpml_lang((string)($currentState['wpml_lang'] ?? 'all'));
-      if ($runningScope === $scopePostType && $runningLang === $wpmlLang) {
+      $runningMode = sanitize_key((string)($currentState['refresh_mode'] ?? 'full_rebuild'));
+      if ($runningScope === $scopePostType && $runningLang === $wpmlLang && $runningMode === $refreshMode) {
         $this->ensure_active_rebuild_step_worker();
         $currentState['message'] = ((string)($currentState['status'] ?? '') === 'finalizing')
           ? 'Rebuild job is still finalizing. Continuing existing job.'
@@ -134,6 +165,7 @@ trait LM_REST_API_Trait {
     $crawlLangQueue = $this->get_rebuild_crawl_lang_queue($wpmlLang);
     $job = [
       'status' => 'running',
+      'refresh_mode' => $refreshMode,
       'scope_post_type' => $scopePostType,
       'wpml_lang' => $wpmlLang,
       'requested_wpml_lang' => $wpmlLang,
@@ -164,8 +196,24 @@ trait LM_REST_API_Trait {
     ];
 
     if (empty($postTypes)) {
-      $rows = $this->crawl_menus($this->get_enabled_scan_source_types());
-      $this->persist_cache_payload($scopePostType, $wpmlLang, $rows);
+      $enabledSources = $this->get_enabled_scan_source_types();
+      $rows = $this->crawl_menus($enabledSources);
+      if ((string)$job['storage_mode'] === 'indexed_stream') {
+        if ($refreshMode === 'full_rebuild') {
+          $this->reset_indexed_datastore_for_refresh_scope($wpmlLang);
+          $this->clear_main_cache_payload($scopePostType, $wpmlLang);
+        } elseif (in_array('menu', $enabledSources, true)) {
+          $this->delete_indexed_menu_rows($wpmlLang);
+        }
+        if (!empty($rows)) {
+          $insertLang = ($wpmlLang === 'all') ? 'all' : $wpmlLang;
+          $this->append_indexed_datastore_rows($rows, $insertLang);
+        }
+        $this->rebuild_indexed_summary_for_lang($wpmlLang);
+        $rows = $this->persist_cache_payload_from_indexed_scope($scopePostType, $wpmlLang);
+      } else {
+        $this->persist_cache_payload($scopePostType, $wpmlLang, $rows);
+      }
       $this->schedule_rest_list_prewarm($scopePostType, $wpmlLang, 2);
       $job['status'] = 'done';
       $job['rows_count'] = count((array)$rows);
@@ -173,15 +221,45 @@ trait LM_REST_API_Trait {
       return rest_ensure_response($this->get_public_rebuild_job_state($job));
     }
 
-    $job['scan_modified_after_gmt'] = $this->get_scan_modified_after_gmt('');
+    $job['scan_modified_after_gmt'] = ($refreshMode === 'changed_only')
+      ? $this->get_scan_modified_after_gmt($lastScanGmt)
+      : $this->get_scan_modified_after_gmt('');
     $totalPosts = 0;
     foreach ($crawlLangQueue as $crawlLang) {
       $totalPosts += (int)$this->count_cache_post_ids($postTypes, (string)$crawlLang, $job['scan_modified_after_gmt']);
     }
     $job['total_posts'] = max(0, (int)$totalPosts);
+    $shouldReconcileMenus = (
+      $refreshMode === 'changed_only'
+      && in_array('menu', $this->get_enabled_scan_source_types(), true)
+      && (string)$job['storage_mode'] === 'indexed_stream'
+    );
+    if ($refreshMode === 'changed_only' && $job['total_posts'] < 1 && $hasExistingDataset && !$shouldReconcileMenus) {
+      $job['status'] = 'done';
+      $job['rows_count'] = $this->is_indexed_datastore_ready() ? $this->get_indexed_fact_count($scopePostType, $wpmlLang) : 0;
+      $job['message'] = 'No changed posts were detected for this refresh scope.';
+      $this->save_rebuild_job_state($job);
+      return rest_ensure_response($this->get_public_rebuild_job_state($job));
+    }
     if ((int)$job['total_posts'] < 1) {
-      $rows = $this->crawl_menus($this->get_enabled_scan_source_types());
-      $this->persist_cache_payload($scopePostType, $wpmlLang, $rows);
+      $enabledSources = $this->get_enabled_scan_source_types();
+      $rows = $this->crawl_menus($enabledSources);
+      if ((string)$job['storage_mode'] === 'indexed_stream') {
+        if ($refreshMode === 'full_rebuild') {
+          $this->reset_indexed_datastore_for_refresh_scope($wpmlLang);
+          $this->clear_main_cache_payload($scopePostType, $wpmlLang);
+        } elseif (in_array('menu', $enabledSources, true)) {
+          $this->delete_indexed_menu_rows($wpmlLang);
+        }
+        if (!empty($rows)) {
+          $insertLang = ($wpmlLang === 'all') ? 'all' : $wpmlLang;
+          $this->append_indexed_datastore_rows($rows, $insertLang);
+        }
+        $this->rebuild_indexed_summary_for_lang($wpmlLang);
+        $rows = $this->persist_cache_payload_from_indexed_scope($scopePostType, $wpmlLang);
+      } else {
+        $this->persist_cache_payload($scopePostType, $wpmlLang, $rows);
+      }
       $this->schedule_rest_list_prewarm($scopePostType, $wpmlLang, 2);
       $job['status'] = 'done';
       $job['rows_count'] = count((array)$rows);
@@ -189,10 +267,10 @@ trait LM_REST_API_Trait {
       return rest_ensure_response($this->get_public_rebuild_job_state($job));
     }
 
-    if ((string)$job['storage_mode'] === 'indexed_stream') {
+    if ((string)$job['storage_mode'] === 'indexed_stream' && $refreshMode === 'full_rebuild') {
       $this->reset_indexed_datastore_for_refresh_scope($wpmlLang);
       $this->clear_main_cache_payload($scopePostType, $wpmlLang);
-    } else {
+    } elseif ((string)$job['storage_mode'] !== 'indexed_stream') {
       set_transient($this->rebuild_job_partial_rows_key($scopePostType, $wpmlLang), [], self::CACHE_TTL);
     }
     $this->save_rebuild_job_state($job);
@@ -227,6 +305,7 @@ trait LM_REST_API_Trait {
 
     $scopePostType = sanitize_key((string)($state['scope_post_type'] ?? 'any'));
     $wpmlLang = $this->normalize_rebuild_wpml_lang((string)($state['wpml_lang'] ?? 'all'));
+    $refreshMode = sanitize_key((string)($state['refresh_mode'] ?? 'full_rebuild'));
     $storageMode = sanitize_key((string)($state['storage_mode'] ?? 'transient_cache'));
     $scanModifiedAfterGmt = (string)($state['scan_modified_after_gmt'] ?? '');
     $postTypes = array_values(array_unique(array_map('sanitize_key', (array)($state['post_types'] ?? []))));
@@ -353,9 +432,13 @@ trait LM_REST_API_Trait {
                   $state['status'] = 'finalizing';
                   $state['message'] = sprintf('Summary refresh for %s completed. Continuing with %s...', $completedFinalizeLang, $nextFinalizeLang);
                 } else {
-                  $this->clear_main_cache_payload($scopePostType, $wpmlLang);
-                  update_option($this->cache_scan_option_key($scopePostType, $wpmlLang), gmdate('Y-m-d H:i:s'), false);
-                  $this->bump_dataset_cache_version();
+                  if ($refreshMode === 'changed_only') {
+                    $this->persist_cache_payload_from_indexed_scope($scopePostType, $wpmlLang);
+                  } else {
+                    $this->clear_main_cache_payload($scopePostType, $wpmlLang);
+                    update_option($this->cache_scan_option_key($scopePostType, $wpmlLang), gmdate('Y-m-d H:i:s'), false);
+                    $this->bump_dataset_cache_version();
+                  }
                   $this->save_last_finalize_metrics([
                     'captured_at' => current_time('mysql'),
                     'scope_post_type' => (string)$scopePostType,
@@ -575,9 +658,13 @@ trait LM_REST_API_Trait {
                   $state['status'] = 'finalizing';
                   $state['message'] = sprintf('Summary refresh for %s completed. Continuing with %s...', $completedFinalizeLang, $nextFinalizeLang);
                 } else {
-                  $this->clear_main_cache_payload($scopePostType, $wpmlLang);
-                  update_option($this->cache_scan_option_key($scopePostType, $wpmlLang), gmdate('Y-m-d H:i:s'), false);
-                  $this->bump_dataset_cache_version();
+                  if ($refreshMode === 'changed_only') {
+                    $this->persist_cache_payload_from_indexed_scope($scopePostType, $wpmlLang);
+                  } else {
+                    $this->clear_main_cache_payload($scopePostType, $wpmlLang);
+                    update_option($this->cache_scan_option_key($scopePostType, $wpmlLang), gmdate('Y-m-d H:i:s'), false);
+                    $this->bump_dataset_cache_version();
+                  }
                   $this->save_last_finalize_metrics([
                     'captured_at' => current_time('mysql'),
                     'scope_post_type' => (string)$scopePostType,
@@ -685,20 +772,25 @@ trait LM_REST_API_Trait {
       $nextLastSeenId = $activeLangLastSeenId;
       $batchRows = [];
 
-      for ($i = 0; $i < $end; $i++) {
+        for ($i = 0; $i < $end; $i++) {
         $nextOffset = $activeLangOffset + $i + 1;
 
         if ($maxPosts > 0 && $processedPosts >= $maxPosts) {
           break;
         }
 
-        $postId = isset($batchPostIds[$i]) ? (int)$batchPostIds[$i] : 0;
-        if ($postId > $nextLastSeenId) {
-          $nextLastSeenId = $postId;
-        }
-        if ($postId < 1) continue;
+          $postId = isset($batchPostIds[$i]) ? (int)$batchPostIds[$i] : 0;
+          if ($postId > $nextLastSeenId) {
+            $nextLastSeenId = $postId;
+          }
+          if ($postId < 1) continue;
 
-        $postRows = $this->crawl_post_for_cache_language($postId, $activeCrawlLang, $enabledSources);
+          if ($storageMode === 'indexed_stream' && $refreshMode === 'changed_only') {
+            $deleteLangs = ($requestedWpmlLang === 'all') ? [$activeCrawlLang, 'all'] : [$activeCrawlLang];
+            $this->delete_indexed_fact_rows_by_post_ids([$postId], $deleteLangs);
+          }
+
+          $postRows = $this->crawl_post_for_cache_language($postId, $activeCrawlLang, $enabledSources);
         if ($storageMode === 'indexed_stream') {
           $this->append_rows($batchRows, $postRows);
         } else {
@@ -771,7 +863,13 @@ trait LM_REST_API_Trait {
 
     if ($done) {
       if ($storageMode === 'indexed_stream') {
-        $menuRows = $this->crawl_menus($enabledSources);
+        $menuRows = [];
+        if (in_array('menu', $enabledSources, true)) {
+          if ($refreshMode === 'changed_only') {
+            $this->delete_indexed_menu_rows($requestedWpmlLang);
+          }
+          $menuRows = $this->crawl_menus($enabledSources);
+        }
         if (!empty($menuRows)) {
           $menuInsertLang = ($requestedWpmlLang === 'all') ? 'all' : $requestedWpmlLang;
           $state['rows_count'] = max(0, (int)($state['rows_count'] ?? 0)) + (int)$this->append_indexed_datastore_rows($menuRows, $menuInsertLang);
@@ -1249,7 +1347,7 @@ trait LM_REST_API_Trait {
     };
 
     $fetchRows($wpmlLang);
-    if ($allowAnyAllFallback && !$this->has_exact_language_scope($wpmlLang) && count($result) < count($rowIds) && $wpmlLang !== 'all') {
+    if ($allowAnyAllFallback && count($result) < count($rowIds) && $wpmlLang !== 'all') {
       $fetchRows('all');
     }
 
@@ -1434,7 +1532,26 @@ trait LM_REST_API_Trait {
       $queue = array_map([$this, 'sanitize_wpml_lang_filter'], (array)$state['finalize_lang_queue']);
     }
     if (empty($queue)) {
-      $queue = $this->get_rebuild_finalize_lang_queue($jobWpmlLang);
+      $refreshMode = sanitize_key((string)($state['refresh_mode'] ?? 'full_rebuild'));
+      if ($refreshMode === 'changed_only') {
+        $processedMap = isset($state['crawl_lang_processed_posts']) && is_array($state['crawl_lang_processed_posts'])
+          ? (array)$state['crawl_lang_processed_posts']
+          : [];
+        foreach ($processedMap as $lang => $processedCount) {
+          $lang = $this->sanitize_wpml_lang_filter((string)$lang);
+          if ($lang !== '' && $lang !== 'all' && (int)$processedCount > 0) {
+            $queue[] = $lang;
+          }
+        }
+        if (empty($queue) && $jobWpmlLang !== 'all') {
+          $queue[] = $this->normalize_rebuild_wpml_lang((string)$jobWpmlLang);
+        }
+        if ($jobWpmlLang === 'all') {
+          $queue[] = 'all';
+        }
+      } else {
+        $queue = $this->get_rebuild_finalize_lang_queue($jobWpmlLang);
+      }
     }
 
     $queue = array_values(array_unique(array_filter($queue)));

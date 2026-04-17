@@ -12,14 +12,18 @@ trait LM_Cache_Rebuild_Trait {
     return [get_current_blog_id()];
   }
 
-  private function background_rebuild_event_args($scope_post_type = 'any', $wpml_lang = 'all') {
+  private function background_rebuild_event_args($scope_post_type = 'any', $wpml_lang = 'all', $refreshMode = 'full_rebuild') {
     $scope_post_type = sanitize_key((string)$scope_post_type);
     if ($scope_post_type === '') {
       $scope_post_type = 'any';
     }
     $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
+    $refreshMode = sanitize_key((string)$refreshMode);
+    if (!in_array($refreshMode, ['changed_only', 'full_rebuild'], true)) {
+      $refreshMode = 'full_rebuild';
+    }
 
-    return [$scope_post_type, $wpml_lang];
+    return [$scope_post_type, $wpml_lang, $refreshMode];
   }
 
   private function rest_list_prewarm_event_args($scope_post_type = 'any', $wpml_lang = 'all') {
@@ -505,9 +509,7 @@ trait LM_Cache_Rebuild_Trait {
   }
 
   private function is_incremental_rebuild_enabled() {
-    $settings = $this->get_settings();
-    $mode = isset($settings['cache_rebuild_mode']) ? sanitize_key((string)$settings['cache_rebuild_mode']) : 'incremental';
-    return $mode !== 'full';
+    return true;
   }
 
   private function get_crawl_post_batch_size() {
@@ -612,10 +614,10 @@ trait LM_Cache_Rebuild_Trait {
     $this->bump_dataset_cache_version();
   }
 
-  private function schedule_background_rebuild($scope_post_type = 'any', $wpml_lang = 'all', $delaySeconds = 5) {
+  private function schedule_background_rebuild($scope_post_type = 'any', $wpml_lang = 'all', $delaySeconds = 5, $refreshMode = 'full_rebuild') {
     $delaySeconds = max(1, (int)$delaySeconds);
 
-    $args = $this->background_rebuild_event_args($scope_post_type, $wpml_lang);
+    $args = $this->background_rebuild_event_args($scope_post_type, $wpml_lang, $refreshMode);
     if (!wp_next_scheduled('lm_background_rebuild_cache', $args)) {
       wp_schedule_single_event(time() + $delaySeconds, 'lm_background_rebuild_cache', $args);
     }
@@ -658,7 +660,1230 @@ trait LM_Cache_Rebuild_Trait {
     }
 
     set_transient($debounceKey, $now, 30);
-    $this->schedule_background_rebuild('any', 'all', max(1, (int)$delaySeconds));
+    $this->schedule_background_rebuild('any', 'all', max(1, (int)$delaySeconds), 'full_rebuild');
+  }
+
+  private function incremental_row_patch_transient_key($postId) {
+    $postId = max(0, (int)$postId);
+    return 'lm_incremental_row_patch_' . get_current_blog_id() . '_' . $postId;
+  }
+
+  private function queue_incremental_row_patch($postId, $currentRow, $newLink, $newRel = '', $newAnchor = null) {
+    $postId = max(0, (int)$postId);
+    if ($postId < 1 || !is_array($currentRow) || empty($currentRow)) {
+      return false;
+    }
+
+    $rowId = isset($currentRow['row_id']) ? trim((string)$currentRow['row_id']) : '';
+    if ($rowId === '') {
+      return false;
+    }
+
+    return set_transient(
+      $this->incremental_row_patch_transient_key($postId),
+      [
+        'current_row' => $currentRow,
+        'new_link' => (string)$newLink,
+        'new_rel' => (string)$newRel,
+        'new_anchor' => ($newAnchor !== null) ? (string)$newAnchor : null,
+      ],
+      10 * MINUTE_IN_SECONDS
+    );
+  }
+
+  private function consume_incremental_row_patch($postId) {
+    $postId = max(0, (int)$postId);
+    if ($postId < 1) {
+      return null;
+    }
+
+    $key = $this->incremental_row_patch_transient_key($postId);
+    $payload = get_transient($key);
+    delete_transient($key);
+
+    return is_array($payload) ? $payload : null;
+  }
+
+  private function clear_incremental_row_patch($postId) {
+    $postId = max(0, (int)$postId);
+    if ($postId > 0) {
+      delete_transient($this->incremental_row_patch_transient_key($postId));
+    }
+  }
+
+  public function capture_pre_post_update_snapshot($postId, $data = []) {
+    $postId = max(0, (int)$postId);
+    if ($postId < 1) {
+      return;
+    }
+
+    $post = get_post($postId);
+    if (!$post || !is_object($post)) {
+      return;
+    }
+
+    $enabledPostTypes = $this->get_enabled_scan_post_types();
+    $postType = sanitize_key((string)($post->post_type ?? ''));
+    if ($postType === '' || !in_array($postType, $enabledPostTypes, true)) {
+      return;
+    }
+
+    $this->pre_post_update_snapshots[$postId] = clone $post;
+  }
+
+  private function consume_pre_post_update_snapshot($postId) {
+    $postId = max(0, (int)$postId);
+    if ($postId < 1 || !isset($this->pre_post_update_snapshots[$postId])) {
+      return null;
+    }
+
+    $snapshot = $this->pre_post_update_snapshots[$postId];
+    unset($this->pre_post_update_snapshots[$postId]);
+
+    return (is_object($snapshot) && isset($snapshot->ID)) ? $snapshot : null;
+  }
+
+  private function update_incremental_row_snippet($snippet, $oldAnchor, $newAnchor) {
+    $snippet = (string)$snippet;
+    $oldAnchor = trim((string)$oldAnchor);
+    $newAnchor = trim((string)$newAnchor);
+    if ($snippet === '' || $oldAnchor === '' || $newAnchor === '' || $oldAnchor === $newAnchor) {
+      return $snippet;
+    }
+
+    $quotedOldAnchor = preg_quote($oldAnchor, '/');
+    $updatedSnippet = preg_replace('/' . $quotedOldAnchor . '/iu', $newAnchor, $snippet, 1);
+    return is_string($updatedSnippet) && $updatedSnippet !== '' ? $updatedSnippet : $snippet;
+  }
+
+  private function get_incremental_context_key($row) {
+    if (!is_array($row)) {
+      return '';
+    }
+
+    return implode('|', [
+      (string)($row['source'] ?? ''),
+      (string)($row['link_location'] ?? ''),
+      (string)($row['block_index'] ?? ''),
+    ]);
+  }
+
+  private function group_incremental_rows_by_context($rows) {
+    $grouped = [];
+    foreach ((array)$rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $key = $this->get_incremental_context_key($row);
+      if ($key === '') {
+        continue;
+      }
+      if (!isset($grouped[$key])) {
+        $grouped[$key] = [];
+      }
+      $grouped[$key][] = $row;
+    }
+
+    return $grouped;
+  }
+
+  private function summarize_incremental_context_rows($rows) {
+    $summary = [];
+    foreach ((array)$rows as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      $summary[] = [
+        'row_id' => (string)($row['row_id'] ?? ''),
+        'link' => (string)($row['link'] ?? ''),
+        'anchor_text' => (string)($row['anchor_text'] ?? ''),
+        'alt_text' => (string)($row['alt_text'] ?? ''),
+        'rel_raw' => (string)($row['rel_raw'] ?? ''),
+        'value_type' => (string)($row['value_type'] ?? ''),
+        'snippet' => (string)($row['snippet'] ?? ''),
+      ];
+    }
+
+    return wp_json_encode($summary);
+  }
+
+  private function get_changed_incremental_context_keys($oldRows, $newRows) {
+    $oldGrouped = $this->group_incremental_rows_by_context($oldRows);
+    $newGrouped = $this->group_incremental_rows_by_context($newRows);
+    $allKeys = array_values(array_unique(array_merge(array_keys($oldGrouped), array_keys($newGrouped))));
+    $changedKeys = [];
+
+    foreach ($allKeys as $key) {
+      $oldSummary = $this->summarize_incremental_context_rows(isset($oldGrouped[$key]) ? $oldGrouped[$key] : []);
+      $newSummary = $this->summarize_incremental_context_rows(isset($newGrouped[$key]) ? $newGrouped[$key] : []);
+      if ($oldSummary !== $newSummary) {
+        $changedKeys[] = (string)$key;
+      }
+    }
+
+    return $changedKeys;
+  }
+
+  private function get_incremental_snapshot_target_langs($postId) {
+    $langs = ['all'];
+    $resolvedLang = $this->resolve_post_wpml_lang((int)$postId, 'all');
+    if ($resolvedLang !== '' && $resolvedLang !== 'all') {
+      $langs[] = $resolvedLang;
+    }
+
+    return array_values(array_unique(array_filter(array_map([$this, 'normalize_rebuild_wpml_lang'], $langs))));
+  }
+
+  private function build_incremental_snapshot_rows_for_post($post, $enabledSources, $wpmlLang = 'all') {
+    if (!is_object($post) || !isset($post->ID)) {
+      return [];
+    }
+
+    $postId = (int)$post->ID;
+    if ($postId < 1) {
+      return [];
+    }
+
+    $enabledSources = array_values(array_unique(array_map('sanitize_key', (array)$enabledSources)));
+    if (empty($enabledSources)) {
+      return [];
+    }
+
+    $wpmlLang = $this->normalize_rebuild_wpml_lang((string)$wpmlLang);
+    $baseContext = [
+      'post_id' => (string)$postId,
+      'post_title' => isset($post->post_title) ? (string)$post->post_title : '',
+      'post_type' => isset($post->post_type) ? (string)$post->post_type : '',
+      'post_date' => isset($post->post_date) ? (string)$post->post_date : '',
+      'post_modified' => isset($post->post_modified) ? (string)$post->post_modified : '',
+      'post_author' => isset($post->post_author) ? (string)$this->get_author_display_name_cached((int)$post->post_author) : '',
+      'post_author_id' => (string)((int)($post->post_author ?? 0)),
+      'page_url' => (string)get_permalink($postId),
+    ];
+
+    $rows = [];
+    if (in_array('content', $enabledSources, true)) {
+      $content = isset($post->post_content) ? (string)$post->post_content : '';
+      $contentHasLinkMarkers = ($content !== '') && ((stripos($content, '<a') !== false) || (stripos($content, 'href=') !== false));
+      $hasBlockMarkup = (strpos($content, '<!-- wp:') !== false);
+      $blocks = ($contentHasLinkMarkers && $hasBlockMarkup && function_exists('parse_blocks')) ? parse_blocks($content) : [];
+      $blockRows = [];
+
+      if (!empty($blocks)) {
+        $i = 0;
+        foreach ($blocks as $block) {
+          if (!$this->block_may_contain_link_marker($block)) {
+            $i++;
+            continue;
+          }
+
+          $blockName = isset($block['blockName']) && $block['blockName'] ? (string)$block['blockName'] : 'classic';
+          $html = $this->render_block_html_best_effort($block);
+          if (stripos($html, '<a') === false && stripos($html, 'href=') === false) {
+            $i++;
+            continue;
+          }
+
+          $context = array_merge($baseContext, [
+            'source' => 'content',
+            'link_location' => $blockName,
+            'block_index' => (string)$i,
+          ]);
+          if ($wpmlLang !== 'all') {
+            $context['wpml_lang'] = $wpmlLang;
+          }
+          $this->append_rows($blockRows, $this->parse_links_from_html($html, $context));
+          $i++;
+        }
+      }
+
+      $fullHtmlRows = [];
+      if ($contentHasLinkMarkers) {
+        $context = array_merge($baseContext, [
+          'source' => 'content',
+          'link_location' => 'classic',
+          'block_index' => '',
+        ]);
+        if ($wpmlLang !== 'all') {
+          $context['wpml_lang'] = $wpmlLang;
+        }
+        $fullHtmlRows = $this->parse_links_from_html($content, $context);
+      }
+
+      $contentRows = !empty($blocks) ? $this->merge_block_and_full_html_rows($blockRows, $fullHtmlRows) : $fullHtmlRows;
+      $this->append_rows($rows, $contentRows);
+    }
+
+    if (in_array('excerpt', $enabledSources, true)) {
+      $excerpt = isset($post->post_excerpt) ? (string)$post->post_excerpt : '';
+      if ($excerpt !== '' && ((stripos($excerpt, '<a') !== false) || (stripos($excerpt, 'href=') !== false))) {
+        $context = array_merge($baseContext, [
+          'source' => 'excerpt',
+          'link_location' => 'excerpt',
+          'block_index' => '',
+        ]);
+        if ($wpmlLang !== 'all') {
+          $context['wpml_lang'] = $wpmlLang;
+        }
+        $this->append_rows($rows, $this->parse_links_from_html($excerpt, $context));
+      }
+    }
+
+    return $this->dedupe_crawl_rows_by_row_id($rows);
+  }
+
+  private function build_incremental_snapshot_rows_for_meta_key($post, $metaKey, $wpmlLang = 'all') {
+    if (!is_object($post) || !isset($post->ID)) {
+      return [];
+    }
+
+    $postId = (int)$post->ID;
+    if ($postId < 1) {
+      return [];
+    }
+
+    $metaKey = (string)$metaKey;
+    if ($metaKey === '') {
+      return [];
+    }
+
+    $metaValue = get_post_meta($postId, $metaKey, true);
+    if (!is_string($metaValue) || trim($metaValue) === '') {
+      return [];
+    }
+    if (stripos($metaValue, '<a') === false && stripos($metaValue, 'href=') === false) {
+      return [];
+    }
+
+    $wpmlLang = $this->normalize_rebuild_wpml_lang((string)$wpmlLang);
+    $context = [
+      'post_id' => (string)$postId,
+      'post_title' => isset($post->post_title) ? (string)$post->post_title : '',
+      'post_type' => isset($post->post_type) ? (string)$post->post_type : '',
+      'post_date' => isset($post->post_date) ? (string)$post->post_date : '',
+      'post_modified' => isset($post->post_modified) ? (string)$post->post_modified : '',
+      'post_author' => isset($post->post_author) ? (string)$this->get_author_display_name_cached((int)$post->post_author) : '',
+      'post_author_id' => (string)((int)($post->post_author ?? 0)),
+      'page_url' => (string)get_permalink($postId),
+      'source' => 'meta',
+      'link_location' => 'meta:' . $metaKey,
+      'block_index' => '',
+    ];
+    if ($wpmlLang !== 'all') {
+      $context['wpml_lang'] = $wpmlLang;
+    }
+
+    return $this->dedupe_crawl_rows_by_row_id($this->parse_links_from_html($metaValue, $context));
+  }
+
+  private function replace_cached_rows_for_context_keys($rows, $postId, $changedKeys, $replacementRowsByKey, &$changed = false) {
+    $changed = false;
+    $rows = is_array($rows) ? array_values($rows) : [];
+    $postId = max(0, (int)$postId);
+    $changedMap = array_fill_keys(array_values(array_filter(array_map('strval', (array)$changedKeys))), true);
+    if ($postId < 1 || empty($changedMap)) {
+      return $rows;
+    }
+
+    $updatedRows = [];
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        $updatedRows[] = $row;
+        continue;
+      }
+
+      $rowPostId = isset($row['post_id']) ? (int)$row['post_id'] : 0;
+      $contextKey = $this->get_incremental_context_key($row);
+      if ($rowPostId === $postId && $contextKey !== '' && isset($changedMap[$contextKey])) {
+        $changed = true;
+        continue;
+      }
+
+      $updatedRows[] = $row;
+    }
+
+    foreach ($changedMap as $contextKey => $unused) {
+      if (!empty($replacementRowsByKey[$contextKey]) && is_array($replacementRowsByKey[$contextKey])) {
+        $this->append_rows($updatedRows, $replacementRowsByKey[$contextKey]);
+        $changed = true;
+      }
+    }
+
+    return $updatedRows;
+  }
+
+  private function patch_existing_caches_for_snapshot_change($postBefore, $postAfter) {
+    if (!is_object($postBefore) || !isset($postBefore->ID) || !is_object($postAfter) || !isset($postAfter->ID)) {
+      return false;
+    }
+
+    $postId = (int)$postAfter->ID;
+    if ($postId < 1) {
+      return false;
+    }
+
+    $enabledSources = array_values(array_intersect($this->get_enabled_scan_source_types(), ['content', 'excerpt']));
+    if (empty($enabledSources)) {
+      return false;
+    }
+
+    $postType = sanitize_key((string)($postAfter->post_type ?? $postBefore->post_type ?? ''));
+    if ($postType === '') {
+      return false;
+    }
+
+    $patchedAny = false;
+    $targetLangs = $this->get_incremental_snapshot_target_langs($postId);
+    foreach ($targetLangs as $lang) {
+      $oldRows = $this->build_incremental_snapshot_rows_for_post($postBefore, $enabledSources, $lang);
+      $newRows = $this->build_incremental_snapshot_rows_for_post($postAfter, $enabledSources, $lang);
+      $changedKeys = $this->get_changed_incremental_context_keys($oldRows, $newRows);
+      if (empty($changedKeys)) {
+        continue;
+      }
+
+      $replacementRowsByKey = $this->group_incremental_rows_by_context($newRows);
+      foreach (['any', $postType] as $scope) {
+        $mainRows = get_transient($this->cache_key($scope, $lang));
+        $backupRows = get_transient($this->cache_backup_key($scope, $lang));
+        if (!is_array($mainRows) && !is_array($backupRows)) {
+          continue;
+        }
+
+        $baseRows = is_array($mainRows) ? $mainRows : (is_array($backupRows) ? $backupRows : []);
+        $didReplace = false;
+        $patchedRows = $this->replace_cached_rows_for_context_keys($baseRows, $postId, $changedKeys, $replacementRowsByKey, $didReplace);
+        if (!$didReplace) {
+          continue;
+        }
+
+        $this->persist_cache_payload($scope, $lang, $patchedRows);
+        $this->schedule_rest_list_prewarm($scope, $lang, 2);
+        $patchedAny = true;
+      }
+    }
+
+    $indexedPatched = $this->patch_indexed_datastore_for_post_change($postAfter, $enabledSources);
+    return ($patchedAny || $indexedPatched);
+  }
+
+  private function patch_existing_caches_for_meta_key_change($post, $metaKey) {
+    if (!is_object($post) || !isset($post->ID)) {
+      return false;
+    }
+
+    $postId = (int)$post->ID;
+    if ($postId < 1) {
+      return false;
+    }
+
+    $metaKey = (string)$metaKey;
+    if ($metaKey === '') {
+      return false;
+    }
+
+    $postType = sanitize_key((string)($post->post_type ?? ''));
+    if ($postType === '') {
+      return false;
+    }
+
+    $contextKey = 'meta|meta:' . $metaKey . '|';
+    $patchedAny = false;
+    foreach ($this->get_incremental_snapshot_target_langs($postId) as $lang) {
+      $replacementRowsByKey = [
+        $contextKey => $this->build_incremental_snapshot_rows_for_meta_key($post, $metaKey, $lang),
+      ];
+
+      foreach (['any', $postType] as $scope) {
+        $mainRows = get_transient($this->cache_key($scope, $lang));
+        $backupRows = get_transient($this->cache_backup_key($scope, $lang));
+        if (!is_array($mainRows) && !is_array($backupRows)) {
+          continue;
+        }
+
+        $baseRows = is_array($mainRows) ? $mainRows : (is_array($backupRows) ? $backupRows : []);
+        $didReplace = false;
+        $patchedRows = $this->replace_cached_rows_for_context_keys($baseRows, $postId, [$contextKey], $replacementRowsByKey, $didReplace);
+        if (!$didReplace) {
+          continue;
+        }
+
+        $this->persist_cache_payload($scope, $lang, $patchedRows);
+        $this->schedule_rest_list_prewarm($scope, $lang, 2);
+        $patchedAny = true;
+      }
+    }
+
+    $indexedPatched = $this->patch_indexed_datastore_for_post_change($post);
+    return ($patchedAny || $indexedPatched);
+  }
+
+  public function handle_post_meta_change_incremental_refresh($metaIds, $postId, $metaKey, $metaValue) {
+    $postId = max(0, (int)$postId);
+    if ($postId < 1) {
+      return;
+    }
+
+    $enabledSources = $this->get_enabled_scan_source_types();
+    if (!in_array('meta', $enabledSources, true)) {
+      return;
+    }
+
+    $scanMetaKeys = $this->get_scan_meta_keys_cached();
+    $metaKey = (string)$metaKey;
+    if ($metaKey === '' || !in_array($metaKey, $scanMetaKeys, true)) {
+      return;
+    }
+
+    $post = get_post($postId);
+    if (!$this->should_trigger_incremental_refresh_for_post($post)) {
+      return;
+    }
+
+    $patched = false;
+    try {
+      $patched = $this->patch_existing_caches_for_meta_key_change($post, $metaKey);
+    } catch (Throwable $e) {
+      if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('LM incremental patch error (post_meta): ' . sanitize_text_field($e->getMessage()));
+      }
+      $patched = false;
+    }
+
+    if (!$patched) {
+      $this->schedule_incremental_refresh_fallback(4);
+    }
+  }
+
+  private function build_incremental_updated_row($post, $baseRow, $newLink, $newRel = '', $newAnchor = null) {
+    if (!is_object($post) || !isset($post->ID) || !is_array($baseRow) || empty($baseRow)) {
+      return null;
+    }
+
+    $pageUrl = get_permalink((int)$post->ID);
+    $resolvedLink = $this->normalize_url($this->resolve_to_absolute((string)$newLink, (string)$pageUrl));
+    if ($resolvedLink === '') {
+      return null;
+    }
+
+    $valueType = $this->detect_link_value_type((string)$newLink);
+    if (!$this->is_scan_value_type_enabled($valueType, $this->get_enabled_scan_value_types_map_cached())) {
+      return null;
+    }
+
+    $effectiveRelRaw = ($newRel !== '') ? $this->parse_rel_flags($newRel)['raw'] : (string)($baseRow['rel_raw'] ?? '');
+    $relFlags = $this->parse_rel_flags($effectiveRelRaw);
+    $effectiveAnchor = ($newAnchor !== null)
+      ? $this->normalize_anchor_text_value((string)$newAnchor, true)
+      : $this->normalize_anchor_text_value((string)($baseRow['anchor_text'] ?? ''), true);
+    $authorId = (int)($post->post_author ?? 0);
+
+    $updatedRow = $baseRow;
+    $updatedRow['post_id'] = (string)((int)$post->ID);
+    $updatedRow['post_title'] = isset($post->post_title) ? (string)$post->post_title : '';
+    $updatedRow['post_type'] = isset($post->post_type) ? (string)$post->post_type : (string)($baseRow['post_type'] ?? '');
+    $updatedRow['post_author'] = $authorId > 0 ? (string)$this->get_author_display_name_cached($authorId) : '';
+    $updatedRow['post_author_id'] = (string)$authorId;
+    $updatedRow['post_date'] = isset($post->post_date) ? (string)$post->post_date : (string)($baseRow['post_date'] ?? '');
+    $updatedRow['post_modified'] = isset($post->post_modified) ? (string)$post->post_modified : (string)($baseRow['post_modified'] ?? '');
+    $updatedRow['page_url'] = (string)$pageUrl;
+    $updatedRow['link'] = $resolvedLink;
+    $updatedRow['link_raw'] = (string)$newLink;
+    $updatedRow['anchor_text'] = $effectiveAnchor;
+    $updatedRow['alt_text'] = ($newAnchor !== null) ? '' : (string)($baseRow['alt_text'] ?? '');
+    $updatedRow['snippet'] = $this->update_incremental_row_snippet(
+      (string)($baseRow['snippet'] ?? ''),
+      (string)($baseRow['anchor_text'] ?? ''),
+      $effectiveAnchor
+    );
+    $updatedRow['link_type'] = $this->is_external($resolvedLink) ? 'exlink' : 'inlink';
+    $updatedRow['rel_raw'] = $relFlags['raw'];
+    $updatedRow['relationship'] = $this->relationship_label($relFlags['raw']);
+    $updatedRow['rel_nofollow'] = $relFlags['nofollow'] ? '1' : '0';
+    $updatedRow['rel_sponsored'] = $relFlags['sponsored'] ? '1' : '0';
+    $updatedRow['rel_ugc'] = $relFlags['ugc'] ? '1' : '0';
+    $updatedRow['value_type'] = $valueType;
+    $updatedRow['row_id'] = $this->row_id(
+      (string)($updatedRow['post_id'] ?? ''),
+      (string)($updatedRow['source'] ?? ''),
+      (string)($updatedRow['link_location'] ?? ''),
+      (string)($updatedRow['block_index'] ?? ''),
+      (string)($updatedRow['occurrence'] ?? ''),
+      $resolvedLink
+    );
+
+    return $updatedRow;
+  }
+
+  private function replace_cached_row_by_row_id($rows, $oldRowId, $replacementRow, &$changed = false) {
+    $changed = false;
+    $rows = is_array($rows) ? array_values($rows) : [];
+    $oldRowId = trim((string)$oldRowId);
+    if ($oldRowId === '' || empty($rows)) {
+      return $rows;
+    }
+
+    $updatedRows = [];
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        $updatedRows[] = $row;
+        continue;
+      }
+
+      $rowId = isset($row['row_id']) ? (string)$row['row_id'] : '';
+      if ($rowId !== $oldRowId) {
+        $updatedRows[] = $row;
+        continue;
+      }
+
+      $changed = true;
+      if (is_array($replacementRow) && !empty($replacementRow)) {
+        $updatedRows[] = array_merge($row, $replacementRow);
+      }
+    }
+
+    return $updatedRows;
+  }
+
+  private function get_incremental_indexed_target_langs($postId = 0) {
+    $postId = max(0, (int)$postId);
+    $langs = ($postId > 0) ? $this->get_incremental_snapshot_target_langs($postId) : ['all'];
+    $langs = array_values(array_unique(array_filter(array_map([$this, 'normalize_rebuild_wpml_lang'], (array)$langs))));
+    if (empty($langs)) {
+      $langs = ['all'];
+    }
+
+    usort($langs, function($left, $right) {
+      if ($left === 'all' && $right !== 'all') {
+        return 1;
+      }
+      if ($left !== 'all' && $right === 'all') {
+        return -1;
+      }
+      return strcmp((string)$left, (string)$right);
+    });
+
+    return $langs;
+  }
+
+  private function delete_indexed_fact_rows_by_row_ids($rowIds, $langs) {
+    global $wpdb;
+
+    if (!$this->is_indexed_datastore_ready()) {
+      return false;
+    }
+
+    $table = $wpdb->prefix . 'lm_link_fact';
+    $rowIds = array_values(array_unique(array_filter(array_map('strval', (array)$rowIds))));
+    $langs = array_values(array_unique(array_filter(array_map([$this, 'normalize_rebuild_wpml_lang'], (array)$langs))));
+    if (empty($rowIds) || empty($langs)) {
+      return false;
+    }
+
+    $deletedAny = false;
+    foreach ($langs as $lang) {
+      foreach (array_chunk($rowIds, 200) as $chunk) {
+        $placeholders = implode(',', array_fill(0, count($chunk), '%s'));
+        $sql = "DELETE FROM $table WHERE wpml_lang = %s AND row_id IN ($placeholders)";
+        $params = array_merge([(string)$lang], $chunk);
+        $result = $wpdb->query($wpdb->prepare($sql, $params));
+        if ($result) {
+          $deletedAny = true;
+        }
+      }
+    }
+
+    return $deletedAny;
+  }
+
+  private function delete_indexed_fact_rows_by_post_ids($postIds, $langs) {
+    global $wpdb;
+
+    if (!$this->is_indexed_datastore_ready()) {
+      return false;
+    }
+
+    $table = $wpdb->prefix . 'lm_link_fact';
+    $postIds = array_values(array_unique(array_filter(array_map('intval', (array)$postIds))));
+    $langs = array_values(array_unique(array_filter(array_map([$this, 'normalize_rebuild_wpml_lang'], (array)$langs))));
+    if (empty($postIds) || empty($langs)) {
+      return false;
+    }
+
+    $deletedAny = false;
+    foreach ($langs as $lang) {
+      foreach (array_chunk($postIds, 200) as $chunk) {
+        $placeholders = implode(',', array_fill(0, count($chunk), '%d'));
+        $sql = "DELETE FROM $table WHERE wpml_lang = %s AND post_id IN ($placeholders)";
+        $params = array_merge([(string)$lang], $chunk);
+        $result = $wpdb->query($wpdb->prepare($sql, $params));
+        if ($result) {
+          $deletedAny = true;
+        }
+      }
+    }
+
+    return $deletedAny;
+  }
+
+  private function patch_indexed_datastore_for_row_change($oldRowId, $replacementRow = null, $postId = 0) {
+    if (!$this->is_indexed_datastore_ready()) {
+      return false;
+    }
+
+    $oldRowId = trim((string)$oldRowId);
+    $replacementRowId = is_array($replacementRow) ? trim((string)($replacementRow['row_id'] ?? '')) : '';
+    if ($oldRowId === '' && $replacementRowId === '') {
+      return false;
+    }
+
+    $targetLangs = $this->get_incremental_indexed_target_langs($postId);
+    $rowIdsToDelete = array_values(array_unique(array_filter([$oldRowId, $replacementRowId], 'strlen')));
+    $changed = $this->delete_indexed_fact_rows_by_row_ids($rowIdsToDelete, $targetLangs);
+
+    if (is_array($replacementRow) && !empty($replacementRow)) {
+      $this->append_indexed_datastore_rows([$replacementRow], 'all');
+      $changed = true;
+    }
+
+    if (!$changed) {
+      return false;
+    }
+
+    foreach ($targetLangs as $lang) {
+      $this->rebuild_indexed_summary_for_lang($lang);
+    }
+
+    $this->bump_dataset_cache_version();
+    return true;
+  }
+
+  private function patch_indexed_datastore_for_post_change($post, $enabledSources = null) {
+    if (!$this->is_indexed_datastore_ready() || !is_object($post) || !isset($post->ID)) {
+      return false;
+    }
+
+    $postId = max(0, (int)$post->ID);
+    if ($postId < 1) {
+      return false;
+    }
+
+    $enabledSources = is_array($enabledSources) ? $enabledSources : $this->get_enabled_scan_source_types();
+    $targetLangs = $this->get_incremental_snapshot_target_langs($postId);
+    $exactLangs = array_values(array_filter($targetLangs, function($lang) {
+      return (string)$lang !== 'all';
+    }));
+    $isPublish = sanitize_key((string)($post->post_status ?? '')) === 'publish';
+
+    $this->delete_indexed_fact_rows_by_post_ids([$postId], $targetLangs);
+
+    if ($isPublish) {
+      if (!empty($exactLangs)) {
+        foreach ($exactLangs as $lang) {
+          $freshRows = $this->crawl_post_for_cache_language($post, $lang, $enabledSources);
+          if (is_array($freshRows) && !empty($freshRows)) {
+            $this->append_indexed_datastore_rows($freshRows, 'all');
+          }
+        }
+      } else {
+        $freshRows = $this->crawl_post_for_cache_language($post, 'all', $enabledSources);
+        if (is_array($freshRows) && !empty($freshRows)) {
+          $this->append_indexed_datastore_rows($freshRows, 'all');
+        }
+      }
+    }
+
+    foreach ($targetLangs as $lang) {
+      $this->rebuild_indexed_summary_for_lang($lang);
+    }
+
+    $this->bump_dataset_cache_version();
+    return true;
+  }
+
+  private function patch_indexed_datastore_for_menu_item_change($menuItemId, $replacementRows = null) {
+    global $wpdb;
+
+    if (!$this->is_indexed_datastore_ready()) {
+      return false;
+    }
+
+    $menuItemId = max(0, (int)$menuItemId);
+    if ($menuItemId < 1) {
+      return false;
+    }
+
+    $table = $wpdb->prefix . 'lm_link_fact';
+    $targetBlockIndex = $this->get_menu_item_block_index($menuItemId);
+    if ($targetBlockIndex === '') {
+      return false;
+    }
+
+    $changed = false;
+    $result = $wpdb->query(
+      $wpdb->prepare(
+        "DELETE FROM $table WHERE source = %s AND block_index = %s",
+        'menu',
+        $targetBlockIndex
+      )
+    );
+    if ($result) {
+      $changed = true;
+    }
+
+    if (is_array($replacementRows) && !empty($replacementRows)) {
+      $this->append_indexed_datastore_rows($replacementRows, 'all');
+      $changed = true;
+    }
+
+    if (!$changed) {
+      return false;
+    }
+
+    $this->rebuild_indexed_summary_for_lang('all');
+    $this->bump_dataset_cache_version();
+    return true;
+  }
+
+  private function persist_cache_payload_from_indexed_scope($scope_post_type, $wpml_lang = 'all') {
+    $scope_post_type = sanitize_key((string)$scope_post_type);
+    if ($scope_post_type === '') {
+      $scope_post_type = 'any';
+    }
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
+
+    $rows = $this->get_indexed_fact_rows($scope_post_type, $wpml_lang, null);
+    $rows = is_array($rows) ? array_values($rows) : [];
+
+    set_transient($this->cache_key($scope_post_type, $wpml_lang), $rows, self::CACHE_TTL);
+    set_transient($this->cache_backup_key($scope_post_type, $wpml_lang), $rows, self::CACHE_BASE_TTL);
+    update_option($this->cache_scan_option_key($scope_post_type, $wpml_lang), gmdate('Y-m-d H:i:s'), false);
+    $this->bump_dataset_cache_version();
+
+    if ($scope_post_type === 'any') {
+      $this->warm_common_precomputed_stats_snapshots($rows, $wpml_lang, false);
+    }
+
+    return $rows;
+  }
+
+  private function delete_indexed_menu_rows($wpml_lang = 'all') {
+    global $wpdb;
+
+    if (!$this->is_indexed_datastore_ready()) {
+      return false;
+    }
+
+    $table = $wpdb->prefix . 'lm_link_fact';
+    $wpml_lang = $this->normalize_rebuild_wpml_lang((string)$wpml_lang);
+
+    if ($wpml_lang === 'all') {
+      $result = $wpdb->query(
+        $wpdb->prepare(
+          "DELETE FROM $table WHERE source = %s AND wpml_lang = %s",
+          'menu',
+          'all'
+        )
+      );
+      return (bool)$result;
+    }
+
+    $result = $wpdb->query(
+      $wpdb->prepare(
+        "DELETE FROM $table WHERE source = %s AND wpml_lang = %s",
+        'menu',
+        $wpml_lang
+      )
+    );
+    return (bool)$result;
+  }
+
+  private function patch_existing_caches_for_row_change($post, $currentRow, $newLink, $newRel = '', $newAnchor = null) {
+    if (!is_object($post) || !isset($post->ID) || !is_array($currentRow) || empty($currentRow)) {
+      return false;
+    }
+
+    $oldRowId = isset($currentRow['row_id']) ? trim((string)$currentRow['row_id']) : '';
+    if ($oldRowId === '') {
+      return false;
+    }
+
+    $replacementRow = $this->build_incremental_updated_row($post, $currentRow, $newLink, $newRel, $newAnchor);
+    $postType = sanitize_key((string)($post->post_type ?? ''));
+    if ($postType === '') {
+      return false;
+    }
+
+    $contexts = $this->get_incremental_cache_contexts_for_post($postType);
+    if (empty($contexts)) {
+      return false;
+    }
+
+    $patchedAny = false;
+    foreach ($contexts as $ctx) {
+      $scope = (string)($ctx['scope'] ?? 'any');
+      $lang = (string)($ctx['lang'] ?? 'all');
+      $mainRows = get_transient($this->cache_key($scope, $lang));
+      $backupRows = get_transient($this->cache_backup_key($scope, $lang));
+      if (!is_array($mainRows) && !is_array($backupRows)) {
+        continue;
+      }
+
+      $baseRows = is_array($mainRows) ? $mainRows : (is_array($backupRows) ? $backupRows : []);
+      $didReplace = false;
+      $patchedRows = $this->replace_cached_row_by_row_id($baseRows, $oldRowId, $replacementRow, $didReplace);
+      if (!$didReplace) {
+        continue;
+      }
+
+      $this->persist_cache_payload($scope, $lang, $patchedRows);
+      $this->schedule_rest_list_prewarm($scope, $lang, 2);
+      $patchedAny = true;
+    }
+
+    $indexedPatched = $this->patch_indexed_datastore_for_row_change($oldRowId, $replacementRow, (int)$post->ID);
+    return ($patchedAny || $indexedPatched);
+  }
+
+  private function build_incremental_updated_menu_row($baseRow, $newLink, $newAnchor = null) {
+    if (!is_array($baseRow) || empty($baseRow)) {
+      return null;
+    }
+
+    $resolvedLink = $this->normalize_url($this->resolve_to_absolute((string)$newLink, home_url('/')));
+    if ($resolvedLink === '') {
+      return null;
+    }
+
+    $valueType = $this->detect_link_value_type((string)$newLink);
+    if (!$this->is_scan_value_type_enabled($valueType, $this->get_enabled_scan_value_types_map_cached())) {
+      return null;
+    }
+
+    $updatedRow = $baseRow;
+    $updatedRow['post_id'] = '';
+    $updatedRow['post_title'] = '';
+    $updatedRow['post_type'] = 'menu';
+    $updatedRow['post_date'] = '';
+    $updatedRow['post_modified'] = '';
+    $updatedRow['post_author'] = '';
+    $updatedRow['post_author_id'] = '0';
+    $updatedRow['page_url'] = '';
+    $updatedRow['link'] = $resolvedLink;
+    $updatedRow['link_raw'] = (string)$newLink;
+    if ($newAnchor !== null) {
+      $updatedRow['anchor_text'] = $this->normalize_anchor_text_value((string)$newAnchor, true);
+    }
+    $updatedRow['alt_text'] = '';
+    $updatedRow['snippet'] = '';
+    $updatedRow['link_type'] = $this->is_external($resolvedLink) ? 'exlink' : 'inlink';
+    $updatedRow['relationship'] = 'dofollow';
+    $updatedRow['rel_raw'] = '';
+    $updatedRow['rel_nofollow'] = '0';
+    $updatedRow['rel_sponsored'] = '0';
+    $updatedRow['rel_ugc'] = '0';
+    $updatedRow['value_type'] = $valueType;
+    $updatedRow['row_id'] = $this->row_id(
+      '',
+      'menu',
+      (string)($updatedRow['link_location'] ?? ''),
+      (string)($updatedRow['block_index'] ?? ''),
+      (string)($updatedRow['occurrence'] ?? ''),
+      $resolvedLink
+    );
+
+    return $updatedRow;
+  }
+
+  private function patch_existing_caches_for_menu_row_change($currentRow, $newLink, $newAnchor = null) {
+    if (!is_array($currentRow) || empty($currentRow)) {
+      return false;
+    }
+
+    $oldRowId = isset($currentRow['row_id']) ? trim((string)$currentRow['row_id']) : '';
+    if ($oldRowId === '') {
+      return false;
+    }
+
+    $replacementRow = $this->build_incremental_updated_menu_row($currentRow, $newLink, $newAnchor);
+    if (!is_array($replacementRow) || empty($replacementRow)) {
+      return false;
+    }
+
+    $patchedAny = false;
+    $langs = ['all'];
+    if ($this->is_wpml_active()) {
+      $langs = array_merge($langs, array_keys($this->get_wpml_languages_map()));
+    }
+    $langs = array_values(array_unique(array_filter(array_map([$this, 'normalize_rebuild_wpml_lang'], $langs))));
+    $scopes = array_merge(['any'], array_keys($this->get_available_post_types()));
+
+    foreach ($langs as $lang) {
+      foreach ($scopes as $scope) {
+        $mainRows = get_transient($this->cache_key($scope, $lang));
+        $backupRows = get_transient($this->cache_backup_key($scope, $lang));
+        if (!is_array($mainRows) && !is_array($backupRows)) {
+          continue;
+        }
+
+        $baseRows = is_array($mainRows) ? $mainRows : (is_array($backupRows) ? $backupRows : []);
+        $didReplace = false;
+        $patchedRows = $this->replace_cached_row_by_row_id($baseRows, $oldRowId, $replacementRow, $didReplace);
+        if (!$didReplace) {
+          continue;
+        }
+
+        $this->persist_cache_payload($scope, $lang, $patchedRows);
+        $this->schedule_rest_list_prewarm($scope, $lang, 2);
+        $patchedAny = true;
+      }
+    }
+
+    $indexedPatched = $this->patch_indexed_datastore_for_row_change($oldRowId, $replacementRow, 0);
+    return ($patchedAny || $indexedPatched);
+  }
+
+  private function get_menu_item_block_index($itemId) {
+    $itemId = max(0, (int)$itemId);
+    return $itemId > 0 ? 'menu_item:' . $itemId : '';
+  }
+
+  private function build_incremental_menu_rows_for_item($itemId) {
+    $itemId = max(0, (int)$itemId);
+    if ($itemId < 1) {
+      return [];
+    }
+
+    $enabledSources = $this->get_enabled_scan_source_types();
+    if (!in_array('menu', $enabledSources, true)) {
+      return [];
+    }
+
+    $item = wp_setup_nav_menu_item(get_post($itemId));
+    if (!$item || empty($item->ID)) {
+      return [];
+    }
+
+    $menuTermIds = wp_get_object_terms($itemId, 'nav_menu', ['fields' => 'ids']);
+    if (!is_array($menuTermIds) || empty($menuTermIds)) {
+      return [];
+    }
+
+    $rows = [];
+    $enabledValueTypesMap = $this->get_enabled_scan_value_types_map_cached();
+    foreach ($menuTermIds as $menuTermId) {
+      $menuTermId = (int)$menuTermId;
+      if ($menuTermId < 1) {
+        continue;
+      }
+
+      $menu = wp_get_nav_menu_object($menuTermId);
+      if (!$menu || empty($menu->name)) {
+        continue;
+      }
+
+      $items = wp_get_nav_menu_items($menuTermId);
+      if (!is_array($items) || empty($items)) {
+        continue;
+      }
+
+      $occurrence = null;
+      foreach (array_values($items) as $index => $menuItem) {
+        if ((int)($menuItem->ID ?? 0) === $itemId) {
+          $occurrence = (int)$index;
+          break;
+        }
+      }
+      if ($occurrence === null) {
+        continue;
+      }
+
+      $url = isset($item->url) ? (string)$item->url : '';
+      $resolved = $this->normalize_url($this->resolve_to_absolute($url, home_url('/')));
+      $valueType = $this->detect_link_value_type($url);
+      if (!$this->is_scan_value_type_enabled($valueType, $enabledValueTypesMap)) {
+        continue;
+      }
+
+      $rows[] = [
+        'post_id' => '',
+        'post_title' => '',
+        'post_type' => 'menu',
+        'post_date' => '',
+        'post_modified' => '',
+        'post_author' => '',
+        'post_author_id' => '0',
+        'page_url' => '',
+        'row_id' => $this->row_id('', 'menu', 'menu:' . (string)$menu->name, $this->get_menu_item_block_index($itemId), $occurrence, $resolved),
+        'occurrence' => (string)$occurrence,
+        'source' => 'menu',
+        'link_location' => 'menu:' . (string)$menu->name,
+        'block_index' => $this->get_menu_item_block_index($itemId),
+        'link' => $resolved,
+        'link_raw' => $url,
+        'anchor_text' => isset($item->title) ? $this->normalize_anchor_text_value((string)$item->title, true) : '',
+        'alt_text' => '',
+        'snippet' => '',
+        'link_type' => $this->is_external($resolved) ? 'exlink' : 'inlink',
+        'relationship' => 'dofollow',
+        'rel_raw' => '',
+        'rel_nofollow' => '0',
+        'rel_sponsored' => '0',
+        'rel_ugc' => '0',
+        'value_type' => $valueType,
+      ];
+    }
+
+    return $rows;
+  }
+
+  private function replace_cached_menu_item_rows($rows, $menuItemId, $replacementRows, &$changed = false) {
+    $changed = false;
+    $rows = is_array($rows) ? array_values($rows) : [];
+    $targetBlockIndex = $this->get_menu_item_block_index($menuItemId);
+    if ($targetBlockIndex === '') {
+      return $rows;
+    }
+
+    $updatedRows = [];
+    foreach ($rows as $row) {
+      if (!is_array($row)) {
+        $updatedRows[] = $row;
+        continue;
+      }
+
+      $isTargetMenuRow = ((string)($row['source'] ?? '') === 'menu') && ((string)($row['block_index'] ?? '') === $targetBlockIndex);
+      if ($isTargetMenuRow) {
+        $changed = true;
+        continue;
+      }
+
+      $updatedRows[] = $row;
+    }
+
+    if (!empty($replacementRows)) {
+      $this->append_rows($updatedRows, $replacementRows);
+      $changed = true;
+    }
+
+    return $updatedRows;
+  }
+
+  private function patch_existing_caches_for_menu_item_change($menuItemId, $replacementRows = null) {
+    $menuItemId = max(0, (int)$menuItemId);
+    if ($menuItemId < 1) {
+      return false;
+    }
+
+    if ($replacementRows === null) {
+      $replacementRows = $this->build_incremental_menu_rows_for_item($menuItemId);
+    }
+    $replacementRows = is_array($replacementRows) ? $replacementRows : [];
+    $patchedAny = false;
+    $langs = ['all'];
+    if ($this->is_wpml_active()) {
+      $langs = array_merge($langs, array_keys($this->get_wpml_languages_map()));
+    }
+    $langs = array_values(array_unique(array_filter(array_map([$this, 'normalize_rebuild_wpml_lang'], $langs))));
+    $scopes = array_merge(['any'], array_keys($this->get_available_post_types()));
+
+    foreach ($langs as $lang) {
+      foreach ($scopes as $scope) {
+        $mainRows = get_transient($this->cache_key($scope, $lang));
+        $backupRows = get_transient($this->cache_backup_key($scope, $lang));
+        if (!is_array($mainRows) && !is_array($backupRows)) {
+          continue;
+        }
+
+        $baseRows = is_array($mainRows) ? $mainRows : (is_array($backupRows) ? $backupRows : []);
+        $didReplace = false;
+        $patchedRows = $this->replace_cached_menu_item_rows($baseRows, $menuItemId, $replacementRows, $didReplace);
+        if (!$didReplace) {
+          continue;
+        }
+
+        $this->persist_cache_payload($scope, $lang, $patchedRows);
+        $this->schedule_rest_list_prewarm($scope, $lang, 2);
+        $patchedAny = true;
+      }
+    }
+
+    $indexedPatched = $this->patch_indexed_datastore_for_menu_item_change($menuItemId, $replacementRows);
+    return ($patchedAny || $indexedPatched);
+  }
+
+  public function handle_menu_item_change_incremental_refresh($postId, $post, $update) {
+    $postId = max(0, (int)$postId);
+    if ($postId < 1) {
+      return;
+    }
+
+    $enabledSources = $this->get_enabled_scan_source_types();
+    if (!in_array('menu', $enabledSources, true)) {
+      return;
+    }
+
+    $patched = false;
+    try {
+      $patched = $this->patch_existing_caches_for_menu_item_change($postId);
+    } catch (Throwable $e) {
+      if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('LM incremental patch error (menu_item): ' . sanitize_text_field($e->getMessage()));
+      }
+      $patched = false;
+    }
+
+    if (!$patched) {
+      $this->schedule_incremental_refresh_fallback(4);
+    }
+  }
+
+  public function handle_post_status_transition_incremental_refresh($newStatus, $oldStatus, $post) {
+    if (!is_object($post) || !isset($post->ID)) {
+      return;
+    }
+
+    $postId = max(0, (int)$post->ID);
+    if ($postId < 1 || wp_is_post_revision($postId) || wp_is_post_autosave($postId)) {
+      return;
+    }
+
+    $newStatus = sanitize_key((string)$newStatus);
+    $oldStatus = sanitize_key((string)$oldStatus);
+    if ($newStatus === $oldStatus) {
+      return;
+    }
+
+    $watchStatuses = ['publish', 'future', 'private', 'draft', 'pending', 'trash'];
+    if (!in_array($newStatus, $watchStatuses, true) && !in_array($oldStatus, $watchStatuses, true)) {
+      return;
+    }
+
+    $postType = sanitize_key((string)($post->post_type ?? ''));
+    if ($postType === 'nav_menu_item') {
+      return;
+    }
+
+    if (!$this->should_trigger_incremental_refresh_for_post($post)) {
+      $enabledPostTypes = $this->get_enabled_scan_post_types();
+      if ($postType === '' || !in_array($postType, $enabledPostTypes, true)) {
+        return;
+      }
+    }
+
+    $patched = false;
+    try {
+      $patched = $this->patch_existing_caches_for_post_change($post);
+    } catch (Throwable $e) {
+      if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('LM incremental patch error (transition_post_status): ' . sanitize_text_field($e->getMessage()));
+      }
+      $patched = false;
+    }
+
+    if (!$patched) {
+      $this->schedule_incremental_refresh_fallback(4);
+    }
   }
 
   private function remove_post_rows_from_cache_rows($rows, $postId, &$removedCount = 0) {
@@ -818,7 +2043,8 @@ trait LM_Cache_Rebuild_Trait {
       }
     }
 
-    return $patchedAny;
+    $indexedPatched = $this->patch_indexed_datastore_for_post_change($post, $enabledSources);
+    return ($patchedAny || $indexedPatched);
   }
 
   public function handle_post_change_schedule_incremental_refresh($postId, $post, $update) {
@@ -832,8 +2058,24 @@ trait LM_Cache_Rebuild_Trait {
     }
 
     $patched = false;
+    $queuedPatch = $this->consume_incremental_row_patch($postId);
+    $preUpdateSnapshot = $this->consume_pre_post_update_snapshot($postId);
     try {
-      $patched = $this->patch_existing_caches_for_post_change($post);
+      if (is_array($queuedPatch) && !empty($queuedPatch['current_row'])) {
+        $patched = $this->patch_existing_caches_for_row_change(
+          $post,
+          (array)$queuedPatch['current_row'],
+          (string)($queuedPatch['new_link'] ?? ''),
+          (string)($queuedPatch['new_rel'] ?? ''),
+          $queuedPatch['new_anchor'] ?? null
+        );
+      }
+      if (!$patched && is_object($preUpdateSnapshot) && isset($preUpdateSnapshot->ID)) {
+        $patched = $this->patch_existing_caches_for_snapshot_change($preUpdateSnapshot, $post);
+      }
+      if (!$patched) {
+        $patched = $this->patch_existing_caches_for_post_change($post);
+      }
     } catch (Throwable $e) {
       if (defined('WP_DEBUG') && WP_DEBUG) {
         error_log('LM incremental patch error (save_post): ' . sanitize_text_field($e->getMessage()));
@@ -860,8 +2102,30 @@ trait LM_Cache_Rebuild_Trait {
       return;
     }
 
-    $enabledPostTypes = $this->get_enabled_scan_post_types();
     $postType = sanitize_key((string)($post->post_type ?? ''));
+    if ($postType === 'nav_menu_item') {
+      $enabledSources = $this->get_enabled_scan_source_types();
+      if (!in_array('menu', $enabledSources, true)) {
+        return;
+      }
+
+      $patched = false;
+      try {
+        $patched = $this->patch_existing_caches_for_menu_item_change($postId, []);
+      } catch (Throwable $e) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+          error_log('LM incremental patch error (delete_menu_item): ' . sanitize_text_field($e->getMessage()));
+        }
+        $patched = false;
+      }
+
+      if (!$patched) {
+        $this->schedule_incremental_refresh_fallback(4);
+      }
+      return;
+    }
+
+    $enabledPostTypes = $this->get_enabled_scan_post_types();
     if ($postType !== '' && !in_array($postType, $enabledPostTypes, true)) {
       return;
     }
@@ -1246,16 +2510,17 @@ trait LM_Cache_Rebuild_Trait {
 
     set_transient($debounceKey, $now, 10 * MINUTE_IN_SECONDS);
     try {
-      $this->run_background_rebuild_cache('any', 'all');
+      $this->run_background_rebuild_cache('any', 'all', 'changed_only');
     } finally {
       $this->schedule_next_configured_cache_rebuild();
     }
   }
 
-  public function run_background_rebuild_cache($scope_post_type = 'any', $wpml_lang = 'all') {
-    $args = $this->background_rebuild_event_args($scope_post_type, $wpml_lang);
+  public function run_background_rebuild_cache($scope_post_type = 'any', $wpml_lang = 'all', $refreshMode = 'full_rebuild') {
+    $args = $this->background_rebuild_event_args($scope_post_type, $wpml_lang, $refreshMode);
     $scope_post_type = (string)$args[0];
     $wpml_lang = (string)$args[1];
+    $refreshMode = (string)$args[2];
 
     $lockKey = $this->background_rebuild_lock_key($scope_post_type, $wpml_lang);
     if (get_transient($lockKey)) {
@@ -1267,6 +2532,7 @@ trait LM_Cache_Rebuild_Trait {
       $request = new WP_REST_Request('POST', '/links-manager/v1/rebuild/start');
       $request->set_param('post_type', $scope_post_type);
       $request->set_param('wpml_lang', $wpml_lang);
+      $request->set_param('refresh_mode', $refreshMode);
       $this->rest_rebuild_start($request);
     } catch (Throwable $e) {
       if (defined('WP_DEBUG') && WP_DEBUG) {

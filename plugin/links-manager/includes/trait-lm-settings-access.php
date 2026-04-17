@@ -23,7 +23,6 @@ trait LM_Settings_Access_Trait {
       'scan_exclude_defaults_initialized' => '0',
       'stats_snapshot_ttl_min' => (string)(int)(self::STATS_SNAPSHOT_TTL / MINUTE_IN_SECONDS),
       'rest_response_cache_ttl_sec' => '90',
-      'cache_rebuild_mode' => 'incremental',
       'crawl_post_batch' => (string)self::CRAWL_POST_BATCH,
       'scan_post_types' => $this->get_default_scan_post_types($availablePostTypes),
       'scan_source_types' => $this->get_default_scan_source_types(),
@@ -265,6 +264,9 @@ trait LM_Settings_Access_Trait {
   }
 
   private function save_settings($settings) {
+    if (is_array($settings) && array_key_exists('cache_rebuild_mode', $settings)) {
+      unset($settings['cache_rebuild_mode']);
+    }
     update_option('lm_settings', $settings);
   }
 }

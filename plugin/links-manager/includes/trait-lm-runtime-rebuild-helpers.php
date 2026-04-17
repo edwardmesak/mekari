@@ -980,6 +980,7 @@ trait LM_Runtime_Rebuild_Helpers_Trait {
 
     return [
       'status' => sanitize_key((string)($state['status'] ?? 'idle')),
+      'refresh_mode' => sanitize_key((string)($state['refresh_mode'] ?? 'full_rebuild')),
       'scope_post_type' => sanitize_key((string)($state['scope_post_type'] ?? 'any')),
       'wpml_lang' => sanitize_key((string)($state['wpml_lang'] ?? 'all')),
       'requested_wpml_lang' => sanitize_key((string)($state['requested_wpml_lang'] ?? ($state['wpml_lang'] ?? 'all'))),

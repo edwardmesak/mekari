@@ -4,7 +4,7 @@
  * Description: Manage and analyze all links across your WordPress site with precision. Edit link URLs, anchor texts, and relationship attributes in a user-friendly interface. Identify orphan pages and export link data for SEO audits.
  * Requires at least: 5.0
  * Requires PHP: 7.2
- * Version: 4.4.6
+ * Version: 4.4.7
  * Author: Edward Mesak Dua Padang
  * License: GPLv2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -122,6 +122,7 @@ class LM_Links_Manager {
   private $rest_response_runtime_cache = [];
   private $rest_response_cache_hits = 0;
   private $rest_response_cache_misses = 0;
+  private $pre_post_update_snapshots = [];
 
   public function __construct($register_hooks = true) {
     if (!$register_hooks) {
@@ -166,11 +167,17 @@ class LM_Links_Manager {
     add_action('admin_init', [$this, 'ensure_active_rebuild_step_worker'], 6);
     add_action('shutdown', [$this, 'capture_fatal_diagnostic']);
     add_action('shutdown', [$this, 'persist_runtime_profile']);
-    add_action('lm_background_rebuild_cache', [$this, 'run_background_rebuild_cache'], 10, 2);
+    add_action('lm_background_rebuild_cache', [$this, 'run_background_rebuild_cache'], 10, 3);
     add_action('lm_scheduled_cache_rebuild', [$this, 'run_scheduled_cache_rebuild']);
     add_action('lm_prewarm_rest_list_cache', [$this, 'run_rest_list_prewarm'], 10, 2);
     add_action('lm_rebuild_step_worker', [$this, 'run_rebuild_step_worker'], 10, 1);
+    add_action('pre_post_update', [$this, 'capture_pre_post_update_snapshot'], 10, 2);
+    add_action('added_post_meta', [$this, 'handle_post_meta_change_incremental_refresh'], 10, 4);
+    add_action('updated_post_meta', [$this, 'handle_post_meta_change_incremental_refresh'], 10, 4);
+    add_action('deleted_post_meta', [$this, 'handle_post_meta_change_incremental_refresh'], 10, 4);
+    add_action('save_post_nav_menu_item', [$this, 'handle_menu_item_change_incremental_refresh'], 20, 3);
     add_action('save_post', [$this, 'handle_post_change_schedule_incremental_refresh'], 20, 3);
+    add_action('transition_post_status', [$this, 'handle_post_status_transition_incremental_refresh'], 20, 3);
     add_action('before_delete_post', [$this, 'handle_deleted_post_schedule_incremental_refresh'], 20, 2);
   }
 
@@ -570,11 +577,20 @@ class LM_Links_Manager {
     body.links-manager-editor_page_links-manager-target .lm-grid,
     body.links-manager_page_links-manager-target .lm-grid{grid-auto-flow:row;}
     body.links-manager-editor_page_links-manager-target .lm-card-grouping,
-    body.links-manager_page_links-manager-target .lm-card-grouping{order:1;}
+    body.links-manager_page_links-manager-target .lm-card-grouping{
+      order:1;
+      grid-column:1 / -1;
+    }
     body.links-manager-editor_page_links-manager-target .lm-card-target,
-    body.links-manager_page_links-manager-target .lm-card-target{order:2;}
+    body.links-manager_page_links-manager-target .lm-card-target{
+      order:2;
+      grid-column:1 / -1;
+    }
     body.links-manager-editor_page_links-manager-target .lm-card-summary,
-    body.links-manager_page_links-manager-target .lm-card-summary{order:3;}
+    body.links-manager_page_links-manager-target .lm-card-summary{
+      order:3;
+      grid-column:1 / -1;
+    }
     .lm-card{background:linear-gradient(180deg, #ffffff 0%, #fbfdff 100%); border:1px solid #d9e1e8; padding:18px; border-radius:18px; margin:12px 0; width:100%; box-sizing:border-box; box-shadow:0 10px 30px rgba(15,23,42,.04);}
     .lm-card-full{grid-column:1 / -1; width:100%;}
     .lm-card .widefat{margin:0;}
@@ -1027,11 +1043,25 @@ class LM_Links_Manager {
       max-width:none;
     }
     body.links-manager-editor_page_links-manager-target .lm-card-grouping,
-    body.links-manager_page_links-manager-target .lm-card-grouping{order:1;}
+    body.links-manager_page_links-manager-target .lm-card-grouping{
+      order:1;
+      grid-column:1 / -1;
+    }
     body.links-manager-editor_page_links-manager-target .lm-card-target,
-    body.links-manager_page_links-manager-target .lm-card-target{order:2;}
+    body.links-manager_page_links-manager-target .lm-card-target{
+      order:2;
+      grid-column:1 / -1;
+    }
     body.links-manager-editor_page_links-manager-target .lm-card-summary,
-    body.links-manager_page_links-manager-target .lm-card-summary{order:3;}
+    body.links-manager_page_links-manager-target .lm-card-summary{
+      order:3;
+      grid-column:1 / -1;
+    }
+    body.links-manager-editor_page_links-manager-target .lm-summary-table-wrap,
+    body.links-manager_page_links-manager-target .lm-summary-table-wrap{
+      max-height:calc(100vh - 180px);
+      overflow:auto;
+    }
     @media (max-width: 1400px){
       .lm-filter-grid{grid-template-columns:repeat(4, minmax(160px, 1fr));}
       .lm-filter-table tbody{grid-template-columns:repeat(4, minmax(160px, 1fr));}
@@ -1056,6 +1086,8 @@ class LM_Links_Manager {
     @media (max-width: 640px){
       .lm-wrap{padding-right:0;}
       .lm-table-wrap{max-height:calc(100vh - 140px);}
+      body.links-manager-editor_page_links-manager-target .lm-summary-table-wrap,
+      body.links-manager_page_links-manager-target .lm-summary-table-wrap{max-height:calc(100vh - 140px);}
       .lm-page-hero{padding:16px; border-radius:16px;}
       .lm-page-title{font-size:24px;}
       .lm-page-subtitle{font-size:12px;}
@@ -1226,7 +1258,9 @@ class LM_Links_Manager {
               const newRelField = form.querySelector('input[name=new_rel]');
               if (newLinkField) newLinkField.value = '';
               if (newAnchorField) newAnchorField.value = '';
-              if (newRelField) newRelField.value = '';
+              if (newRelField) {
+                newRelField.value = payload.updated_rel_raw !== undefined ? payload.updated_rel_raw : '';
+              }
 
               markRowUpdated(form.closest('tr'));
             }
@@ -1504,17 +1538,22 @@ class LM_Links_Manager {
         const etaEl = rebuildRoot.querySelector('[data-lm-rest-rebuild-eta]');
         const metaEl = rebuildRoot.querySelector('[data-lm-rest-rebuild-meta]');
         const barEl = rebuildRoot.querySelector('[data-lm-rest-rebuild-bar]');
+        const modeSelect = rebuildRoot.querySelector('[data-lm-rest-rebuild-mode]');
         const config = (window.LM_REBUILD_REST && typeof window.LM_REBUILD_REST === 'object') ? window.LM_REBUILD_REST : null;
 
         let loopTimer = null;
         const scopePostType = (config && config.scope_post_type) ? String(config.scope_post_type) : 'any';
         const scopeWpmlLang = (config && config.scope_wpml_lang) ? String(config.scope_wpml_lang) : 'all';
         const scopeLabel = (config && config.scope_label) ? String(config.scope_label) : 'all scopes / all languages';
+        const defaultRefreshMode = (config && config.default_refresh_mode) ? String(config.default_refresh_mode) : 'changed_only';
 
         const setRunningUi = (running) => {
           if (runBtn) {
             runBtn.disabled = !!running;
             runBtn.textContent = running ? 'Refreshing...' : 'Refresh Data Now';
+          }
+          if (modeSelect) {
+            modeSelect.disabled = !!running;
           }
         };
 
@@ -1529,6 +1568,8 @@ class LM_Links_Manager {
           const processed = Math.max(0, parseInt((state && state.processed_posts) ? state.processed_posts : 0, 10) || 0);
           const rows = Math.max(0, parseInt((state && state.rows_count) ? state.rows_count : 0, 10) || 0);
           const status = String((state && state.status) ? state.status : 'idle');
+          const refreshMode = (state && state.refresh_mode) ? String(state.refresh_mode) : defaultRefreshMode;
+          const refreshModeLabel = refreshMode === 'changed_only' ? 'Fast Refresh' : 'Full Rebuild';
           const pct = Math.max(0, Math.min(100, parseInt((state && state.progress_percent) ? state.progress_percent : 0, 10) || 0));
           const stageIndex = Math.max(1, parseInt((state && state.current_stage_index) ? state.current_stage_index : 1, 10) || 1);
           const totalStages = Math.max(1, parseInt((state && state.total_stages) ? state.total_stages : 1, 10) || 1);
@@ -1568,7 +1609,7 @@ class LM_Links_Manager {
           if (metaEl) {
             const updatedAt = state && state.updated_at ? String(state.updated_at) : '-';
             const batch = Math.max(0, parseInt((state && state.batch_size) ? state.batch_size : 0, 10) || 0);
-            metaEl.textContent = 'Scope: ' + scopeLabel + ' | Status: ' + status + ' | Rows: ' + rows.toLocaleString() + ' | Batch: ' + (batch > 0 ? batch.toLocaleString() : '-') + ' | Updated: ' + updatedAt;
+            metaEl.textContent = 'Scope: ' + scopeLabel + ' | Mode: ' + refreshModeLabel + ' | Status: ' + status + ' | Rows: ' + rows.toLocaleString() + ' | Batch: ' + (batch > 0 ? batch.toLocaleString() : '-') + ' | Updated: ' + updatedAt;
           }
 
           if (barEl) {
@@ -1775,6 +1816,7 @@ class LM_Links_Manager {
             const startPayload = {
               post_type: scopePostType,
               wpml_lang: scopeWpmlLang,
+              refresh_mode: modeSelect ? String(modeSelect.value || defaultRefreshMode) : defaultRefreshMode,
             };
 
             apiCall('start', config.start_url, 'POST', startPayload)
@@ -1853,6 +1895,7 @@ class LM_Links_Manager {
       'scope_post_type' => $rebuildScopePostType,
       'scope_wpml_lang' => $rebuildScopeWpmlLang,
       'scope_label' => $rebuildScopeLabel,
+      'default_refresh_mode' => 'changed_only',
     ]) . ';', 'before');
     wp_add_inline_script('lm-admin-js', $js);
   }

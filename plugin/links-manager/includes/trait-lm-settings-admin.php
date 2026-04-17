@@ -561,8 +561,14 @@ trait LM_Settings_Admin_Trait {
     echo '<div style="font-weight:600; margin-bottom:6px;">' . esc_html__('Refresh Data', 'links-manager') . '</div>';
     echo '<div class="lm-small" style="margin-bottom:10px;">' . esc_html__('This is the single live progress area for both automatic and manual refresh jobs. Use the button only when you want to start a refresh manually. System safety limits are applied automatically.', 'links-manager') . '</div>';
     echo '<p style="margin:0 0 10px;">';
+    echo '<label for="lm-refresh-mode" class="screen-reader-text">' . esc_html__('Refresh mode', 'links-manager') . '</label>';
+    echo '<select id="lm-refresh-mode" data-lm-rest-rebuild-mode style="margin-right:8px;">';
+    echo '<option value="changed_only">' . esc_html__('Fast Refresh', 'links-manager') . '</option>';
+    echo '<option value="full_rebuild">' . esc_html__('Full Rebuild', 'links-manager') . '</option>';
+    echo '</select>';
     echo '<button type="button" class="button button-secondary" data-lm-rest-rebuild-run>' . esc_html__('Refresh Data Now', 'links-manager') . '</button>';
     echo '</p>';
+    echo '<div class="lm-small" style="margin:-2px 0 10px; color:#646970;">' . esc_html__('Fast Refresh scans only pages changed since the last completed refresh. Full Rebuild rescans the entire dataset and is useful after major scan-setting or parser changes.', 'links-manager') . '</div>';
     echo '<table class="widefat striped" style="margin-top:8px; max-width:760px;">';
     echo '<tbody>';
     echo '<tr><th style="width:260px;">' . esc_html__('Refresh status', 'links-manager') . '</th><td data-lm-rest-rebuild-status aria-live="polite" aria-atomic="true">' . esc_html__('Checking refresh status...', 'links-manager') . '</td></tr>';
@@ -1406,7 +1412,6 @@ trait LM_Settings_Admin_Trait {
     return [
       'stats_snapshot_ttl_min' => (string)(int)(self::STATS_SNAPSHOT_TTL / MINUTE_IN_SECONDS),
       'rest_response_cache_ttl_sec' => '90',
-      'cache_rebuild_mode' => 'incremental',
       'crawl_post_batch' => (string)$defaultBatch,
       'max_posts_per_rebuild' => '0',
       'performance_preset' => 'auto',
@@ -1755,7 +1760,6 @@ trait LM_Settings_Admin_Trait {
     return [
       'stats_snapshot_ttl_min' => (string)($settings['stats_snapshot_ttl_min'] ?? ''),
       'rest_response_cache_ttl_sec' => (string)($settings['rest_response_cache_ttl_sec'] ?? ''),
-      'cache_rebuild_mode' => (string)($settings['cache_rebuild_mode'] ?? ''),
       'crawl_post_batch' => (string)($settings['crawl_post_batch'] ?? ''),
       'max_posts_per_rebuild' => (string)($settings['max_posts_per_rebuild'] ?? ''),
       'scan_post_types' => array_values((array)($settings['scan_post_types'] ?? [])),
@@ -1883,6 +1887,8 @@ trait LM_Settings_Admin_Trait {
       $settings = array_merge($settings, $this->get_auto_managed_performance_settings());
       $settings['performance_preset'] = 'auto';
     }
+
+    unset($settings['cache_rebuild_mode']);
 
     if ($resetGeneralSettings && current_user_can('manage_options')) {
       $settings['allowed_roles'] = ['administrator'];
